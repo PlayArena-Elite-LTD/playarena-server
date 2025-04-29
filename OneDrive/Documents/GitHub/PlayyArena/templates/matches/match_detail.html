@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="section">
+  <div class="container">
+    {% if messages %}
+    <div class="messages">
+      {% for message in messages %}
+      <p class="message {{ message.tags }}">
+        <i class="fas fa-info-circle"></i>
+        <span>{{ message }}</span>
+      </p>
+      {% endfor %}
+    </div>
+    {% endif %}
+    
+    <div class="match-detail-header">
+      <h2 class="section-title">Match Details</h2>
+      <span class="match-status-badge status-{{ match.status|lower }}">{{ match.get_status_display }}</span>
+    </div>
+    
+    <div class="match-detail-container">
+      <!-- Match Info Card -->
+      <div class="match-detail-card">
+        <div class="match-detail-card-header">
+          <h3 class="match-detail-card-title">{{ match.get_game_display }}</h3>
+          <span class="match-card-badge match-amount">${{ match.amount }}</span>
+        </div>
+        
+        <div class="match-detail-content">
+          <div class="match-detail-info">
+            <div class="match-detail-row">
+              <span class="match-detail-label">Platform:</span>
+              <span class="match-detail-value">{{ match.get_device_display }}</span>
+            </div>
+            <div class="match-detail-row">
+              <span class="match-detail-label">Privacy:</span>
+              <span class="match-detail-value">{{ match.get_privacy_display }}</span>
+            </div>
+            <div class="match-detail-row">
+              <span class="match-detail-label">Winnings:</span>
+              <span class="match-detail-value">${{ match.winnings }}</span>
+            </div>
+            <div class="match-detail-row">
+              <span class="match-detail-label">Created:</span>
+              <span class="match-detail-value">{{ match.created_at|date:"Y-m-d H:i:s" }}</span>
+            </div>
+            
+            <div class="match-detail-code">
+              <div class="match-code-header">
+                <span class="match-code-label">Joining Code:</span>
+                <button class="match-code-copy" data-code="{{ match.joining_code }}">
+                  <i class="fas fa-copy"></i> Copy
+                </button>
+              </div>
+              <div class="match-code-display">{{ match.joining_code }}</div>
+              <p class="match-code-note">Share this code with your opponent to join this match.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+<!-- Participants Card -->
+<div class="match-detail-card">
+  <div class="match-detail-card-header">
+    <h3 class="match-detail-card-title">Participants</h3>
+  </div>
+  
+  <div class="match-participants">
+    <!-- Creator -->
+    <div class="match-participant">
+      <div class="participant-header">
+        <span class="participant-role">Creator</span>
+        {% if request.user == match.creator %}
+        <span class="participant-you-badge">You</span>
+        {% endif %}
+      </div>
+      <div class="participant-info">
+        <div class="participant-avatar">
+          <i class="fas fa-user-circle"></i>
+        </div>
+        <div class="participant-details">
+          <div class="participant-name">{{ match.creator.username }}</div>
+          {% if request.user != match.creator %}
+            <div class="participant-actions">
+              <a href="{% url 'conversation' user_id=match.creator.id %}" class="start-chat-btn">
+                <i class="fas fa-comment"></i> Chat
+              </a>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    
+    {% if match.joiner %}
+    <!-- Joiner -->
+    <div class="match-participant">
+      <div class="participant-header">
+        <span class="participant-role">Joiner</span>
+        {% if request.user == match.joiner %}
+        <span class="participant-you-badge">You</span>
+        {% endif %}
+      </div>
+      <div class="participant-info">
+        <div class="participant-avatar">
+          <i class="fas fa-user-circle"></i>
+        </div>
+        <div class="participant-details">
+          <div class="participant-name">{{ match.joiner.username }}</div>
+          {% if request.user != match.joiner %}
+            <div class="participant-actions">
+              <a href="{% url 'conversation' user_id=match.joiner.id %}" class="start-chat-btn">
+                <i class="fas fa-comment"></i> Chat
+              </a>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <!-- Waiting for opponent -->
+    <div class="match-participant match-participant-empty">
+      <div class="participant-header">
+        <span class="participant-role">Opponent</span>
+      </div>
+      <div class="participant-empty-state">
+        <i class="fas fa-user-plus participant-empty-icon"></i>
+        <div class="participant-empty-text">Waiting for opponent...</div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+      
+      <!-- Match Actions -->
+      <div class="match-actions">
+      	{% if match.status == 'OPEN' or match.status == 'JOINED' and request.user == match.creator %}
+  <form action="{% url 'cancel_match' match_id=match.id %}" method="post"
+      data-confirm="Are you sure you want to cancel this match? This will refund ${{ match.amount }} to your wallet{% if match.joiner %} and to {{ match.joiner.username }}'s wallet{% endif %}."
+      data-confirm-title="Cancel Match"
+      data-confirm-button="Cancel Match">
+  {% csrf_token %}
+  <button type="submit" class="match-action-button action-cancel">Cancel Match</button>
+</form>
+{% elif match.status == 'JOINED' and request.user == match.joiner %}
+<form action="{% url 'cancel_match' match_id=match.id %}" method="post"
+      data-confirm="Are you sure you want to leave this match? Your ${{ match.amount }} will be refunded to your wallet."
+      data-confirm-title="Leave Match"
+      data-confirm-button="Leave Match">
+  {% csrf_token %}
+  <button type="submit" class="match-action-button action-leave">Leave Match</button>
+</form>
+{% endif %}
+        
+        {% if match.status == 'JOINED' %}
+  {% if request.user == match.creator or request.user == match.joiner %}
+    <div class="match-result-buttons">
+      <form action="{% url 'submit_match_result' match.id %}" method="post"
+            data-confirm="Are you sure you want to submit that you WON this {{ match.get_game_display }} match against {% if request.user == match.joiner %}{{ match.creator.username }}{% else %}{{ match.joiner.username }}{% endif %}?"
+            data-confirm-title="Submit Match Result"
+            data-confirm-button="Submit">
+        {% csrf_token %}
+        <input type="hidden" name="submission" value="WON">
+        <button type="submit" class="match-result-button result-win">I Won</button>
+      </form>
+      
+      <form action="{% url 'submit_match_result' match.id %}" method="post"
+            data-confirm="Are you sure you want to submit that you LOST this {{ match.get_game_display }} match against {% if request.user == match.joiner %}{{ match.creator.username }}{% else %}{{ match.joiner.username }}{% endif %}?"
+            data-confirm-title="Submit Match Result"
+            data-confirm-button="Submit">
+        {% csrf_token %}
+        <input type="hidden" name="submission" value="LOST">
+        <button type="submit" class="match-result-button result-loss">I Lost</button>
+      </form>
+      
+      <form action="{% url 'submit_match_result' match.id %}" method="post"
+            data-confirm="Are you sure you want to submit that this {{ match.get_game_display }} match against {% if request.user == match.joiner %}{{ match.creator.username }}{% else %}{{ match.joiner.username }}{% endif %} ended in a DRAW?"
+            data-confirm-title="Submit Match Result"
+            data-confirm-button="Submit">
+        {% csrf_token %}
+        <input type="hidden" name="submission" value="DRAW">
+        <button type="submit" class="match-result-button result-draw">Draw</button>
+      </form>
+    </div>
+  {% endif %}
+{% elif match.status == 'COMPLETED' %}
+  <div class="match-result">
+    <h3 class="match-result-title">Match Completed</h3>
+    <div class="match-result-message">
+      Winner: <strong>{{ match.winner.username }}</strong>
+    </div>
+  </div>
+{% endif %}
+        
+        <a href="{% url 'my_matches' %}" class="match-action-link">Back to My Matches</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    // Copy code functionality
+    const copyButton = document.querySelector('.match-code-copy');
+    if (copyButton) {
+      copyButton.addEventListener('click', function() {
+        const code = this.getAttribute('data-code');
+        navigator.clipboard.writeText(code).then(function() {
+          copyButton.innerHTML = '<i class="fas fa-check"></i> Copied!';
+          setTimeout(function() {
+            copyButton.innerHTML = '<i class="fas fa-copy"></i> Copy';
+          }, 2000);
+        }, function() {
+          copyButton.innerHTML = '<i class="fas fa-times"></i> Failed to copy';
+        });
+      });
+    }
+  });
+</script>
+{% endblock %}

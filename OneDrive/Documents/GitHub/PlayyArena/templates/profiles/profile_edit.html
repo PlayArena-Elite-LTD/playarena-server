@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="section">
+  <div class="container">
+  	
+  	{% if messages %}
+    <div class="messages">
+      {% for message in messages %}
+      <p class="message {{ message.tags }}">
+        <i class="fas fa-info-circle"></i>
+        <span>{{ message }}</span>
+      </p>
+      {% endfor %}
+    </div>
+    {% endif %}
+  	
+    <h2 class="section-title">Update Profile</h2>
+    <div class="profile">
+      <div class="profile-card">
+        <form method="post" class="profile-form">
+          {% csrf_token %}
+          
+          {% for form in forms %}
+            {% for field in form %}
+              <div class="profile-form-field">
+                <label class="profile-label">{{ field.label }}</label>
+                {{ field }}
+                {% for error in field.errors %}
+                  <span class="profile-error">{{ error }}</span>
+                {% endfor %}
+              </div>
+            {% endfor %}
+          {% endfor %}
+          
+          <div class="profile-actions">
+            <button type="submit" class="profile-button">Save</button>
+            <a href="{% url 'profile' %}" class="profile-button profile-button-secondary">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="section">
+  <div class="container">
+    {% if messages %}
+    <div class="messages">
+      {% for message in messages %}
+      <p class="message {{ message.tags }}">
+        <i class="fas fa-info-circle"></i>
+        <span>{{ message }}</span>
+      </p>
+      {% endfor %}
+    </div>
+    {% endif %}
+    
+    <h2 class="section-title">Settings</h2>
+    <div class="settings">
+      <div class="settings-card">
+        <div class="settings-section">
+          <h3 class="settings-heading">Account Settings</h3>
+          
+          <a href="{% url 'profile' %}" class="settings-item">
+            <div class="settings-item-content">
+              <span class="settings-item-title">Profile Information</span>
+              <span class="settings-item-desc">Edit your personal information</span>
+            </div>
+            <i class="fas fa-chevron-right"></i>
+          </a>
+          
+          <a href="{% url 'password_change' %}" class="settings-item">
+            <div class="settings-item-content">
+              <span class="settings-item-title">Change Password</span>
+              <span class="settings-item-desc">Update your password</span>
+            </div>
+            <i class="fas fa-chevron-right"></i>
+          </a>
+          
+          <a href="{% url 'password_reset' %}" class="settings-item">
+            <div class="settings-item-content">
+              <span class="settings-item-title">Reset Password</span>
+              <span class="settings-item-desc">Send password reset email</span>
+            </div>
+            <i class="fas fa-chevron-right"></i>
+          </a>
+        </div>
+        
+        <div class="settings-section">
+          <h3 class="settings-heading">Preferences</h3>
+          
+          <a href="#" class="settings-item">
+            <div class="settings-item-content">
+              <span class="settings-item-title">Notifications</span>
+              <span class="settings-item-desc">Manage email notifications</span>
+            </div>
+            <i class="fas fa-chevron-right"></i>
+          </a>
+          
+          <a href="#" class="settings-item">
+            <div class="settings-item-content">
+              <span class="settings-item-title">Privacy</span>
+              <span class="settings-item-desc">Control your data and privacy settings</span>
+            </div>
+            <i class="fas fa-chevron-right"></i>
+          </a>
+        </div>
+        
+        <div class="settings-section">
+          <h3 class="settings-heading">Account</h3>
+          
+          <form action="{% url 'logout' %}" method="post" class="settings-item" data-confirm="Are you sure you want to log out?" 
+   data-confirm-title="Log Out"
+   data-confirm-button="Log Out">
+            {% csrf_token %}
+            <div class="settings-item-content">
+              <span class="settings-item-title">Log Out</span>
+              <span class="settings-item-desc">Sign out from @{{ user.username }}</span>
+            </div>
+            <button type="submit" class="settings-item-button">
+              <i class="fas fa-sign-out-alt"></i>
+            </button>
+          </form>
+          
+          <a href="#" class="settings-item settings-item-danger">
+            <div class="settings-item-content">
+              <span class="settings-item-title">Close Account</span>
+              <span class="settings-item-desc">Delete your account and data</span>
+            </div>
+            <i class="fas fa-chevron-right"></i>
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}

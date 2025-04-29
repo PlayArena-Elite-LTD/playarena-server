@@ -1,0 +1,20 @@
+# Ignore Windows system files
+Thumbs.db
+Desktop.ini
+
+# Ignore IDE and editor files
+.idea/
+.vscode/
+
+# Ignore log files
+*.log
+
+# Ignore temporary files
+*.bak
+*.swp
+
+# Ignore node_modules
+node_modules/
+
+# Ignore AppData and similar system files
+AppData/

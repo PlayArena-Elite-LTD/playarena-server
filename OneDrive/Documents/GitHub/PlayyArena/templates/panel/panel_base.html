@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
+<section class="section">
+    <div class="container">
+        <h2 class="section-title">Admin Panel</h2>
+        
+        <div class="panel-header">
+            <div class="panel-navigation">
+                <a href="{% url 'open_disputes' %}" class="panel-nav-item {% if 'open-disputes' in request.path %}active{% endif %}">Open Disputes</a>
+                <a href="{% url 'my_disputes' %}" class="panel-nav-item {% if 'my-disputes' in request.path %}active{% endif %}">My Disputes</a>
+            </div>
+        </div>
+        
+        {% block panel_content %}{% endblock %}
+    </div>
+</section>
+{% endblock %}

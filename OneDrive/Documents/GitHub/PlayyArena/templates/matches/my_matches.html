@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="section">
+  <div class="container">
+    {% if messages %}
+    <div class="messages">
+      {% for message in messages %}
+      <p class="message {{ message.tags }}">
+        <i class="fas fa-info-circle"></i>
+        <span>{{ message }}</span>
+      </p>
+      {% endfor %}
+    </div>
+    {% endif %}
+    
+    <h2 class="section-title">My Matches</h2>
+    
+    <!-- Match Tabs -->
+    <div class="match-tabs">
+      <button class="match-tab active" data-tab="created">Matches I Created</button>
+      <button class="match-tab" data-tab="joined">Matches I Joined</button>
+    </div>
+    
+    <!-- Created Matches Tab -->
+    <div class="match-tab-content active" id="created-matches">
+      {% if created_matches %}
+        <div class="my-match-list">
+          {% for match in created_matches %}
+          <div class="my-match-card">
+            <div class="my-match-card-header">
+              <h3 class="my-match-card-title">{{ match.get_game_display }}</h3>
+              <span class="match-status-badge status-{{ match.status|lower }}">{{ match.get_status_display }}</span>
+            </div>
+            
+            <div class="my-match-card-content">
+              <div class="my-match-info">
+                <div class="my-match-info-row">
+                  <span class="my-match-info-label">Platform:</span>
+                  <span class="my-match-info-value">{{ match.get_device_display }}</span>
+                </div>
+                <div class="my-match-info-row">
+                  <span class="my-match-info-label">Amount:</span>
+                  <span class="my-match-info-value">${{ match.amount }}</span>
+                </div>
+                <div class="my-match-info-row">
+                  <span class="my-match-info-label">Privacy:</span>
+                  <span class="my-match-info-value">{{ match.get_privacy_display }}</span>
+                </div>
+                <div class="my-match-info-row">
+                  <span class="my-match-info-label">Created:</span>
+                  <span class="my-match-info-value">{{ match.created_at|date:"Y-m-d H:i:s" }}</span>
+                </div>
+                
+                {% if match.joiner %}
+                <div class="my-match-info-row">
+                  <span class="my-match-info-label">Opponent:</span>
+                  <span class="my-match-info-value">{{ match.joiner.username }}</span>
+                </div>
+                {% endif %}
+                
+                {% if match.status == 'COMPLETED' and match.winner %}
+                <div class="my-match-result">
+                  <span class="my-match-result-label">Winner:</span>
+                  <span class="my-match-result-value">{{ match.winner.username }}</span>
+                  {% if match.winner == request.user %}
+                  <span class="match-result-tag win">You Won</span>
+                  {% else %}
+                  <span class="match-result-tag loss">You Lost</span>
+                  {% endif %}
+                </div>
+                {% endif %}
+              </div>
+              
+              <div class="my-match-actions">
+                {% if match.privacy == 'PRIVATE' and match.status == 'OPEN' %}
+                <div class="my-match-code">
+                  <span class="my-match-code-label">Code:</span>
+                  <span class="my-match-code-value">{{ match.joining_code }}</span>
+                  <button class="my-match-code-copy" data-code="{{ match.joining_code }}">
+                    <i class="fas fa-copy"></i>
+                  </button>
+                </div>
+                {% endif %}
+                
+                <a href="{% url 'match_detail' match_id=match.id %}" class="my-match-detail-link">View Details</a>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="match-empty">
+          <i class="fas fa-gamepad match-empty-icon"></i>
+          <p>You haven't created any matches yet</p>
+          <a href="{% url 'create_match' %}" class="match-create-link">Create a Match</a>
+        </div>
+      {% endif %}
+    </div>
+    
+    <!-- Joined Matches Tab -->
+    <div class="match-tab-content" id="joined-matches">
+      {% if joined_matches %}
+        <div class="my-match-list">
+          {% for match in joined_matches %}
+          <div class="my-match-card">
+            <div class="my-match-card-header">
+              <h3 class="my-match-card-title">{{ match.get_game_display }}</h3>
+              <span class="match-status-badge status-{{ match.status|lower }}">{{ match.get_status_display }}</span>
+            </div>
+            
+            <div class="my-match-card-content">
+              <div class="my-match-info">
+                <div class="my-match-info-row">
+                  <span class="my-match-info-label">Platform:</span>
+                  <span class="my-match-info-value">{{ match.get_device_display }}</span>
+                </div>
+                <div class="my-match-info-row">
+                  <span class="my-match-info-label">Amount:</span>
+                  <span class="my-match-info-value">${{ match.amount }}</span>
+                </div>
+                <div class="my-match-info-row">
+                  <span class="my-match-info-label">Creator:</span>
+                  <span class="my-match-info-value">{{ match.creator.username }}</span>
+                </div>
+                <div class="my-match-info-row">
+                  <span class="my-match-info-label">Joined:</span>
+                  <span class="my-match-info-value">{{ match.updated_at|date:"Y-m-d H:i:s" }}</span>
+                </div>
+                
+                {% if match.status == 'COMPLETED' and match.winner %}
+                <div class="my-match-result">
+                  <span class="my-match-result-label">Winner:</span>
+                  <span class="my-match-result-value">{{ match.winner.username }}</span>
+                  {% if match.winner == request.user %}
+                  <span class="match-result-tag win">You Won</span>
+                  {% else %}
+                  <span class="match-result-tag loss">You Lost</span>
+                  {% endif %}
+                </div>
+                {% endif %}
+              </div>
+              
+              <div class="my-match-actions">
+                <a href="{% url 'match_detail' match_id=match.id %}" class="my-match-detail-link">View Details</a>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="match-empty">
+          <i class="fas fa-gamepad match-empty-icon"></i>
+          <p>You haven't joined any matches yet</p>
+          <a href="{% url 'available_matches' %}" class="match-create-link">Find Matches</a>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<!-- Floating action button -->
+<a href="{% url 'create_match' %}" class="floating-action-button">
+  <i class="fas fa-plus"></i>
+</a>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    // Tab functionality
+    const tabs = document.querySelectorAll('.match-tab');
+    const tabContents = document.querySelectorAll('.match-tab-content');
+    
+    tabs.forEach(tab => {
+      tab.addEventListener('click', function() {
+        const tabId = this.getAttribute('data-tab');
+        
+        // Remove active class from all tabs and contents
+        tabs.forEach(t => t.classList.remove('active'));
+        tabContents.forEach(c => c.classList.remove('active'));
+        
+        // Add active class to clicked tab and corresponding content
+        this.classList.add('active');
+        document.getElementById(`${tabId}-matches`).classList.add('active');
+      });
+    });
+    
+    // Copy code functionality
+    const copyButtons = document.querySelectorAll('.my-match-code-copy');
+    copyButtons.forEach(button => {
+      button.addEventListener('click', function() {
+        const code = this.getAttribute('data-code');
+        navigator.clipboard.writeText(code).then(() => {
+          // Visual feedback for copy success
+          const originalIcon = this.innerHTML;
+          this.innerHTML = '<i class="fas fa-check"></i>';
+          setTimeout(() => {
+            this.innerHTML = originalIcon;
+          }, 1500);
+        });
+      });
+    });
+  });
+</script>
+{% endblock %}
