@@ -1,0 +1,167 @@
+{% extends "base.html" %} {% block content %}
+
+<section class="section">
+  <div class="container">
+    {% if messages %}
+    <div class="messages">
+      {% for message in messages %}
+      <p class="message {{ message.tags }}">
+        <i class="fas fa-info-circle"></i>
+        <span>{{ message }}</span>
+      </p>
+      {% endfor %}
+    </div>
+    {% endif %}<h2 class="section-title">Create Match</h2>
+
+<div class="match-creator-header">
+  <div class="match-creator-balance">
+    <span class="match-creator-label">Your balance</span>
+    <span class="match-creator-amount">${{ user.wallet.balance|floatformat:2 }}</span>
+  </div>
+</div>
+
+<div class="match-form-container">
+  <form method="post" class="match-form" data-confirm="You are about to create a match. The selected amount will be deducted from your wallet. Continue?" 
+  data-confirm-title="Create Match"
+  data-confirm-button="Create">
+    {% csrf_token %}
+    
+    {% if form.non_field_errors %}
+    <div class="form-errors">
+      {% for error in form.non_field_errors %}
+        <p class="form-error">{{ error }}</p>
+      {% endfor %}
+    </div>
+    {% endif %}
+    
+    <div class="form-group">
+      <label for="{{ form.game.id_for_label }}" class="form-label">{{ form.game.label }}</label>
+      {{ form.game }}
+      {% if form.game.errors %}
+        <div class="form-field-errors">
+          {% for error in form.game.errors %}
+            <p class="form-field-error">{{ error }}</p>
+          {% endfor %}
+        </div>
+      {% endif %}
+      {% if form.game.help_text %}
+        <p class="form-help">{{ form.game.help_text }}</p>
+      {% endif %}
+    </div>
+    
+    <div class="form-group">
+      <label for="{{ form.device.id_for_label }}" class="form-label">{{ form.device.label }}</label>
+      {{ form.device }}
+      {% if form.device.errors %}
+        <div class="form-field-errors">
+          {% for error in form.device.errors %}
+            <p class="form-field-error">{{ error }}</p>
+          {% endfor %}
+        </div>
+      {% endif %}
+      {% if form.device.help_text %}
+        <p class="form-help">{{ form.device.help_text }}</p>
+      {% endif %}
+    </div>
+    
+    <div class="form-group">
+      <label for="{{ form.privacy.id_for_label }}" class="form-label">{{ form.privacy.label }}</label>
+      {{ form.privacy }}
+      {% if form.privacy.errors %}
+        <div class="form-field-errors">
+          {% for error in form.privacy.errors %}
+            <p class="form-field-error">{{ error }}</p>
+          {% endfor %}
+        </div>
+      {% endif %}
+      {% if form.privacy.help_text %}
+        <p class="form-help">{{ form.privacy.help_text }}</p>
+      {% endif %}
+    </div>
+    
+    <div class="form-group">
+      <label for="{{ form.amount.id_for_label }}" class="form-label">{{ form.amount.label }}</label>
+      {{ form.amount }}
+      {% if form.amount.errors %}
+        <div class="form-field-errors">
+          {% for error in form.amount.errors %}
+            <p class="form-field-error">{{ error }}</p>
+          {% endfor %}
+        </div>
+      {% endif %}
+      {% if form.amount.help_text %}
+        <p class="form-help">{{ form.amount.help_text }}</p>
+      {% endif %}
+    </div>
+    
+    <div class="match-summary">
+      <h3 class="match-summary-title">Match Summary</h3>
+      <div class="match-summary-info">
+      	<p class="match-summary-item">
+          <span class="match-summary-label">Game:</span>
+          <span class="match-summary-value" id="summary-game">-</span>
+        </p>
+        <p class="match-summary-item">
+          <span class="match-summary-label">Type:</span>
+          <span class="match-summary-value" id="summary-privacy">-</span>
+        </p>
+        <p class="match-summary-item">
+          <span class="match-summary-label">Amount:</span>
+          <span class="match-summary-value" id="summary-amount">$0</span>
+        </p>
+      </div>
+    </div>
+    
+    <div class="form-actions">
+      <a href="{% url 'available_matches' %}" class="form-button-secondary">Cancel</a>
+      <button type="submit" class="form-button-primary">Create Match</button>
+    </div>
+  </form>
+</div>
+
+  </div>
+</section><script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const amountSelect = document.getElementById('{{ form.amount.id_for_label }}');
+    const privacySelect = document.getElementById('{{ form.privacy.id_for_label }}');
+    const gameSelect = document.getElementById('{{ form.game.id_for_label }}');
+    
+    const summaryAmount = document.getElementById('summary-amount');
+    const summaryPrivacy = document.getElementById('summary-privacy');
+    const summaryGame = document.getElementById('summary-game');
+    
+    function updateSummary() {
+      // Update amount
+      if (amountSelect.value) {
+        const selectedOption = amountSelect.options[amountSelect.selectedIndex];
+        summaryAmount.textContent = selectedOption.textContent;
+      } else {
+        summaryAmount.textContent = '$0';
+      }
+      
+      // Update privacy
+      if (privacySelect.value) {
+        const selectedPrivacy = privacySelect.options[privacySelect.selectedIndex];
+        summaryPrivacy.textContent = selectedPrivacy.textContent.split('(')[0].trim();
+      } else {
+        summaryPrivacy.textContent = '-';
+      }
+      
+      // Update game
+      if (gameSelect.value) {
+        const selectedGame = gameSelect.options[gameSelect.selectedIndex];
+        summaryGame.textContent = selectedGame.textContent;
+      } else {
+        summaryGame.textContent = '-';
+      }
+    }
+    
+    amountSelect.addEventListener('change', updateSummary);
+    privacySelect.addEventListener('change', updateSummary);
+    gameSelect.addEventListener('change', updateSummary);
+    
+    // Initial update
+    updateSummary();
+  });
+</script>{% endblock %}
+

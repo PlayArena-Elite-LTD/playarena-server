@@ -1,0 +1,811 @@
+{% extends "base.html" %}
+
+{% block nav %}
+
+<div class="nav-menu" id="nav-menu">
+          <ul class="nav-list">
+            <li>
+              <a href="#hero" class="nav-link">
+                <div class="nav-icon"><i class="fas fa-home"></i></div>
+                <span>Home</span>
+              </a>
+            </li>
+            <li>
+              <a href="#about" class="nav-link">
+                <div class="nav-icon"><i class="fas fa-info-circle"></i></div>
+                <span>About</span>
+              </a>
+            </li>
+            <li>
+              <a href="#pricing" class="nav-link">
+                <div class="nav-icon"><i class="fas fa-tags"></i></div>
+                <span>Pricing</span>
+              </a>
+            </li>
+            <li>
+              <a href="#games" class="nav-link">
+                <div class="nav-icon"><i class="fas fa-gamepad"></i></div>
+                <span>Games</span>
+              </a>
+            </li>
+            <li>
+              <a href="#reviews" class="nav-link">
+                <div class="nav-icon"><i class="fas fa-star"></i></div>
+                <span>Reviews</span>
+              </a>
+            </li>
+            <li>
+              <a href="#faq" class="nav-link">
+                <div class="nav-icon">
+                  <i class="fas fa-question-circle"></i>
+                </div>
+                <span>FAQ</span>
+              </a>
+            </li>
+            <li>
+              <a href="#contact" class="nav-link">
+                <div class="nav-icon"><i class="fas fa-envelope"></i></div>
+                <span>Contact</span>
+              </a>
+            </li>
+          </ul>
+          <div class="nav-close" id="nav-close">
+            <i class="bx bx-x"></i>
+          </div>
+        </div>
+        
+      {% endblock %}
+
+{% block content %}
+        
+      <section class="hero" id="hero">
+        <div class="container">
+          <div class="hero-container grid">
+            <div class="hero-content">
+              <h1 class="hero-title">
+                Count on Your Skills,
+                <br />
+                Not on Luck
+              </h1>
+              <p class="hero-description">
+                Join thousands of players competing in skill-based challenges.
+                Create your own challenges or join existing ones to win real
+                rewards.
+              </p>
+              <div class="hero-buttons">
+                <a href="{% url 'login' %}" class="button button--primary">
+                  Start Playing
+                </a>
+                <a href="#about" class="button button--outline">Learn More</a>
+              </div>
+            </div>
+            <div class="hero-image">
+            	<img src="./../static/images/landing/hero-controller.png" alt="Gaming Controller" class="hero-img">
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="about section" id="about">
+        <div class="container">
+          <h2 class="section-title">About Play Arena</h2>
+
+          <div class="about-intro">
+            <p class="about-description">
+              Play Arena transforms the gaming experience by focusing on skill
+              rather than chance. Our platform allows players to compete in
+              games where strategy, talent, and experience determine the
+              outcome.
+            </p>
+          </div>
+
+          <div class="about-cards grid">
+            <div class="about-card">
+              <div class="about-card-icon">
+                <i class="fas fa-shield-alt"></i>
+              </div>
+              <h3 class="about-card-title">Secure Platform</h3>
+              <p class="about-card-text">
+                We employ advanced security protocols to ensure your data and
+                funds are always protected. Our platform is built with privacy
+                and security as top priorities.
+              </p>
+            </div>
+
+            <div class="about-card">
+              <div class="about-card-icon">
+                <i class="fas fa-trophy"></i>
+              </div>
+              <h3 class="about-card-title">Fair Competition</h3>
+              <p class="about-card-text">
+                Our skill-matching algorithms ensure balanced matchups between
+                players, creating a fair and competitive environment where your
+                abilities truly matter.
+              </p>
+            </div>
+
+            <div class="about-card">
+              <div class="about-card-icon">
+                <i class="fas fa-hand-holding-usd"></i>
+              </div>
+              <h3 class="about-card-title">Real Rewards</h3>
+              <p class="about-card-text">
+                Convert your gaming skills into tangible prizes and payouts. Win
+                competitions and challenges to earn rewards that can be
+                withdrawn or used for future challenges.
+              </p>
+            </div>
+
+            <div class="about-card">
+              <div class="about-card-icon">
+                <i class="fas fa-users"></i>
+              </div>
+              <h3 class="about-card-title">Growing Community</h3>
+              <p class="about-card-text">
+                Join thousands of players who share your passion for skill-based
+                gaming. Connect, compete, and collaborate with a diverse
+                community of gaming enthusiasts.
+              </p>
+            </div>
+          </div>
+
+          <div class="about-stats">
+            <div class="about-stat">
+              <h3 class="about-stat-number">5K+</h3>
+              <p class="about-stat-text">Active Players</p>
+            </div>
+
+            <div class="about-stat">
+              <h3 class="about-stat-number">10+</h3>
+              <p class="about-stat-text">Game Types</p>
+            </div>
+
+            <div class="about-stat">
+              <h3 class="about-stat-number">$15K+</h3>
+              <p class="about-stat-text">Prizes Awarded</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="pricing section" id="pricing">
+        <div class="container">
+          <h2 class="section-title">Simple, Transparent Pricing</h2>
+
+          <div class="pricing-intro">
+            <p class="pricing-description">
+              Players pay the same fee to enter a challenge. Play Arena takes
+              only 10% of the total entry fee. The winner gets the remaining 90%
+              as their reward. No hidden fees, no complicated tiers - just
+              straightforward value for players.
+            </p>
+          </div>
+
+          <div class="pricing-chart">
+            <div class="pricing-chart-header">
+              <div class="pricing-header-cell">Total Entry Fee</div>
+              <div class="pricing-header-cell">Platform Fee (10%)</div>
+              <div class="pricing-header-cell">Winner's Prize (90%)</div>
+            </div>
+
+            <div class="pricing-chart-row">
+              <div class="pricing-cell">$100</div>
+              <div class="pricing-cell">$10</div>
+              <div class="pricing-cell pricing-cell--highlight">$90</div>
+            </div>
+
+            <div class="pricing-chart-row">
+              <div class="pricing-cell">$500</div>
+              <div class="pricing-cell">$50</div>
+              <div class="pricing-cell pricing-cell--highlight">$450</div>
+            </div>
+
+            <div class="pricing-chart-row">
+              <div class="pricing-cell">$1,000</div>
+              <div class="pricing-cell">$100</div>
+              <div class="pricing-cell pricing-cell--highlight">$900</div>
+            </div>
+
+            <div class="pricing-chart-row">
+              <div class="pricing-cell">$10,000</div>
+              <div class="pricing-cell">$1,000</div>
+              <div class="pricing-cell pricing-cell--highlight">$9,000</div>
+            </div>
+          </div>
+
+          <div class="pricing-benefits">
+            <div class="pricing-benefit">
+              <div class="pricing-benefit-icon">
+                <i class="fas fa-percentage"></i>
+              </div>
+              <div class="pricing-benefit-content">
+                <h3 class="pricing-benefit-title">Low Commission</h3>
+                <p class="pricing-benefit-text">
+                  Our 10% fee is among the lowest in the industry, maximizing
+                  player payouts.
+                </p>
+              </div>
+            </div>
+
+            <div class="pricing-benefit">
+              <div class="pricing-benefit-icon">
+                <i class="fas fa-money-bill-wave"></i>
+              </div>
+              <div class="pricing-benefit-content">
+                <h3 class="pricing-benefit-title">No Hidden Costs</h3>
+                <p class="pricing-benefit-text">
+                  What you see is what you get - no additional withdrawal or
+                  processing fees.
+                </p>
+              </div>
+            </div>
+
+            <div class="pricing-benefit">
+              <div class="pricing-benefit-icon">
+                <i class="fas fa-chart-line"></i>
+              </div>
+              <div class="pricing-benefit-content">
+                <h3 class="pricing-benefit-title">Scale Up</h3>
+                <p class="pricing-benefit-text">
+                  The same 10% applies regardless of fee size - pay big for
+                  bigger rewards.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="pricing-cta">
+            <a href="{% url 'login' %}" class="button button--primary">Start Competing</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="games section" id="games">
+        <div class="container">
+          <h2 class="section-title">Our Games</h2>
+
+          <div class="games-intro">
+            <p class="games-description">
+              Compete in a wide variety of games where your skills determine the
+              outcome. From action to strategy, we offer competitive settings
+              for players of all preferences.
+            </p>
+          </div>
+
+          <div class="games-categories grid">
+            <div class="games-category">
+              <div class="games-category-icon">
+                <i class="fas fa-fist-raised"></i>
+              </div>
+              <h3 class="games-category-title">Action</h3>
+              <p class="games-category-text">
+                Test your reflexes and coordination in fast-paced action games.
+              </p>
+            </div>
+
+            <div class="games-category">
+              <div class="games-category-icon">
+                <i class="fas fa-chess"></i>
+              </div>
+              <h3 class="games-category-title">Strategy</h3>
+              <p class="games-category-text">
+                Outthink and outmaneuver your opponents in strategic challenges.
+              </p>
+            </div>
+
+            <div class="games-category">
+              <div class="games-category-icon">
+                <i class="fas fa-futbol"></i>
+              </div>
+              <h3 class="games-category-title">Sports</h3>
+              <p class="games-category-text">
+                Showcase your sports gaming skills in competitive matches.
+              </p>
+            </div>
+
+            <div class="games-category">
+              <div class="games-category-icon">
+                <i class="fas fa-puzzle-piece"></i>
+              </div>
+              <h3 class="games-category-title">Puzzle</h3>
+              <p class="games-category-text">
+                Solve complex puzzles faster than your opponents.
+              </p>
+            </div>
+          </div>
+
+          <div class="games-popular">
+            <h3 class="games-popular-title">Popular Titles</h3>
+
+            <div class="games-slider-container">
+              <div class="games-slider">
+                <div class="games-slider-content">
+                  <div class="games-logo">
+                    <img src="./../static/images/landing/game1.jpg" alt="Game Logo" />
+                  </div>
+                  <div class="games-logo">
+                    <img src="./../static/images/landing/game2.jpg" alt="Game Logo" />
+                  </div>
+                  <div class="games-logo">
+                    <img src="./../static/images/landing/game3.png" alt="Game Logo" />
+                  </div>
+                  <div class="games-logo">
+                    <img src="./../static/images/landing/game4.png" alt="Game Logo" />
+                  </div>
+                  <div class="games-logo">
+                    <img src="./../static/images/landing/game5.png" alt="Game Logo" />
+                  </div>
+                  <div class="games-logo">
+                    <img src="./../static/images/landing/fifa.webp" alt="Game Logo" />
+                  </div>
+                  <div class="games-logo">
+                    <img src="./../static/images/landing/game1.jpg" alt="Game Logo" />
+                  </div>
+                  <div class="games-logo">
+                    <img src="./../static/images/landing/speed.jpg" alt="Game Logo" />
+                  </div>
+                </div>
+                <div class="games-slider-content" aria-hidden="true">
+                  <div class="games-logo">
+                    <img src="./../static/images/landing/fif.png" alt="Game Logo" />
+                  </div>
+                  <div class="games-logo">
+                    <img src="./../static/images/landing/game2.jpg" alt="Game Logo" />
+                  </div>
+                  <div class="games-logo">
+                    <img src="./../static/images/landing/game3.png" alt="Game Logo" />
+                  </div>
+                  <div class="games-logo">
+                    <img src="./../static/images/landing/game4.png" alt="Game Logo" />
+                  </div>
+                  <div class="games-logo">
+                    <img src="./../static/images/landing/game5.png" alt="Game Logo" />
+                  </div>
+                  <div class="games-logo">
+                    <img src="./../static/images/landing/fifa.webp" alt="Game Logo" />
+                  </div>
+                  <div class="games-logo">
+                    <img src="./../static/images/landing/game2.jpg" alt="Game Logo" />
+                  </div>
+                  <div class="games-logo">
+                    <img src="./../static/images/landing/speed.jpg" alt="Game Logo" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="games-cta">
+            <a href="{% url 'login' %}" class="button button--primary">Browse All Games</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="reviews section" id="reviews">
+        <div class="container">
+          <h2 class="section-title">What Our Players Say</h2>
+
+          <div class="reviews-intro">
+            <p class="reviews-description">
+              Don't just take our word for it. Here's what the Play Arena
+              community has to say about their experience.
+            </p>
+          </div>
+
+          <div class="reviews-container grid">
+            <div class="reviews-card">
+              <div class="reviews-profile">
+                <img src="./../static/images/landing/male.jpg" alt="User" class="reviews-avatar" />
+                <div>
+                  <h3 class="reviews-name">Thomas Banda</h3>
+                  <p class="reviews-role">Pro Gamer</p>
+                </div>
+              </div>
+              <div class="reviews-rating">
+                <i class="fas fa-star"></i>
+                <i class="fas fa-star"></i>
+                <i class="fas fa-star"></i>
+                <i class="fas fa-star"></i>
+                <i class="fas fa-star"></i>
+              </div>
+              <p class="reviews-text">
+                "Play Arena completely changed how I approach competitive
+                gaming. The 10% commission is more than fair, and I've made
+                significant earnings by backing my skills."
+              </p>
+            </div>
+
+            <div class="reviews-card">
+              <div class="reviews-profile">
+                <img src="./../static/images/landing/female.jpg" alt="User" class="reviews-avatar" />
+                <div>
+                  <h3 class="reviews-name">Anika Dlamini</h3>
+                  <p class="reviews-role">Casual Player</p>
+                </div>
+              </div>
+              <div class="reviews-rating">
+                <i class="fas fa-star"></i>
+                <i class="fas fa-star"></i>
+                <i class="fas fa-star"></i>
+                <i class="fas fa-star"></i>
+                <i class="fas fa-star-half-alt"></i>
+              </div>
+              <p class="reviews-text">
+                "Even as a casual player, I find Play Arena incredibly fun and
+                fair. The matchmaking ensures I compete against players of
+                similar skill level, giving me a real chance to win."
+              </p>
+            </div>
+
+            <div class="reviews-card">
+              <div class="reviews-profile">
+                <img
+                  src="https://randomuser.me/api/portraits/men/67.jpg"
+                  alt="User"
+                  class="reviews-avatar"
+                />
+                <div>
+                  <h3 class="reviews-name">Frank Du Plessis</h3>
+                  <p class="reviews-role">Tournament Player</p>
+                </div>
+              </div>
+              <div class="reviews-rating">
+                <i class="fas fa-star"></i>
+                <i class="fas fa-star"></i>
+                <i class="fas fa-star"></i>
+                <i class="fas fa-star"></i>
+                <i class="fas fa-star"></i>
+              </div>
+              <p class="reviews-text">
+                "The transparency of Play Arena is what keeps me coming back. No
+                hidden fees, just straightforward skill-based competition with
+                real rewards. It's the future of competitive gaming."
+              </p>
+            </div>
+          </div>
+
+          <div class="reviews-stats">
+            <div class="reviews-stat">
+              <h3 class="reviews-stat-number">4.8</h3>
+              <p class="reviews-stat-text">Average Rating</p>
+            </div>
+
+            <div class="reviews-stat">
+              <h3 class="reviews-stat-number">93%</h3>
+              <p class="reviews-stat-text">Would Recommend</p>
+            </div>
+
+            <div class="reviews-stat">
+              <h3 class="reviews-stat-number">5K+</h3>
+              <p class="reviews-stat-text">Happy Players</p>
+            </div>
+          </div>
+
+          <div class="reviews-cta">
+            <a href="{% url 'login' %}" class="button button--primary">
+              Join The Community
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section class="faq section" id="faq">
+        <div class="container">
+          <h2 class="section-title">Frequently Asked Questions</h2>
+
+          <div class="faq-intro">
+            <p class="faq-description">
+              Got questions about how Play Arena works? Find quick answers to
+              our most common inquiries below.
+            </p>
+          </div>
+
+          <div class="faq-container">
+            <div class="faq-item">
+              <div class="faq-header">
+                <h3 class="faq-question">
+                  How does Play Arena's gaming system work?
+                </h3>
+                <div class="faq-icon">
+                  <i class="fas fa-plus"></i>
+                </div>
+              </div>
+              <div class="faq-content">
+                <p class="faq-answer">
+                  BetPlay Arena focuses on skill-based betting rather than
+                  chance. Players compete directly against each other in various
+                  games, and the winner takes 90% of the total pot. BetPlay
+                  Arena takes a 10% commission from each wager, regardless of
+                  the outcome.
+                </p>
+              </div>
+            </div>
+
+            <div class="faq-item">
+              <div class="faq-header">
+                <h3 class="faq-question">
+                  How do I deposit money into my account?
+                </h3>
+                <div class="faq-icon">
+                  <i class="fas fa-plus"></i>
+                </div>
+              </div>
+              <div class="faq-content">
+                <p class="faq-answer">
+                  We support multiple payment methods including credit/debit
+                  cards, PayPal, bank transfers, and mobile money. Simply
+                  navigate to your account dashboard, click on "Deposit Funds,"
+                  and follow the instructions for your preferred payment method.
+                </p>
+              </div>
+            </div>
+
+            <div class="faq-item">
+              <div class="faq-header">
+                <h3 class="faq-question">
+                  How does the platform ensure fair competition?
+                </h3>
+                <div class="faq-icon">
+                  <i class="fas fa-plus"></i>
+                </div>
+              </div>
+              <div class="faq-content">
+                <p class="faq-answer">
+                  We use advanced skill-matching algorithms to pair players of
+                  similar abilities. Additionally, all games are monitored for
+                  suspicious activity, and we have anti-cheating measures in
+                  place. Our platform is regularly audited by independent third
+                  parties to ensure fairness and transparency.
+                </p>
+              </div>
+            </div>
+
+            <div class="faq-item">
+              <div class="faq-header">
+                <h3 class="faq-question">
+                  When and how can I withdraw my winnings?
+                </h3>
+                <div class="faq-icon">
+                  <i class="fas fa-plus"></i>
+                </div>
+              </div>
+              <div class="faq-content">
+                <p class="faq-answer">
+                  Withdrawals can be processed at any time from your account
+                  dashboard. We support the same payment methods available for
+                  deposits. Most withdrawals are processed within 24-48 hours,
+                  though some payment methods may take longer to complete the
+                  transaction.
+                </p>
+              </div>
+            </div>
+
+            <div class="faq-item">
+              <div class="faq-header">
+                <h3 class="faq-question">
+                  Is there a minimum or maximum entry amount?
+                </h3>
+                <div class="faq-icon">
+                  <i class="fas fa-plus"></i>
+                </div>
+              </div>
+              <div class="faq-content">
+                <p class="faq-answer">
+                  Yes, the minimum ebtry is $2 per game, while the maximum
+                  varies by game type and can be as high as $10,000 for premium
+                  matches. These limits help ensure a healthy competing
+                  ecosystem and protect players from excessive risk.
+                </p>
+              </div>
+            </div>
+
+            <div class="faq-item">
+              <div class="faq-header">
+                <h3 class="faq-question">
+                  What happens if a game disconnects during play?
+                </h3>
+                <div class="faq-icon">
+                  <i class="fas fa-plus"></i>
+                </div>
+              </div>
+              <div class="faq-content">
+                <p class="faq-answer">
+                  Our system monitors connection status throughout gameplay. If
+                  a disconnection occurs, we have protocols based on the
+                  situation: short disconnections allow for rejoining, while
+                  prolonged ones may result in game cancellation and refunds.
+                  Each game has specific disconnection policies visible before
+                  you enter a challenge.
+                </p>
+              </div>
+            </div>
+
+            <div class="faq-item">
+              <div class="faq-header">
+                <h3 class="faq-question">Is Play Arena available worldwide?</h3>
+                <div class="faq-icon">
+                  <i class="fas fa-plus"></i>
+                </div>
+              </div>
+              <div class="faq-content">
+                <p class="faq-answer">
+                  Play Arena is available in most countries, but due to varying
+                  regulations around skill-based competition, some regions may
+                  have restrictions. Please check our Terms of Service or
+                  contact customer support to confirm availability in your
+                  location.
+                </p>
+              </div>
+            </div>
+
+            <div class="faq-item">
+              <div class="faq-header">
+                <h3 class="faq-question">
+                  How can I report a player I suspect of cheating?
+                </h3>
+                <div class="faq-icon">
+                  <i class="fas fa-plus"></i>
+                </div>
+              </div>
+              <div class="faq-content">
+                <p class="faq-answer">
+                  You can report suspicious activity through the "Report" button
+                  available on player profiles and in post-game screens. Include
+                  as much detail as possible, including timestamps and specific
+                  behaviors. Our moderation team reviews all reports thoroughly
+                  and takes appropriate action.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="faq-more">
+            <p>Still have questions?</p>
+            <a href="#contact" class="button button--outline">
+              Contact Support
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section class="contact section" id="contact">
+        <div class="container">
+          <h2 class="section-title">Get In Touch</h2>
+
+          <div class="contact-container">
+            <div class="contact-info">
+              <div class="contact-card">
+                <div class="contact-card-icon">
+                  <i class="fas fa-map-marker-alt"></i>
+                </div>
+                <h3 class="contact-card-title">Our Location</h3>
+                <p class="contact-card-text">1234 Gaming Street, Suite 500</p>
+                <p class="contact-card-text">Cape Town, South Africa</p>
+              </div>
+
+              <div class="contact-card">
+                <div class="contact-card-icon">
+                  <i class="fas fa-envelope"></i>
+                </div>
+                <h3 class="contact-card-title">Email Us</h3>
+                <a
+                  href="mailto:hello@betplayarena.com"
+                  class="contact-card-link"
+                >
+                  hello@playarena.com
+                </a>
+                <a
+                  href="mailto:support@betplayarena.com"
+                  class="contact-card-link"
+                >
+                  support@playarena.com
+                </a>
+              </div>
+
+              <div class="contact-card">
+                <div class="contact-card-icon">
+                  <i class="fas fa-phone-alt"></i>
+                </div>
+                <h3 class="contact-card-title">Call Us</h3>
+                <a href="tel:+14155550123" class="contact-card-link">
+                  +27 (415) 555-0123
+                </a>
+                <p class="contact-card-text">Mon-Fri: 9AM - 6PM UTC+2</p>
+              </div>
+            </div>
+
+            <div class="contact-socials">
+              <h3 class="contact-socials-title">Follow Us</h3>
+              <div class="contact-socials-container">
+                <a href="#" class="contact-social-link" aria-label="Twitter">
+                  <i class="fab fa-twitter"></i>
+                </a>
+                <a href="#" class="contact-social-link" aria-label="Facebook">
+                  <i class="fab fa-facebook-f"></i>
+                </a>
+                <a href="#" class="contact-social-link" aria-label="Instagram">
+                  <i class="fab fa-instagram"></i>
+                </a>
+                <a href="#" class="contact-social-link" aria-label="Discord">
+                  <i class="fab fa-discord"></i>
+                </a>
+                <a href="#" class="contact-social-link" aria-label="Twitch">
+                  <i class="fab fa-twitch"></i>
+                </a>
+                <a href="#" class="contact-social-link" aria-label="YouTube">
+                  <i class="fab fa-youtube"></i>
+                </a>
+              </div>
+            </div>
+
+            <div class="contact-map">
+              <iframe
+                src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d423283.43556331953!2d18.35168374169201!3d-33.92527625651642!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x1dcc500f8826eed7%3A0x687fe1fc2828aa87!2sCape%20Town%2C%20South%20Africa!5e0!3m2!1sen!2sus!4v1680090146959!5m2!1sen!2sus"
+                width="600"
+                height="450"
+                style="border:0;"
+                allowfullscreen=""
+                loading="lazy"
+              ></iframe>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container">
+        <div class="footer-container">
+          <div class="footer-brand">
+            <a href="#" class="footer-logo">
+              Play
+              <span>Arena</span>
+            </a>
+            <p class="footer-brand-text">
+              The skill-based competition platform for gamers.
+            </p>
+          </div>
+
+          <div class="footer-links">
+            <div class="footer-links-column">
+              <h3 class="footer-links-title">Platform</h3>
+              <ul class="footer-links-list">
+                <li><a href="#about" class="footer-link">About</a></li>
+                <li><a href="#games" class="footer-link">Games</a></li>
+                <li><a href="#pricing" class="footer-link">Pricing</a></li>
+                <li><a href="#faq" class="footer-link">FAQ</a></li>
+              </ul>
+            </div>
+
+            <div class="footer-links-column">
+              <h3 class="footer-links-title">Legal</h3>
+              <ul class="footer-links-list">
+                <li><a href="#" class="footer-link">Terms of Service</a></li>
+                <li><a href="#" class="footer-link">Privacy Policy</a></li>
+                <li><a href="#" class="footer-link">Cookie Policy</a></li>
+              </ul>
+            </div>
+
+            <div class="footer-links-column">
+              <h3 class="footer-links-title">Support</h3>
+              <ul class="footer-links-list">
+                <li><a href="#contact" class="footer-link">Contact Us</a></li>
+                <li><a href="#" class="footer-link">Help Center</a></li>
+                <li><a href="#" class="footer-link">Community</a></li>
+                <li><a href="#" class="footer-link">Partners</a></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="footer-bottom">
+          <p class="footer-copyright">
+            &copy;
+            <span id="current-year"></span>
+            Play Arena. All rights reserved.
+          </p>
+        </div>
+      </div>
+      
+    </footer>
+{% endblock %}

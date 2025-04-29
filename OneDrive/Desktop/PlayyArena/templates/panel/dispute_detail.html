@@ -1,0 +1,146 @@
+{% extends "panel/panel_base.html" %}
+
+{% block panel_content %}
+{% if messages %}
+<div class="messages">
+    {% for message in messages %}
+    <div class="message {{ message.tags }}">
+        {% if message.tags == 'success' %}
+        <i class="fas fa-check-circle"></i>
+        {% elif message.tags == 'error' %}
+        <i class="fas fa-exclamation-circle"></i>
+        {% elif message.tags == 'warning' %}
+        <i class="fas fa-exclamation-triangle"></i>
+        {% elif message.tags == 'info' %}
+        <i class="fas fa-info-circle"></i>
+        {% endif %}
+        <div>{{ message }}</div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<div class="panel-card">
+    <div class="panel-card-header">
+        <h3 class="panel-card-title">Dispute Details</h3>
+    </div>
+    
+    <div class="panel-section">
+        <h4 class="panel-section-title">Match Information</h4>
+        <div class="dispute-meta-section">
+            <div class="dispute-meta-item">
+                <span class="dispute-meta-label">Match:</span>
+                <span class="dispute-meta-value">{{ match }}</span>
+            </div>
+            <div class="dispute-meta-item">
+                <span class="dispute-meta-label">Game:</span>
+                <span class="dispute-meta-value">{{ match.get_game_display }}</span>
+            </div>
+            <div class="dispute-meta-item">
+                <span class="dispute-meta-label">Amount:</span>
+                <span class="dispute-meta-value">${{ match.amount }}</span>
+            </div>
+            <div class="dispute-meta-item">
+                <span class="dispute-meta-label">Status:</span>
+                <span class="dispute-meta-value">{{ dispute.get_status_display }}</span>
+            </div>
+            <div class="dispute-meta-item">
+                <span class="dispute-meta-label">Assigned To:</span>
+                <span class="dispute-meta-value">{{ dispute.assigned_to }}</span>
+            </div>
+            <div class="dispute-meta-item">
+                <span class="dispute-meta-label">Created:</span>
+                <span class="dispute-meta-value">{{ dispute.created_at|date:"M d, Y h:i A" }}</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Participants -->
+    <div class="panel-section">
+        <h4 class="panel-section-title">Participants</h4>
+        <div class="participant-list">
+            <div class="participant-item">
+                <span class="participant-name">{{ match.creator.username }}</span>
+                <div class="panel-actions">
+                    <a href="{% url 'conversation' user_id=match.creator.id %}" class="panel-btn">
+                        <i class="fas fa-comment"></i> Chat
+                    </a>
+                    <form action="{% url 'suspend_user' user_id=match.creator.id dispute_id=dispute.id %}" method="post"
+                          data-confirm="Are you sure you want to suspend {{ match.creator.username }}? They will not be able to access their account until suspension is lifted."
+                          data-confirm-title="Suspend User"
+                          data-confirm-button="Suspend">
+                        {% csrf_token %}
+                        <button type="submit" class="panel-btn panel-btn-warning">Suspend</button>
+                    </form>
+                </div>
+            </div>
+            
+            {% if match.joiner %}
+            <div class="participant-item">
+                <span class="participant-name">{{ match.joiner.username }}</span>
+                <div class="panel-actions">
+                    <a href="{% url 'conversation' user_id=match.joiner.id %}" class="panel-btn">
+                        <i class="fas fa-comment"></i> Chat
+                    </a>
+                    <form action="{% url 'suspend_user' user_id=match.joiner.id dispute_id=dispute.id %}" method="post"
+                          data-confirm="Are you sure you want to suspend {{ match.joiner.username }}? They will not be able to access their account until suspension is lifted."
+                          data-confirm-title="Suspend User"
+                          data-confirm-button="Suspend">
+                        {% csrf_token %}
+                        <button type="submit" class="panel-btn panel-btn-warning">Suspend</button>
+                    </form>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Resolution Form (if not resolved) -->
+    {% if dispute.status != "RESOLVED" %}
+    <div class="panel-section">
+        <h4 class="panel-section-title">Resolve Dispute</h4>
+        <form action="{% url 'resolve_dispute' dispute.id %}" method="post" class="resolution-form"
+              data-confirm="Are you sure you want to resolve this dispute? The winner will receive the match winnings."
+              data-confirm-title="Resolve Dispute"
+              data-confirm-button="Resolve">
+            {% csrf_token %}
+            <div class="form-group">
+                <label for="winner_id">Select Winner:</label>
+                <select name="winner_id" id="winner_id" required class="form-control">
+                    <option value="{{ match.creator.id }}">{{ match.creator.username }}</option>
+                    {% if match.joiner %}
+                    <option value="{{ match.joiner.id }}">{{ match.joiner.username }}</option>
+                    {% endif %}
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="resolution_notes">Resolution Notes:</label>
+                <textarea name="resolution_notes" id="resolution_notes" class="form-control" placeholder="Explain your decision..."></textarea>
+            </div>
+            
+            <div class="panel-actions">
+                <button type="submit" class="panel-btn panel-btn-primary">Resolve and Credit Winner</button>
+            </div>
+        </form>
+    </div>
+    {% endif %}
+    
+    {% if dispute.status == "RESOLVED" %}
+    <!-- Resolution Notes -->
+    <div class="panel-section">
+        <h4 class="panel-section-title">Resolution Notes</h4>
+        {% if dispute.resolution_notes %}
+        <div class="resolution-notes">
+            {{ dispute.resolution_notes }}
+        </div>
+        {% else %}
+        <div class="panel-empty">
+            <p>No resolution notes available.</p>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+    
+</div>
+{% endblock %}
