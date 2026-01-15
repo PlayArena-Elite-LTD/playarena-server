@@ -11,6 +11,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse, reverse_lazy
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
+from ratelimit.decorators import ratelimit
 
 from .models import Profile
 from .forms import PreSignupForm, CustomUserCreationForm, UserForm, ProfileForm
@@ -18,6 +19,7 @@ from .login_form import EmailOrUsernameAuthenticationForm
 
 User = get_user_model()
 
+@ratelimit(key='ip', rate='3/h', block=True)
 def pre_signup(request):
     if request.method == 'POST':
         form = PreSignupForm(request.POST)
@@ -62,6 +64,7 @@ def pre_signup(request):
 def pre_signup_done(request):
     return render(request, 'registration/pre_signup_done.html')
 
+@ratelimit(key='ip', rate='3/h', block=True)
 def signup(request):
     initial = {}
     if 'token' in request.GET:
@@ -93,6 +96,7 @@ class CustomLoginView(LoginView):
     authentication_form = EmailOrUsernameAuthenticationForm
     template_name = 'registration/login.html'
     
+    @ratelimit(key='ip', rate='5/m', block=True)
     def dispatch(self, request, *args, **kwargs):
         # Check if user is already authenticated
         if request.user.is_authenticated:
