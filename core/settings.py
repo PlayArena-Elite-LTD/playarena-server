@@ -37,7 +37,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'ratelimit',
+    'django_ratelimit',
     'corsheaders',
     'accounts',
     'wallet',
@@ -172,6 +172,17 @@ EMAIL_USE_SSL = False
 
 # Required for HTML emails in password reset
 PASSWORD_RESET_TIMEOUT = 86400  # 24 hours in seconds
+
+# Cache configuration for rate limiting
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': 'redis://127.0.0.1:6379/1',
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        }
+    }
+}
 
 # Rate limiting configuration
 RATELIMIT_ENABLE = True
