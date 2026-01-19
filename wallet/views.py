@@ -4,7 +4,7 @@ from django.contrib import messages
 from django.views.decorators.http import require_POST
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from ratelimit.decorators import ratelimit
+from django_ratelimit.decorators import ratelimit
 from decimal import Decimal
 import json
 

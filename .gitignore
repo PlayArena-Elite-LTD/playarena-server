@@ -18,3 +18,5 @@ node_modules/
 
 # Ignore AppData and similar system files
 AppData/
+
+.docx

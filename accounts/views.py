@@ -11,7 +11,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse, reverse_lazy
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
-from ratelimit.decorators import ratelimit
+from django_ratelimit.decorators import ratelimit
 
 from .models import Profile
 from .forms import PreSignupForm, CustomUserCreationForm, UserForm, ProfileForm
