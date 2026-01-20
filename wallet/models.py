@@ -8,6 +8,62 @@ class Wallet(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='wallet')
     balance = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     
+    def verify_balance_integrity(self):
+        """
+        Security: Verify that wallet balance matches the sum of all transactions.
+        
+        Returns:
+            dict: {
+                'is_valid': bool,
+                'expected_balance': Decimal,
+                'actual_balance': Decimal,
+                'discrepancy': Decimal,
+                'transaction_count': int
+            }
+        """
+        from django.db.models import Sum
+        from decimal import Decimal
+        
+        # Calculate expected balance from transactions
+        transaction_sum = self.transactions.aggregate(
+            total=Sum('amount')
+        )['total'] or Decimal('0.00')
+        
+        expected_balance = transaction_sum
+        actual_balance = self.balance
+        discrepancy = actual_balance - expected_balance
+        transaction_count = self.transactions.count()
+        
+        return {
+            'is_valid': discrepancy == Decimal('0.00'),
+            'expected_balance': expected_balance,
+            'actual_balance': actual_balance,
+            'discrepancy': discrepancy,
+            'transaction_count': transaction_count,
+        }
+    
+    def recalculate_balance(self):
+        """
+        Security: Recalculate balance from transactions and update wallet.
+        Use this to fix discrepancies detected by verify_balance_integrity().
+        
+        Returns:
+            Decimal: The recalculated balance
+        """
+        from django.db.models import Sum
+        from decimal import Decimal
+        
+        # Calculate balance from transactions
+        transaction_sum = self.transactions.aggregate(
+            total=Sum('amount')
+        )['total'] or Decimal('0.00')
+        
+        # Update balance
+        self.balance = transaction_sum
+        self.save(update_fields=['balance'])
+        
+        return self.balance
+    
 class Transaction(models.Model):
     TRANSACTION_TYPES = [
         ('DEPOSIT', 'Deposit'),
