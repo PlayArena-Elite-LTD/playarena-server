@@ -1,5 +1,5 @@
-asgiref==3.8.1
-Django==5.2
+asgiref==3.9.1
+Django==6.0.1
 gunicorn==23.0.0
 packaging==24.2
 pytz==2025.2
@@ -8,3 +8,6 @@ tzdata==2025.2
 whitenoise==6.9.0
 django-ratelimit==4.1.0
 django-cors-headers==4.9.0
+redis==7.1.0
+django-redis==6.0.0
+django-recaptcha==4.1.0
