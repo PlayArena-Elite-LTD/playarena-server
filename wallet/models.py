@@ -64,6 +64,77 @@ class Wallet(models.Model):
         
         return self.balance
     
+    @classmethod
+    def find_wallets_with_discrepancies(cls):
+        """
+        Security: Find all wallets where balance doesn't match transaction sum.
+        
+        Returns:
+            QuerySet: Wallets with discrepancies
+        """
+        from django.db.models import Sum, F, DecimalField
+        from django.db.models.functions import Coalesce
+        
+        # Get all wallets and calculate expected balances
+        wallets_with_discrepancies = cls.objects.annotate(
+            expected_balance=Coalesce(
+                Sum('transactions__amount'),
+                0,
+                output_field=DecimalField(max_digits=10, decimal_places=2)
+            )
+        ).exclude(
+            balance=F('expected_balance')
+        )
+        
+        return wallets_with_discrepancies
+    
+    @classmethod
+    def reconcile_all_wallets(cls, dry_run=False):
+        """
+        Security: Reconcile all wallets by recalculating balances from transactions.
+        
+        Args:
+            dry_run (bool): If True, only report discrepancies without fixing them.
+        
+        Returns:
+            dict: {
+                'total_wallets': int,
+                'wallets_with_discrepancies': int,
+                'wallets_fixed': int,
+                'discrepancies': list of dicts
+            }
+        """
+        from decimal import Decimal
+        
+        all_wallets = cls.objects.all()
+        total_count = all_wallets.count()
+        discrepancies_found = []
+        wallets_fixed = 0
+        
+        for wallet in all_wallets:
+            result = wallet.verify_balance_integrity()
+            if not result['is_valid']:
+                discrepancies_found.append({
+                    'wallet_id': wallet.id,
+                    'user': wallet.user.username if wallet.user else 'None',
+                    'expected': result['expected_balance'],
+                    'actual': result['actual_balance'],
+                    'discrepancy': result['discrepancy'],
+                    'transaction_count': result['transaction_count'],
+                })
+                
+                if not dry_run:
+                    wallet.recalculate_balance()
+                    wallets_fixed += 1
+        
+        return {
+            'total_wallets': total_count,
+            'wallets_with_discrepancies': len(discrepancies_found),
+            'wallets_fixed': wallets_fixed if not dry_run else 0,
+            'discrepancies': discrepancies_found,
+            'dry_run': dry_run,
+        }
+    
 class Transaction(models.Model):
     TRANSACTION_TYPES = [
         ('DEPOSIT', 'Deposit'),
