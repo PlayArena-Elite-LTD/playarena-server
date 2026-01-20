@@ -9,7 +9,7 @@ from django.db import transaction
 from decimal import Decimal
 import json
 
-from .models import Wallet, Transaction, Deposit
+from .models import Wallet, Transaction, Deposit, Withdrawal
 
 @login_required
 def wallet_view(request):
@@ -91,37 +91,73 @@ def deposit_view(request):
 @ratelimit(key='user', rate='5/m', block=True)
 @login_required
 @require_POST
+@transaction.atomic
 def withdraw_view(request):
-    """Handle withdrawal requests."""
+    """
+    Handle withdrawal requests using Withdrawal model with status tracking.
+    
+    Creates a Withdrawal record with PENDING status. Wallet balance is only
+    updated when withdrawal status changes to COMPLETED (via webhook or admin).
+    """
     try:
         data = json.loads(request.body)
         amount = Decimal(str(data.get('amount', '0')))
+        payment_method = data.get('payment_method', 'BANK_TRANSFER')  # Default to BANK_TRANSFER
+        account_details = data.get('account_details', '')
         
-        if amount <= 0:
-            return JsonResponse({'success': False, 'error': 'Amount must be positive'})
+        # Validate payment method
+        valid_methods = [choice[0] for choice in Withdrawal.PAYMENT_METHOD_CHOICES]
+        if payment_method not in valid_methods:
+            payment_method = 'BANK_TRANSFER'
         
+        # Validate account details (required for withdrawal)
+        if not account_details or not account_details.strip():
+            return JsonResponse({
+                'success': False,
+                'error': 'Account details are required for withdrawal'
+            })
+        
+        # Get user's wallet
         wallet = request.user.wallet
         
-        if wallet.balance < amount:
-            return JsonResponse({'success': False, 'error': 'Insufficient balance'})
-        
-        wallet.balance -= amount
-        wallet.save()
-        
-        # Create transaction record
-        Transaction.objects.create(
-            wallet=wallet,
-            amount=-amount,
-            transaction_type='WITHDRAWAL',
-            description=f'Withdrawal of ${amount}'
+        # Create Withdrawal instance (validation happens in clean())
+        withdrawal = Withdrawal(
+            user=request.user,
+            amount=amount,
+            payment_method=payment_method,
+            account_details=account_details.strip(),
+            status='PENDING',  # Start as PENDING
+            wallet=wallet
         )
         
-        return JsonResponse({'success': True, 'new_balance': str(wallet.balance)})
+        # Run validation (checks amount limits, balance, etc.)
+        withdrawal.full_clean()
+        withdrawal.save()
         
-    except (ValueError, json.JSONDecodeError):
-        return JsonResponse({'success': False, 'error': 'Invalid request'})
+        # Return success with withdrawal ID and status
+        return JsonResponse({
+            'success': True,
+            'withdrawal_id': withdrawal.id,
+            'status': withdrawal.status,
+            'amount': str(withdrawal.amount),
+            'message': 'Withdrawal request created. Processing...',
+            'current_balance': str(wallet.balance)  # Balance unchanged until COMPLETED
+        })
+        
+    except (ValueError, json.JSONDecodeError) as e:
+        return JsonResponse({'success': False, 'error': 'Invalid request data'})
     except Exception as e:
-        return JsonResponse({'success': False, 'error': 'Withdrawal failed'})
+        # Handle validation errors from Withdrawal model
+        error_message = str(e)
+        if hasattr(e, 'message_dict'):
+            # Django ValidationError
+            errors = e.message_dict
+            error_message = ', '.join([f"{field}: {', '.join(messages)}" for field, messages in errors.items()])
+        
+        return JsonResponse({
+            'success': False,
+            'error': error_message or 'Withdrawal request failed'
+        })
 
 @login_required
 def transaction_history(request):
