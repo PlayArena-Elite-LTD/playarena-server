@@ -10,7 +10,7 @@ from decimal import Decimal
 import json
 
 from .models import Wallet, Transaction, Deposit, Withdrawal
-from .forms import DepositForm
+from .forms import DepositForm, WithdrawalForm
 
 @login_required
 def wallet_view(request):
@@ -90,74 +90,66 @@ def deposit_view(request):
 
 @ratelimit(key='user', rate='5/m', block=True)
 @login_required
-@require_POST
 @transaction.atomic
 def withdraw_view(request):
     """
     Handle withdrawal requests using Withdrawal model with status tracking.
     
+    GET: Display withdrawal form
+    POST: Process withdrawal form submission
     Creates a Withdrawal record with PENDING status. Wallet balance is only
     updated when withdrawal status changes to COMPLETED (via webhook or admin).
     """
+    # Get or create user's wallet
     try:
-        data = json.loads(request.body)
-        amount = Decimal(str(data.get('amount', '0')))
-        payment_method = data.get('payment_method', 'BANK_TRANSFER')  # Default to BANK_TRANSFER
-        account_details = data.get('account_details', '')
-        
-        # Validate payment method
-        valid_methods = [choice[0] for choice in Withdrawal.PAYMENT_METHOD_CHOICES]
-        if payment_method not in valid_methods:
-            payment_method = 'BANK_TRANSFER'
-        
-        # Validate account details (required for withdrawal)
-        if not account_details or not account_details.strip():
-            return JsonResponse({
-                'success': False,
-                'error': 'Account details are required for withdrawal'
-            })
-        
-        # Get user's wallet
         wallet = request.user.wallet
-        
-        # Create Withdrawal instance (validation happens in clean())
-        withdrawal = Withdrawal(
-            user=request.user,
-            amount=amount,
-            payment_method=payment_method,
-            account_details=account_details.strip(),
-            status='PENDING',  # Start as PENDING
-            wallet=wallet
-        )
-        
-        # Run validation (checks amount limits, balance, etc.)
-        withdrawal.full_clean()
-        withdrawal.save()
-        
-        # Return success with withdrawal ID and status
-        return JsonResponse({
-            'success': True,
-            'withdrawal_id': withdrawal.id,
-            'status': withdrawal.status,
-            'amount': str(withdrawal.amount),
-            'message': 'Withdrawal request created. Processing...',
-            'current_balance': str(wallet.balance)  # Balance unchanged until COMPLETED
-        })
-        
-    except (ValueError, json.JSONDecodeError) as e:
-        return JsonResponse({'success': False, 'error': 'Invalid request data'})
-    except Exception as e:
-        # Handle validation errors from Withdrawal model
-        error_message = str(e)
-        if hasattr(e, 'message_dict'):
-            # Django ValidationError
-            errors = e.message_dict
-            error_message = ', '.join([f"{field}: {', '.join(messages)}" for field, messages in errors.items()])
-        
-        return JsonResponse({
-            'success': False,
-            'error': error_message or 'Withdrawal request failed'
-        })
+    except Wallet.DoesNotExist:
+        wallet = Wallet.objects.create(user=request.user)
+    
+    if request.method == 'POST':
+        form = WithdrawalForm(request.POST, user=request.user)
+        if form.is_valid():
+            try:
+                amount = form.cleaned_data['amount']
+                payment_method = form.cleaned_data['payment_method']
+                account_details = form.cleaned_data['account_details']
+                
+                # Create Withdrawal instance (validation happens in clean())
+                withdrawal = Withdrawal(
+                    user=request.user,
+                    amount=amount,
+                    payment_method=payment_method,
+                    account_details=account_details,
+                    status='PENDING',  # Start as PENDING
+                    wallet=wallet
+                )
+                
+                # Run validation (checks amount limits, balance, etc.)
+                withdrawal.full_clean()
+                withdrawal.save()
+                
+                messages.success(request, f'Withdrawal request of ${amount:.2f} created successfully. Processing...')
+                return redirect('wallet')
+            except Exception as e:
+                # Handle validation errors from Withdrawal model
+                error_message = str(e)
+                if hasattr(e, 'message_dict'):
+                    # Django ValidationError
+                    errors = e.message_dict
+                    error_message = ', '.join([f"{field}: {', '.join(msg_list)}" for field, msg_list in errors.items()])
+                
+                messages.error(request, f'Withdrawal request failed: {error_message}')
+        else:
+            # Form validation errors
+            messages.error(request, 'Please correct the errors below.')
+    else:
+        # GET request - display form
+        form = WithdrawalForm(user=request.user)
+    
+    return render(request, 'wallet/withdraw.html', {
+        'form': form,
+        'wallet': wallet
+    })
 
 @login_required
 def transaction_history(request):
