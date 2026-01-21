@@ -10,6 +10,7 @@ from decimal import Decimal
 import json
 
 from .models import Wallet, Transaction, Deposit, Withdrawal
+from .forms import DepositForm
 
 @login_required
 def wallet_view(request):
@@ -28,65 +29,64 @@ def wallet_view(request):
 
 @ratelimit(key='user', rate='10/m', block=True)
 @login_required
-@require_POST
 @transaction.atomic
 def deposit_view(request):
     """
     Handle deposit requests using Deposit model with status tracking.
     
+    GET: Display deposit form
+    POST: Process deposit form submission
     Creates a Deposit record with PENDING status. Wallet balance is only
     updated when deposit status changes to COMPLETED (via webhook or admin).
     """
+    # Get or create user's wallet
     try:
-        data = json.loads(request.body)
-        amount = Decimal(str(data.get('amount', '0')))
-        payment_method = data.get('payment_method', 'OTHER')  # Default to OTHER if not specified
-        
-        # Validate payment method
-        valid_methods = [choice[0] for choice in Deposit.PAYMENT_METHOD_CHOICES]
-        if payment_method not in valid_methods:
-            payment_method = 'OTHER'
-        
-        # Get user's wallet
         wallet = request.user.wallet
-        
-        # Create Deposit instance (validation happens in clean())
-        deposit = Deposit(
-            user=request.user,
-            amount=amount,
-            payment_method=payment_method,
-            status='PENDING',  # Start as PENDING
-            wallet=wallet
-        )
-        
-        # Run validation (checks amount limits, etc.)
-        deposit.full_clean()
-        deposit.save()
-        
-        # Return success with deposit ID and status
-        return JsonResponse({
-            'success': True,
-            'deposit_id': deposit.id,
-            'status': deposit.status,
-            'amount': str(deposit.amount),
-            'message': 'Deposit request created. Processing...',
-            'current_balance': str(wallet.balance)  # Balance unchanged until COMPLETED
-        })
-        
-    except (ValueError, json.JSONDecodeError) as e:
-        return JsonResponse({'success': False, 'error': 'Invalid request data'})
-    except Exception as e:
-        # Handle validation errors from Deposit model
-        error_message = str(e)
-        if hasattr(e, 'message_dict'):
-            # Django ValidationError
-            errors = e.message_dict
-            error_message = ', '.join([f"{field}: {', '.join(messages)}" for field, messages in errors.items()])
-        
-        return JsonResponse({
-            'success': False,
-            'error': error_message or 'Deposit request failed'
-        })
+    except Wallet.DoesNotExist:
+        wallet = Wallet.objects.create(user=request.user)
+    
+    if request.method == 'POST':
+        form = DepositForm(request.POST, user=request.user)
+        if form.is_valid():
+            try:
+                amount = form.cleaned_data['amount']
+                payment_method = form.cleaned_data['payment_method']
+                
+                # Create Deposit instance (validation happens in clean())
+                deposit = Deposit(
+                    user=request.user,
+                    amount=amount,
+                    payment_method=payment_method,
+                    status='PENDING',  # Start as PENDING
+                    wallet=wallet
+                )
+                
+                # Run validation (checks amount limits, etc.)
+                deposit.full_clean()
+                deposit.save()
+                
+                messages.success(request, f'Deposit request of ${amount:.2f} created successfully. Processing...')
+                return redirect('wallet')
+            except Exception as e:
+                # Handle validation errors from Deposit model
+                error_message = str(e)
+                if hasattr(e, 'message_dict'):
+                    # Django ValidationError
+                    errors = e.message_dict
+                    error_message = ', '.join([f"{field}: {', '.join(msg_list)}" for field, msg_list in errors.items()])
+                
+                messages.error(request, f'Deposit request failed: {error_message}')
+        else:
+            # Form validation errors
+            messages.error(request, 'Please correct the errors below.')
+    else:
+        # GET request - display form
+        form = DepositForm(user=request.user)
+    
+    return render(request, 'wallet/deposit.html', {
+        'form': form,
+        'wallet': wallet
+    })
 
 @ratelimit(key='user', rate='5/m', block=True)
 @login_required
