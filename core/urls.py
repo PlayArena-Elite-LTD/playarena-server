@@ -11,5 +11,6 @@ urlpatterns = [
     path('alert/', include('alert.urls')),
     path('messenger/', include('messenger.urls')),
     path('panel/', include('panel.urls')),
+    path('wallet/', include('wallet.urls')),
     path('', TemplateView.as_view(template_name='index.html'), name='index'),
 ]
