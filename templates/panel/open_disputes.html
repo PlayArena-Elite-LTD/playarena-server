@@ -1,0 +1,58 @@
+{% extends "panel/panel_base.html" %}
+
+{% block panel_content %}
+
+{% if messages %}
+    <div class="messages">
+        {% for message in messages %}
+        <div class="message {{ message.tags }}">
+            {% if message.tags == 'success' %}
+            <i class="fas fa-check-circle"></i>
+            {% elif message.tags == 'error' %}
+            <i class="fas fa-exclamation-circle"></i>
+            {% elif message.tags == 'warning' %}
+            <i class="fas fa-exclamation-triangle"></i>
+            {% elif message.tags == 'info' %}
+            <i class="fas fa-info-circle"></i>
+            {% endif %}
+            <div>{{ message }}</div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    
+<div class="panel-card">
+    <div class="panel-card-header">
+        <h3 class="panel-card-title">Open Disputes</h3>
+    </div>
+    
+    {% if disputes %}
+    <div class="dispute-list">
+        {% for dispute in disputes %}
+        <div class="dispute-item">
+            <div class="dispute-row">
+                <span class="dispute-match">{{ dispute.match }}</span>
+                <span class="dispute-status open">Open</span>
+            </div>
+            <div class="dispute-meta">
+                <span>Created: {{ dispute.created_at|date:"M d, Y h:i A" }}</span>
+            </div>
+            <div class="panel-actions">
+                <form action="{% url 'attend_dispute' dispute.id %}" method="post"
+                      data-confirm="Are you sure you want to attend to this dispute? You will be responsible for resolving it."
+                      data-confirm-title="Attend Dispute"
+                      data-confirm-button="Attend">
+                    {% csrf_token %}
+                    <button type="submit" class="panel-btn panel-btn-primary">Attend</button>
+                </form>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="panel-empty">
+        <p>No open disputes available.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="auth-section">
+	<div class="auth-container">
+    <div class="auth-header">
+        <h2>Check Your Email</h2>
+    </div>
+
+    <div class="auth-form">
+        <p>We've sent you an email with a link to complete your registration.</p>
+        <p>Check your spam folder if you dont see the email.</p>
+        <p>The link will expire in 24 hours.</p>
+    </div>
+
+    <div class="auth-footer">
+        <p><a href="{% url 'pre_signup' %}">Request a new link</a> if you don't receive it.</p>
+    </div>
+</div>
+</section>
+{% endblock %}
