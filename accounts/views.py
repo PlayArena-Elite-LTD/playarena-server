@@ -12,6 +12,8 @@ from django.urls import reverse, reverse_lazy
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 from django_ratelimit.decorators import ratelimit
+from django.http import HttpResponse, JsonResponse
+from core.ratelimit_helpers import rate_limit_response
 
 from .models import Profile
 from .forms import PreSignupForm, CustomUserCreationForm, UserForm, ProfileForm
@@ -19,7 +21,8 @@ from .login_form import EmailOrUsernameAuthenticationForm
 
 User = get_user_model()
 
-@ratelimit(key='ip', rate='3/h', block=True)
+
+@ratelimit(key='ip', rate='3/h', method='POST', block=True, fn=rate_limit_response)
 def pre_signup(request):
     if request.method == 'POST':
         form = PreSignupForm(request.POST)
@@ -64,7 +67,8 @@ def pre_signup(request):
 def pre_signup_done(request):
     return render(request, 'registration/pre_signup_done.html')
 
-@ratelimit(key='ip', rate='3/h', block=True)
+
+@ratelimit(key='ip', rate='3/h', method='POST', block=True, fn=rate_limit_response)
 def signup(request):
     initial = {}
     if 'token' in request.GET:
@@ -96,7 +100,11 @@ class CustomLoginView(LoginView):
     authentication_form = EmailOrUsernameAuthenticationForm
     template_name = 'registration/login.html'
     
-    @ratelimit(key='ip', rate='5/m', block=True)
+    @ratelimit(key='ip', rate='5/15m', method='POST', block=True, fn=rate_limit_response)
+    def post(self, request, *args, **kwargs):
+        """Apply rate limiting to login POST requests"""
+        return super().post(request, *args, **kwargs)
+    
     def dispatch(self, request, *args, **kwargs):
         # Check if user is already authenticated
         if request.user.is_authenticated:
@@ -118,6 +126,29 @@ def dashboard(request):
 @login_required
 def settings_view(request):
     return render(request, 'profiles/settings.html')
+
+# Custom password reset view with rate limiting
+from django.contrib.auth.views import PasswordResetView as BasePasswordResetView
+
+def get_email_from_form(request):
+    """Extract email from password reset form for rate limiting"""
+    if request.method == 'POST' and 'email' in request.POST:
+        email = request.POST['email']
+        # Rate limit by email to prevent abuse of specific email addresses
+        return f"email:{email}"
+    # Fallback to IP if no email provided
+    return f"ip:{request.META.get('REMOTE_ADDR', 'unknown')}"
+
+class RateLimitedPasswordResetView(BasePasswordResetView):
+    """Password reset view with rate limiting"""
+    html_email_template_name = 'registration/password_reset_email.html'
+    email_template_name = 'registration/password_reset_email.html'
+    
+    @ratelimit(key=get_email_from_form, rate='3/h', method='POST', block=True, fn=rate_limit_response)
+    def post(self, request, *args, **kwargs):
+        """Apply rate limiting based on email"""
+        return super().post(request, *args, **kwargs)
+
 
 @login_required
 def profile_view(request):

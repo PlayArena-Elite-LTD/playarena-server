@@ -12,10 +12,7 @@ urlpatterns = [
     path('profile/edit/', views.profile_edit, name='profile_edit'),
     path('settings/', views.settings_view, name='settings'),
     path('logout/', views.logout_view, name='logout'),
-    path('password_reset/', auth_views.PasswordResetView.as_view(
-        html_email_template_name='registration/password_reset_email.html',
-        email_template_name='registration/password_reset_email.html',
-    ), name='password_reset'),
+    path('password_reset/', views.RateLimitedPasswordResetView.as_view(), name='password_reset'),
     
     # Include the other password reset URLs from Django
     path('password_reset/done/', auth_views.PasswordResetDoneView.as_view(), name='password_reset_done'),

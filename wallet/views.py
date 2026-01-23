@@ -1,165 +1,177 @@
-from django.shortcuts import render, redirect, get_object_or_404
+from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.views.decorators.http import require_POST
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django_ratelimit.decorators import ratelimit
 from django.db import transaction
-from decimal import Decimal
-import json
+from django.http import JsonResponse, HttpResponse
+from django.views.decorators.http import require_http_methods
+from django_ratelimit.decorators import ratelimit
+from decimal import Decimal, InvalidOperation
+import logging
+from core.ratelimit_helpers import rate_limit_response
 
-from .models import Wallet, Transaction, Deposit, Withdrawal
+from .models import Wallet, Transaction
 from .forms import DepositForm, WithdrawalForm
+
+logger = logging.getLogger('django_ratelimit')
+
+
+@login_required
+@ratelimit(key='user', rate='30/m', method='GET', block=True, fn=rate_limit_response)
+def check_balance(request):
+    """Check wallet balance - 30 per minute per user"""
+    try:
+        wallet = request.user.wallet
+        balance = wallet.balance
+        
+        if request.headers.get('Content-Type', '').startswith('application/json') or \
+           request.headers.get('Accept', '').startswith('application/json'):
+            return JsonResponse({
+                'balance': float(balance),
+                'status': 'success'
+            })
+        
+        return render(request, 'wallet/balance.html', {'balance': balance})
+    except Exception as e:
+        logger.error(f"Error checking balance for user {request.user.username}: {str(e)}")
+        messages.error(request, "An error occurred while checking your balance.")
+        return redirect('dashboard')
+
+
+@login_required
+@ratelimit(key='user', rate='10/m', method='POST', block=True, fn=rate_limit_response)
+def deposit(request):
+    """Deposit funds - 10 per minute per user"""
+    if request.method == 'POST':
+        form = DepositForm(request.POST)
+        if form.is_valid():
+            try:
+                with transaction.atomic():
+                    amount = form.cleaned_data['amount']
+                    payment_method = form.cleaned_data['payment_method']
+                    
+                    wallet = request.user.wallet
+                    wallet.balance += amount
+                    wallet.save()
+                    
+                    # Record transaction
+                    Transaction.objects.create(
+                        wallet=wallet,
+                        amount=amount,
+                        transaction_type='DEPOSIT',
+                        description=f"Deposit of ${amount} via {payment_method}"
+                    )
+                    
+                    logger.info(f"Deposit of ${amount} processed for user {request.user.username} via {payment_method}")
+                    messages.success(request, f"Successfully deposited ${amount}. Your new balance is ${wallet.balance}.")
+                    
+                    # Handle JSON requests
+                    if request.headers.get('Content-Type', '').startswith('application/json') or \
+                       request.headers.get('Accept', '').startswith('application/json'):
+                        return JsonResponse({
+                            'status': 'success',
+                            'amount': float(amount),
+                            'new_balance': float(wallet.balance),
+                            'message': f'Successfully deposited ${amount}'
+                        })
+                    
+                    return redirect('wallet')
+            except Exception as e:
+                logger.error(f"Error processing deposit for user {request.user.username}: {str(e)}")
+                messages.error(request, "An error occurred while processing your deposit.")
+                if request.headers.get('Content-Type', '').startswith('application/json') or \
+                   request.headers.get('Accept', '').startswith('application/json'):
+                    return JsonResponse({
+                        'status': 'error',
+                        'message': 'An error occurred while processing your deposit.'
+                    }, status=500)
+    else:
+        form = DepositForm()
+    
+    context = {
+        'form': form,
+        'wallet': request.user.wallet,
+    }
+    return render(request, 'wallet/deposit.html', context)
+
+
+@login_required
+@ratelimit(key='user', rate='5/h', method='POST', block=True, fn=rate_limit_response)
+def withdraw(request):
+    """Withdraw funds - 5 per hour per user"""
+    wallet = request.user.wallet
+    
+    if request.method == 'POST':
+        form = WithdrawalForm(request.POST)
+        if form.is_valid():
+            try:
+                with transaction.atomic():
+                    amount = form.cleaned_data['amount']
+                    payment_method = form.cleaned_data['payment_method']
+                    account_details = form.cleaned_data['account_details']
+                    
+                    # Check balance
+                    if wallet.balance < amount:
+                        form.add_error('amount', f"Insufficient funds. Your balance is ${wallet.balance}.")
+                        context = {
+                            'form': form,
+                            'wallet': wallet,
+                        }
+                        return render(request, 'wallet/withdraw.html', context)
+                    
+                    # Process withdrawal
+                    wallet.balance -= amount
+                    wallet.save()
+                    
+                    # Record transaction
+                    Transaction.objects.create(
+                        wallet=wallet,
+                        amount=-amount,
+                        transaction_type='WITHDRAWAL',
+                        description=f"Withdrawal of ${amount} via {payment_method} to {account_details[:50]}"
+                    )
+                    
+                    logger.info(f"Withdrawal of ${amount} processed for user {request.user.username} via {payment_method}")
+                    messages.success(request, f"Successfully withdrew ${amount}. Your new balance is ${wallet.balance}.")
+                    
+                    # Handle JSON requests
+                    if request.headers.get('Content-Type', '').startswith('application/json') or \
+                       request.headers.get('Accept', '').startswith('application/json'):
+                        return JsonResponse({
+                            'status': 'success',
+                            'amount': float(amount),
+                            'new_balance': float(wallet.balance),
+                            'message': f'Successfully withdrew ${amount}'
+                        })
+                    
+                    return redirect('wallet')
+            except Exception as e:
+                logger.error(f"Error processing withdrawal for user {request.user.username}: {str(e)}")
+                messages.error(request, "An error occurred while processing your withdrawal.")
+                if request.headers.get('Content-Type', '').startswith('application/json') or \
+                   request.headers.get('Accept', '').startswith('application/json'):
+                    return JsonResponse({
+                        'status': 'error',
+                        'message': 'An error occurred while processing your withdrawal.'
+                    }, status=500)
+    else:
+        form = WithdrawalForm()
+    
+    context = {
+        'form': form,
+        'wallet': wallet,
+    }
+    return render(request, 'wallet/withdraw.html', context)
+
 
 @login_required
 def wallet_view(request):
-    """View user's wallet balance and transaction history."""
-    try:
-        wallet = request.user.wallet
-        transactions = wallet.transactions.all().order_by('-created_at')[:20]
-    except Wallet.DoesNotExist:
-        wallet = Wallet.objects.create(user=request.user)
-        transactions = []
+    """Main wallet view showing balance and transaction history"""
+    wallet = request.user.wallet
+    transactions = wallet.transactions.all().order_by('-created_at')[:50]  # Last 50 transactions
     
-    return render(request, 'wallet/wallet.html', {
+    context = {
         'wallet': wallet,
-        'transactions': transactions
-    })
-
-@ratelimit(key='user', rate='10/m', block=True)
-@login_required
-@transaction.atomic
-def deposit_view(request):
-    """
-    Handle deposit requests using Deposit model with status tracking.
+        'transactions': transactions,
+    }
     
-    GET: Display deposit form
-    POST: Process deposit form submission
-    Creates a Deposit record with PENDING status. Wallet balance is only
-    updated when deposit status changes to COMPLETED (via webhook or admin).
-    """
-    # Get or create user's wallet
-    try:
-        wallet = request.user.wallet
-    except Wallet.DoesNotExist:
-        wallet = Wallet.objects.create(user=request.user)
-    
-    if request.method == 'POST':
-        form = DepositForm(request.POST, user=request.user)
-        if form.is_valid():
-            try:
-                amount = form.cleaned_data['amount']
-                payment_method = form.cleaned_data['payment_method']
-                
-                # Create Deposit instance (validation happens in clean())
-                deposit = Deposit(
-                    user=request.user,
-                    amount=amount,
-                    payment_method=payment_method,
-                    status='PENDING',  # Start as PENDING
-                    wallet=wallet
-                )
-                
-                # Run validation (checks amount limits, etc.)
-                deposit.full_clean()
-                deposit.save()
-                
-                messages.success(request, f'Deposit request of ${amount:.2f} created successfully. Processing...')
-                return redirect('wallet')
-            except Exception as e:
-                # Handle validation errors from Deposit model
-                error_message = str(e)
-                if hasattr(e, 'message_dict'):
-                    # Django ValidationError
-                    errors = e.message_dict
-                    error_message = ', '.join([f"{field}: {', '.join(msg_list)}" for field, msg_list in errors.items()])
-                
-                messages.error(request, f'Deposit request failed: {error_message}')
-        else:
-            # Form validation errors
-            messages.error(request, 'Please correct the errors below.')
-    else:
-        # GET request - display form
-        form = DepositForm(user=request.user)
-    
-    return render(request, 'wallet/deposit.html', {
-        'form': form,
-        'wallet': wallet
-    })
-
-@ratelimit(key='user', rate='5/m', block=True)
-@login_required
-@transaction.atomic
-def withdraw_view(request):
-    """
-    Handle withdrawal requests using Withdrawal model with status tracking.
-    
-    GET: Display withdrawal form
-    POST: Process withdrawal form submission
-    Creates a Withdrawal record with PENDING status. Wallet balance is only
-    updated when withdrawal status changes to COMPLETED (via webhook or admin).
-    """
-    # Get or create user's wallet
-    try:
-        wallet = request.user.wallet
-    except Wallet.DoesNotExist:
-        wallet = Wallet.objects.create(user=request.user)
-    
-    if request.method == 'POST':
-        form = WithdrawalForm(request.POST, user=request.user)
-        if form.is_valid():
-            try:
-                amount = form.cleaned_data['amount']
-                payment_method = form.cleaned_data['payment_method']
-                account_details = form.cleaned_data['account_details']
-                
-                # Create Withdrawal instance (validation happens in clean())
-                withdrawal = Withdrawal(
-                    user=request.user,
-                    amount=amount,
-                    payment_method=payment_method,
-                    account_details=account_details,
-                    status='PENDING',  # Start as PENDING
-                    wallet=wallet
-                )
-                
-                # Run validation (checks amount limits, balance, etc.)
-                withdrawal.full_clean()
-                withdrawal.save()
-                
-                messages.success(request, f'Withdrawal request of ${amount:.2f} created successfully. Processing...')
-                return redirect('wallet')
-            except Exception as e:
-                # Handle validation errors from Withdrawal model
-                error_message = str(e)
-                if hasattr(e, 'message_dict'):
-                    # Django ValidationError
-                    errors = e.message_dict
-                    error_message = ', '.join([f"{field}: {', '.join(msg_list)}" for field, msg_list in errors.items()])
-                
-                messages.error(request, f'Withdrawal request failed: {error_message}')
-        else:
-            # Form validation errors
-            messages.error(request, 'Please correct the errors below.')
-    else:
-        # GET request - display form
-        form = WithdrawalForm(user=request.user)
-    
-    return render(request, 'wallet/withdraw.html', {
-        'form': form,
-        'wallet': wallet
-    })
-
-@login_required
-def transaction_history(request):
-    """View detailed transaction history."""
-    try:
-        wallet = request.user.wallet
-        transactions = wallet.transactions.all().order_by('-created_at')
-    except Wallet.DoesNotExist:
-        transactions = []
-    
-    return render(request, 'wallet/transactions.html', {
-        'transactions': transactions
-    })
+    return render(request, 'wallet/wallet.html', context)
