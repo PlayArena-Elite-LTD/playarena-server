@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+from decouple import config, Csv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -20,12 +21,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-k=zcyj&f3bu3yfofrlw=w7nf-aarhrl1vxj^dsuofxh+ko0d5d'
+SECRET_KEY = config('SECRET_KEY', default='django-insecure-k=zcyj&f3bu3yfofrlw=w7nf-aarhrl1vxj^dsuofxh+ko0d5d')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = config('DEBUG', default=True, cast=bool)
 
-ALLOWED_HOSTS = ['lucadev.pythonanywhere.com', '127.0.0.1']
+ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='lucadev.pythonanywhere.com,127.0.0.1', cast=Csv())
 CSRF_TRUSTED_ORIGINS = ['https://lucadev.pythonanywhere.com']
 
 # Application definition
@@ -194,13 +195,23 @@ LOGOUT_REDIRECT_URL = 'login'
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = "smtp.gmail.com"
 EMAIL_PORT = "587"  # It's recommended to keep this as a string or int depending on how your email backend handles it
-EMAIL_HOST_USER = "lucadev1435@gmail.com"
-EMAIL_HOST_PASSWORD = "yrvx rrvl ndvc hmps"
+EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='lucadev1435@gmail.com')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='yrvx rrvl ndvc hmps')
 EMAIL_USE_TLS = True
 EMAIL_USE_SSL = False
 
 # Required for HTML emails in password reset
 PASSWORD_RESET_TIMEOUT = 86400  # 24 hours in seconds
+
+# Flutterwave Payment Gateway Configuration
+FLUTTERWAVE_PUBLIC_KEY = config('FLUTTERWAVE_PUBLIC_KEY', default='')
+FLUTTERWAVE_SECRET_KEY = config('FLUTTERWAVE_SECRET_KEY', default='')
+FLUTTERWAVE_WEBHOOK_SECRET = config('FLUTTERWAVE_WEBHOOK_SECRET', default='')
+
+# Paystack Payment Gateway Configuration
+PAYSTACK_PUBLIC_KEY = config('PAYSTACK_PUBLIC_KEY', default='')
+PAYSTACK_SECRET_KEY = config('PAYSTACK_SECRET_KEY', default='')
+PAYSTACK_WEBHOOK_SECRET = config('PAYSTACK_WEBHOOK_SECRET', default='')
 
 # Rate limiting settings
 RATELIMIT_USE_CACHE = 'default'
