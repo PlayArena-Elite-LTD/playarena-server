@@ -46,7 +46,8 @@ class Deposit(models.Model):
     ]
     
     PAYMENT_METHOD_CHOICES = [
-        ('STRIPE', 'Stripe'),
+        ('FLUTTERWAVE', 'Flutterwave'),
+        ('PAYSTACK', 'Paystack'),
         ('PAYPAL', 'PayPal'),
         ('MOBILE_MONEY', 'Mobile Money'),
         ('BANK_TRANSFER', 'Bank Transfer'),
@@ -107,10 +108,11 @@ class Withdrawal(models.Model):
     ]
     
     PAYMENT_METHOD_CHOICES = [
+        ('FLUTTERWAVE', 'Flutterwave'),
+        ('PAYSTACK', 'Paystack'),
         ('BANK_TRANSFER', 'Bank Transfer'),
         ('MOBILE_MONEY', 'Mobile Money'),
         ('PAYPAL', 'PayPal'),
-        ('STRIPE', 'Stripe'),
         ('OTHER', 'Other'),
     ]
     

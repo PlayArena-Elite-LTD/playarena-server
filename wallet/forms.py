@@ -6,7 +6,8 @@ class DepositForm(forms.Form):
     """Form for depositing funds into wallet"""
     
     PAYMENT_METHODS = [
-        ('STRIPE', 'Stripe'),
+        ('FLUTTERWAVE', 'Flutterwave'),
+        ('PAYSTACK', 'Paystack'),
         ('PAYPAL', 'PayPal'),
         ('MOBILE_MONEY', 'Mobile Money'),
         ('BANK_TRANSFER', 'Bank Transfer'),
@@ -56,7 +57,8 @@ class WithdrawalForm(forms.Form):
     """Form for withdrawing funds from wallet"""
     
     PAYMENT_METHODS = [
-        ('STRIPE', 'Stripe'),
+        ('FLUTTERWAVE', 'Flutterwave'),
+        ('PAYSTACK', 'Paystack'),
         ('PAYPAL', 'PayPal'),
         ('MOBILE_MONEY', 'Mobile Money'),
         ('BANK_TRANSFER', 'Bank Transfer'),
