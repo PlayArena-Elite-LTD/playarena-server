@@ -59,14 +59,99 @@
           </div>
         {% endfor %}
       </div>
-      {% if transactions|length > 15 %}
+      {% if transactions|length >= 15 %}
       <div class="dashboard-card-footer" style="text-align: center; padding: 1rem;">
-        <a href="{% url 'wallet' %}" class="dashboard-button">View All Transactions</a>
+        <a href="{% url 'transaction_history' %}" class="dashboard-button">View All Transactions</a>
       </div>
       {% endif %}
     </div>
+    
+    <!-- Deposit Status card -->
+    {% if deposits %}
+    <div class="dashboard-card">
+      <div class="dashboard-card-header">
+        <h3 class="dashboard-card-title">Recent Deposits</h3>
+      </div>
+      <div class="transaction-list">
+        {% for deposit in deposits %}
+          <div class="transaction-item">
+            <div class="transaction-indicator credit"></div>
+            <div class="transaction-details">
+              <div class="transaction-primary">
+                <span class="transaction-description">Deposit of ${{ deposit.amount|floatformat:2 }} via {{ deposit.get_payment_method_display }}</span>
+                <span class="transaction-amount credit-text">
+                  <span class="status-badge status-{{ deposit.status|lower }}">{{ deposit.get_status_display }}</span>
+                </span>
+              </div>
+              <div class="transaction-secondary">
+                <span class="transaction-date">{{ deposit.created_at|date:"M d, Y h:i A" }}</span>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    
+    <!-- Withdrawal Status card -->
+    {% if withdrawals %}
+    <div class="dashboard-card">
+      <div class="dashboard-card-header">
+        <h3 class="dashboard-card-title">Recent Withdrawals</h3>
+      </div>
+      <div class="transaction-list">
+        {% for withdrawal in withdrawals %}
+          <div class="transaction-item">
+            <div class="transaction-indicator debit"></div>
+            <div class="transaction-details">
+              <div class="transaction-primary">
+                <span class="transaction-description">Withdrawal of ${{ withdrawal.amount|floatformat:2 }} via {{ withdrawal.get_payment_method_display }}</span>
+                <span class="transaction-amount debit-text">
+                  <span class="status-badge status-{{ withdrawal.status|lower }}">{{ withdrawal.get_status_display }}</span>
+                </span>
+              </div>
+              <div class="transaction-secondary">
+                <span class="transaction-date">{{ withdrawal.created_at|date:"M d, Y h:i A" }}</span>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
   </div>
 </section>
+
+<style>
+.status-badge {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 0.25rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.status-pending {
+  background-color: #fbbf24;
+  color: #78350f;
+}
+.status-processing {
+  background-color: #3b82f6;
+  color: #1e3a8a;
+}
+.status-completed {
+  background-color: #10b981;
+  color: #064e3b;
+}
+.status-failed {
+  background-color: #ef4444;
+  color: #7f1d1d;
+}
+.status-cancelled {
+  background-color: #6b7280;
+  color: #111827;
+}
+</style>
 {% endblock %}
 
 
