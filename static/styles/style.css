@@ -1919,8 +1919,9 @@
 /*=============== FOOTER ===============*/
 .footer {
   padding-top: 4rem;
-  background-color: var(--color-off-white);
-  border-top: 1px solid var(--color-lightest-gray);
+  background-color: #002244; /* Dark navy background */
+  border-top: 4px solid var(--color-primary-navy);
+  color: var(--color-white);
 }
 
 .footer-container {
@@ -1928,7 +1929,7 @@
   grid-template-columns: 1fr 2fr; /* Brand | Links */
   gap: 3rem;
   padding-bottom: 2.5rem;
-  border-bottom: 1px solid var(--color-lightest-gray);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 /* Brand section */
@@ -1939,19 +1940,18 @@
 .footer-logo {
   display: inline-block;
   margin-bottom: var(--mb-1);
-  /* Add specific logo styles if needed */
   font-weight: var(--font-bold);
-  font-size: 1.25rem;
-  color: var(--color-near-black);
+  font-size: 1.5rem;
+  color: var(--color-white);
 }
 .footer-logo span {
-  color: var(--color-medium-gray);
+  color: var(--color-silver);
   font-weight: var(--font-regular);
 }
 
 .footer-brand-text {
   font-size: var(--small-font-size);
-  color: var(--color-medium-gray);
+  color: rgba(255, 255, 255, 0.7);
   max-width: 250px;
   line-height: 1.6;
 }
@@ -1965,8 +1965,8 @@
 
 .footer-links-title {
   font-size: var(--normal-font-size);
-  font-weight: var(--font-semi-bold);
-  color: var(--color-near-black);
+  font-weight: var(--font-bold);
+  color: var(--color-white);
   margin-bottom: var(--mb-1);
 }
 
@@ -1979,7 +1979,7 @@
 .footer-link {
   display: inline-block; /* Allows transform */
   font-size: var(--small-font-size);
-  color: var(--color-medium-gray);
+  color: rgba(255, 255, 255, 0.7);
   margin-bottom: 0.75rem;
   transition:
     color 0.3s ease,
@@ -1987,19 +1987,88 @@
 }
 
 .footer-link:hover {
-  color: var(--color-dark-gray);
+  color: var(--color-white);
   transform: translateX(5px); /* Subtle move effect */
+}
+
+/* Footer trust section */
+.footer-trust {
+  padding: 2.5rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.footer-trust-badges {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 2rem;
+  margin-bottom: var(--mb-2);
+}
+
+.footer-trust-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 2rem;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: var(--small-font-size);
+  font-weight: var(--font-semi-bold);
+  transition: all 0.3s ease;
+}
+
+.footer-trust-badge:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+.footer-trust-badge i {
+  color: var(--color-accent-green);
+  font-size: 1rem;
+}
+
+.footer-legal-links {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  text-align: center;
+}
+
+.footer-legal-link {
+  font-size: var(--normal-font-size);
+  color: var(--color-white);
+  font-weight: var(--font-semi-bold);
+  text-decoration: none;
+  transition: color 0.3s ease;
+  padding: 0.5rem 0;
+}
+
+.footer-legal-link:hover {
+  color: var(--color-accent-green);
+  text-decoration: underline;
+}
+
+.footer-separator {
+  color: rgba(255, 255, 255, 0.3);
+  font-size: var(--normal-font-size);
 }
 
 /* Footer bottom */
 .footer-bottom {
-  padding: 1.5rem 0;
+  padding: 2rem 0;
   text-align: center;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .footer-copyright {
-  font-size: var(--smaller-font-size);
-  color: var(--color-medium-gray);
+  font-size: var(--small-font-size);
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: var(--font-regular);
 }
 
 /* Media queries for Footer */
@@ -2018,6 +2087,19 @@
   .footer-links {
     text-align: left; /* Align link text left */
   }
+
+  .footer-trust-badges {
+    gap: 1.5rem;
+  }
+
+  .footer-legal-links {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .footer-separator {
+    display: none;
+  }
 }
 
 @media screen and (max-width: 768px) {
@@ -2034,6 +2116,23 @@
   .footer-links-title {
     font-size: calc(var(--small-font-size) + 1px);
     margin-bottom: 0.75rem;
+  }
+
+  .footer-trust-badges {
+    flex-direction: column;
+    gap: 1rem;
+    align-items: center;
+  }
+
+  .footer-trust-badge {
+    width: 100%;
+    max-width: 300px;
+    justify-content: center;
+  }
+
+  .footer-legal-links {
+    flex-direction: column;
+    gap: 0.5rem;
   }
 
   .footer-link {
