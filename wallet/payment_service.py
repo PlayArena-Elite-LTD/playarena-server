@@ -1,8 +1,8 @@
 """
-Payment Service Module for Flutterwave and Paystack Integration
+Payment Manager - Unified Interface for Payment Gateways
 
 This module provides a unified interface for processing payments through
-Flutterwave and Paystack payment gateways.
+Flutterwave and Paystack payment gateways using the separate service classes.
 """
 
 import logging
@@ -10,53 +10,36 @@ from decimal import Decimal
 from django.conf import settings
 from django.urls import reverse
 
+from .paystack_service import PaystackService
+from .flutterwave_service import FlutterwaveService
+
 logger = logging.getLogger(__name__)
 
 
-class PaymentService:
-    """Unified payment service for Flutterwave and Paystack"""
+class PaymentManager:
+    """Unified payment manager that delegates to specific gateway services"""
     
     def __init__(self):
-        """Initialize payment service with API keys from settings"""
-        self.flutterwave_public_key = settings.FLUTTERWAVE_PUBLIC_KEY
-        self.flutterwave_secret_key = settings.FLUTTERWAVE_SECRET_KEY
-        self.paystack_public_key = settings.PAYSTACK_PUBLIC_KEY
-        self.paystack_secret_key = settings.PAYSTACK_SECRET_KEY
+        """Initialize payment manager with gateway services"""
+        self.paystack_service = PaystackService()
+        self.flutterwave_service = FlutterwaveService()
     
-    def _get_flutterwave_client(self):
-        """Get Flutterwave Rave client instance"""
-        try:
-            from rave_python import Rave
-            if not self.flutterwave_secret_key:
-                logger.warning("Flutterwave secret key not configured")
-                return None
-            return Rave(self.flutterwave_public_key, self.flutterwave_secret_key, usingEnv=False)
-        except ImportError:
-            logger.error("Flutterwave SDK (rave-python) not installed")
-            return None
-        except Exception as e:
-            logger.error(f"Error initializing Flutterwave client: {str(e)}")
-            return None
-    
-    def _get_paystack_client(self):
-        """Get Paystack client instance"""
-        try:
-            import paystackpy
-            if not self.paystack_secret_key:
-                logger.warning("Paystack secret key not configured")
-                return None
-            # Paystackpy uses a different initialization
-            # We'll use direct API calls with requests
-            return {
-                'public_key': self.paystack_public_key,
-                'secret_key': self.paystack_secret_key
-            }
-        except ImportError:
-            logger.error("Paystack SDK (paystackpy) not installed")
-            return None
-        except Exception as e:
-            logger.error(f"Error initializing Paystack client: {str(e)}")
-            return None
+    def get_service(self, provider_name):
+        """
+        Get the appropriate payment service based on provider name
+        
+        Args:
+            provider_name: 'PAYSTACK' or 'FLUTTERWAVE'
+        
+        Returns:
+            PaystackService or FlutterwaveService instance
+        """
+        if provider_name == 'PAYSTACK':
+            return self.paystack_service
+        elif provider_name == 'FLUTTERWAVE':
+            return self.flutterwave_service
+        else:
+            raise ValueError(f"Unknown payment provider: {provider_name}")
     
     def initialize_payment(self, deposit, request):
         """
@@ -76,7 +59,7 @@ class PaymentService:
             }
         """
         payment_method = deposit.payment_method
-        amount = float(deposit.amount)
+        amount = deposit.amount
         user = deposit.user
         
         try:
@@ -104,69 +87,51 @@ class PaymentService:
             }
     
     def _initialize_flutterwave_payment(self, deposit, request, amount, user):
-        """Initialize Flutterwave payment"""
-        rave = self._get_flutterwave_client()
-        if not rave:
-            return {
-                'success': False,
-                'payment_url': None,
-                'payment_reference': None,
-                'message': 'Flutterwave not configured',
-                'gateway': 'FLUTTERWAVE'
-            }
-        
+        """Initialize Flutterwave payment using FlutterwaveService"""
         try:
-            # Build callback URLs
-            success_url = request.build_absolute_uri(reverse('payment_success', kwargs={'deposit_id': deposit.id}))
-            cancel_url = request.build_absolute_uri(reverse('payment_cancel', kwargs={'deposit_id': deposit.id}))
+            # Build callback URL
+            callback_url = request.build_absolute_uri(
+                reverse('payment_success', kwargs={'deposit_id': deposit.id})
+            )
             
-            # Create payment payload
-            payload = {
-                "amount": amount,
-                "currency": "USD",
-                "payment_method": "both",  # card, account, both
-                "customer": {
-                    "email": user.email,
-                    "name": user.get_full_name() or user.username,
-                },
-                "meta": {
-                    "deposit_id": deposit.id,
-                    "user_id": user.id,
-                },
-                "redirect_url": success_url,
-                "tx_ref": f"deposit_{deposit.id}_{deposit.created_at.timestamp()}",
-            }
+            # Create transaction reference
+            tx_ref = f"deposit_{deposit.id}_{deposit.created_at.timestamp()}"
             
-            # Initialize payment
-            response = rave.Payment.charge(payload)
+            # Initialize payment using FlutterwaveService
+            result = self.flutterwave_service.initialize_payment(
+                amount=amount,
+                email=user.email,
+                tx_ref=tx_ref,
+                redirect_url=callback_url,
+                customer_name=user.get_full_name() or user.username,
+                currency=getattr(settings, 'DEFAULT_PAYMENT_CURRENCY', 'NGN'),
+                metadata={
+                    'deposit_id': deposit.id,
+                    'user_id': user.id,
+                }
+            )
             
-            if response and response.get('status') == 'success':
-                payment_data = response.get('data', {})
-                payment_link = payment_data.get('link')
-                tx_ref = payload['tx_ref']
-                
+            if result['success']:
                 # Update deposit with transaction reference
-                deposit.transaction_id = tx_ref
+                deposit.transaction_id = result.get('tx_ref') or tx_ref
                 deposit.status = 'PROCESSING'
                 deposit.save(update_fields=['transaction_id', 'status'])
                 
-                logger.info(f"Flutterwave payment initialized for deposit {deposit.id}: {tx_ref}")
+                logger.info(f"Flutterwave payment initialized for deposit {deposit.id}: {result.get('tx_ref')}")
                 
                 return {
                     'success': True,
-                    'payment_url': payment_link,
-                    'payment_reference': tx_ref,
+                    'payment_url': result.get('payment_link'),
+                    'payment_reference': result.get('tx_ref'),
                     'message': 'Payment initialized successfully',
                     'gateway': 'FLUTTERWAVE'
                 }
             else:
-                error_message = response.get('message', 'Unknown error') if response else 'No response from Flutterwave'
-                logger.error(f"Flutterwave payment initialization failed: {error_message}")
                 return {
                     'success': False,
                     'payment_url': None,
                     'payment_reference': None,
-                    'message': f'Flutterwave error: {error_message}',
+                    'message': result.get('message', 'Flutterwave payment initialization failed'),
                     'gateway': 'FLUTTERWAVE'
                 }
         except Exception as e:
@@ -180,73 +145,49 @@ class PaymentService:
             }
     
     def _initialize_paystack_payment(self, deposit, request, amount, user):
-        """Initialize Paystack payment"""
-        paystack_config = self._get_paystack_client()
-        if not paystack_config:
-            return {
-                'success': False,
-                'payment_url': None,
-                'payment_reference': None,
-                'message': 'Paystack not configured',
-                'gateway': 'PAYSTACK'
-            }
-        
+        """Initialize Paystack payment using PaystackService"""
         try:
-            import requests
-            
             # Build callback URL
-            callback_url = request.build_absolute_uri(reverse('payment_success', kwargs={'deposit_id': deposit.id}))
+            callback_url = request.build_absolute_uri(
+                reverse('payment_success', kwargs={'deposit_id': deposit.id})
+            )
             
             # Create payment reference
             payment_reference = f"deposit_{deposit.id}_{deposit.created_at.timestamp()}"
             
-            # Paystack API endpoint
-            url = "https://api.paystack.co/transaction/initialize"
-            headers = {
-                "Authorization": f"Bearer {paystack_config['secret_key']}",
-                "Content-Type": "application/json"
-            }
-            payload = {
-                "email": user.email,
-                "amount": int(amount * 100),  # Paystack amounts in kobo (cents)
-                "currency": "USD",
-                "reference": payment_reference,
-                "callback_url": callback_url,
-                "metadata": {
-                    "deposit_id": deposit.id,
-                    "user_id": user.id,
+            # Initialize payment using PaystackService
+            result = self.paystack_service.initialize_payment(
+                amount=amount,
+                email=user.email,
+                reference=payment_reference,
+                callback_url=callback_url,
+                metadata={
+                    'deposit_id': deposit.id,
+                    'user_id': user.id,
                 }
-            }
+            )
             
-            # Make API request
-            response = requests.post(url, json=payload, headers=headers)
-            response_data = response.json()
-            
-            if response_data.get('status') and response_data.get('data'):
-                payment_url = response_data['data'].get('authorization_url')
-                
+            if result['success']:
                 # Update deposit with transaction reference
-                deposit.transaction_id = payment_reference
+                deposit.transaction_id = result.get('reference') or payment_reference
                 deposit.status = 'PROCESSING'
                 deposit.save(update_fields=['transaction_id', 'status'])
                 
-                logger.info(f"Paystack payment initialized for deposit {deposit.id}: {payment_reference}")
+                logger.info(f"Paystack payment initialized for deposit {deposit.id}: {result.get('reference')}")
                 
                 return {
                     'success': True,
-                    'payment_url': payment_url,
-                    'payment_reference': payment_reference,
+                    'payment_url': result.get('authorization_url'),
+                    'payment_reference': result.get('reference'),
                     'message': 'Payment initialized successfully',
                     'gateway': 'PAYSTACK'
                 }
             else:
-                error_message = response_data.get('message', 'Unknown error')
-                logger.error(f"Paystack payment initialization failed: {error_message}")
                 return {
                     'success': False,
                     'payment_url': None,
                     'payment_reference': None,
-                    'message': f'Paystack error: {error_message}',
+                    'message': result.get('message', 'Paystack payment initialization failed'),
                     'gateway': 'PAYSTACK'
                 }
         except Exception as e:
@@ -302,43 +243,35 @@ class PaymentService:
             }
     
     def _verify_flutterwave_payment(self, deposit):
-        """Verify Flutterwave payment status"""
-        rave = self._get_flutterwave_client()
-        if not rave:
-            return {
-                'success': False,
-                'status': 'PENDING',
-                'message': 'Flutterwave not configured'
-            }
-        
+        """Verify Flutterwave payment status using FlutterwaveService"""
         try:
-            # Verify transaction using transaction reference
-            response = rave.Transfer.getTransfer(deposit.transaction_id)
-            # Actually, for payments we should use Payment.verify
-            # Let me use the correct method
-            response = rave.Payment.verify(deposit.transaction_id)
+            result = self.flutterwave_service.verify_payment(deposit.transaction_id)
             
-            if response and response.get('status') == 'success':
-                data = response.get('data', {})
-                charge_code = data.get('chargecode', '')
-                
-                if charge_code == '00' or data.get('status') == 'successful':
+            if result['success']:
+                status = result.get('status', '').lower()
+                if status == 'successful':
                     return {
                         'success': True,
                         'status': 'COMPLETED',
                         'message': 'Payment verified successfully'
                     }
-                else:
+                elif status == 'failed':
                     return {
                         'success': False,
                         'status': 'FAILED',
-                        'message': f"Payment failed: {data.get('status', 'Unknown')}"
+                        'message': 'Payment failed'
+                    }
+                else:
+                    return {
+                        'success': False,
+                        'status': 'PENDING',
+                        'message': f'Payment status: {status}'
                     }
             else:
                 return {
                     'success': False,
                     'status': 'PENDING',
-                    'message': 'Payment verification pending'
+                    'message': result.get('message', 'Payment verification pending')
                 }
         except Exception as e:
             logger.error(f"Exception verifying Flutterwave payment: {str(e)}")
@@ -349,31 +282,12 @@ class PaymentService:
             }
     
     def _verify_paystack_payment(self, deposit):
-        """Verify Paystack payment status"""
-        paystack_config = self._get_paystack_client()
-        if not paystack_config:
-            return {
-                'success': False,
-                'status': 'PENDING',
-                'message': 'Paystack not configured'
-            }
-        
+        """Verify Paystack payment status using PaystackService"""
         try:
-            import requests
+            result = self.paystack_service.verify_payment(deposit.transaction_id)
             
-            # Paystack verification endpoint
-            url = f"https://api.paystack.co/transaction/verify/{deposit.transaction_id}"
-            headers = {
-                "Authorization": f"Bearer {paystack_config['secret_key']}"
-            }
-            
-            response = requests.get(url, headers=headers)
-            response_data = response.json()
-            
-            if response_data.get('status') and response_data.get('data'):
-                transaction_data = response_data['data']
-                status = transaction_data.get('status')
-                
+            if result['success']:
+                status = result.get('status', '').lower()
                 if status == 'success':
                     return {
                         'success': True,
@@ -396,7 +310,7 @@ class PaymentService:
                 return {
                     'success': False,
                     'status': 'PENDING',
-                    'message': 'Could not verify payment'
+                    'message': result.get('message', 'Could not verify payment')
                 }
         except Exception as e:
             logger.error(f"Exception verifying Paystack payment: {str(e)}")
@@ -405,3 +319,7 @@ class PaymentService:
                 'status': 'PENDING',
                 'message': f'Verification error: {str(e)}'
             }
+
+
+# Backward compatibility alias
+PaymentService = PaymentManager
