@@ -340,18 +340,158 @@ def transaction_history(request):
 @login_required
 def payment_success(request, deposit_id):
     """
-    Payment success callback handler (temporary - will be enhanced in Task 12)
-    Security: Verify deposit belongs to user
+    Enhanced payment success callback handler with security features
+    
+    Security features:
+    - User ownership verification
+    - Payment reference validation from query parameters
+    - Payment verification with gateway API
+    - Replay attack prevention
+    - Status update with atomic transactions
+    - Comprehensive audit logging
+    
+    Handles redirects from Paystack/Flutterwave after successful payment
     """
+    # Security: Verify deposit belongs to user
     deposit = get_object_or_404(Deposit, id=deposit_id, user=request.user)
     
-    # Security: Verify payment status
+    # Security: Get payment reference from query parameters (gateway redirect)
+    reference_from_gateway = request.GET.get('reference') or request.GET.get('tx_ref')
+    transaction_id_from_gateway = request.GET.get('transaction_id') or request.GET.get('flw_ref')
+    
+    # Security: Validate reference matches deposit (prevents manipulation)
+    if reference_from_gateway and deposit.payment_reference:
+        if reference_from_gateway != deposit.payment_reference:
+            logger.warning(
+                f"Payment callback reference mismatch - "
+                f"User: {request.user.username}, Deposit: {deposit_id}, "
+                f"Expected: {deposit.payment_reference}, Received: {reference_from_gateway}, "
+                f"IP: {_get_client_ip(request)}"
+            )
+            messages.error(request, 'Payment verification failed. Reference mismatch.')
+            return redirect('wallet')
+    
+    # If deposit already completed, just show success (prevent replay)
     if deposit.status == 'COMPLETED':
-        messages.success(request, f'Payment of ${deposit.amount:.2f} completed successfully!')
-    elif deposit.status == 'PROCESSING':
-        messages.info(request, 'Your payment is being processed. Please wait for confirmation.')
-    else:
-        messages.warning(request, 'Payment status is pending. Please check back later.')
+        logger.info(
+            f"Payment success callback for already completed deposit - "
+            f"User: {request.user.username}, Deposit: {deposit_id}"
+        )
+        messages.success(request, f'Payment of ${deposit.amount:.2f} was completed successfully!')
+        return redirect('wallet')
+    
+    # Verify payment with gateway API (security: don't trust redirect alone)
+    try:
+        payment_manager = PaymentManager()
+        verification_result = payment_manager.verify_payment(deposit)
+        
+        if verification_result['success']:
+            verified_status = verification_result.get('status')
+            
+            # Security: Update deposit status atomically
+            with transaction.atomic():
+                # Reload deposit with lock to prevent race conditions
+                deposit = Deposit.objects.select_for_update().get(id=deposit_id)
+                
+                if verified_status == 'COMPLETED':
+                    # Payment verified as completed
+                    if deposit.status != 'COMPLETED':
+                        deposit.status = 'COMPLETED'
+                        deposit.completed_at = timezone.now()
+                        
+                        # Update transaction IDs if provided
+                        if transaction_id_from_gateway:
+                            deposit.gateway_transaction_id = transaction_id_from_gateway
+                        
+                        # Generate verification hash if not exists
+                        if not deposit.verification_hash:
+                            deposit.verification_hash = deposit.generate_verification_hash()
+                        
+                        # Store verification response
+                        deposit.gateway_response = {
+                            **deposit.gateway_response,
+                            'callback_verification': {
+                                'success': True,
+                                'status': 'COMPLETED',
+                                'timestamp': timezone.now().isoformat(),
+                                'reference': reference_from_gateway,
+                                'transaction_id': transaction_id_from_gateway,
+                            }
+                        }
+                        
+                        deposit.save(update_fields=[
+                            'status', 'completed_at', 'gateway_transaction_id',
+                            'verification_hash', 'gateway_response'
+                        ])
+                        
+                        logger.info(
+                            f"Payment verified and completed via callback - "
+                            f"User: {request.user.username}, Deposit: {deposit_id}, "
+                            f"Amount: ${deposit.amount}, Provider: {deposit.payment_provider}"
+                        )
+                        
+                        messages.success(
+                            request,
+                            f'Payment of ${deposit.amount:.2f} completed and verified successfully!'
+                        )
+                    else:
+                        messages.success(request, f'Payment of ${deposit.amount:.2f} completed successfully!')
+                        
+                elif verified_status == 'FAILED':
+                    # Payment verified as failed
+                    deposit.status = 'FAILED'
+                    deposit.failure_reason = verification_result.get('message', 'Payment failed')
+                    deposit.gateway_response = {
+                        **deposit.gateway_response,
+                        'callback_verification': {
+                            'success': False,
+                            'status': 'FAILED',
+                            'timestamp': timezone.now().isoformat(),
+                        }
+                    }
+                    deposit.save(update_fields=['status', 'failure_reason', 'gateway_response'])
+                    
+                    logger.warning(
+                        f"Payment failed via callback verification - "
+                        f"User: {request.user.username}, Deposit: {deposit_id}"
+                    )
+                    
+                    messages.error(request, 'Payment verification failed. Please contact support.')
+                    
+                else:
+                    # Payment still pending
+                    messages.info(
+                        request,
+                        'Your payment is being processed. You will be notified when it\'s completed.'
+                    )
+        else:
+            # Verification failed
+            logger.error(
+                f"Payment verification failed in callback - "
+                f"User: {request.user.username}, Deposit: {deposit_id}, "
+                f"Error: {verification_result.get('message')}"
+            )
+            
+            # Don't update status if verification fails - wait for webhook
+            messages.info(
+                request,
+                'Payment is being processed. Please wait for confirmation or check back later.'
+            )
+            
+    except Exception as e:
+        # Security: Log error but don't expose to user
+        logger.error(
+            f"Exception in payment success callback - "
+            f"User: {request.user.username}, Deposit: {deposit_id}, "
+            f"Error: {str(e)}",
+            exc_info=True
+        )
+        
+        # Don't update status on error - webhook will handle it
+        messages.info(
+            request,
+            'Payment verification is in progress. Please check back in a few moments.'
+        )
     
     return redirect('wallet')
 
@@ -359,18 +499,58 @@ def payment_success(request, deposit_id):
 @login_required
 def payment_cancel(request, deposit_id):
     """
-    Payment cancellation handler (temporary - will be enhanced in Task 12)
-    Security: Verify deposit belongs to user
+    Enhanced payment cancellation handler with security features
+    
+    Security features:
+    - User ownership verification
+    - Status update with validation
+    - Audit logging
+    - Prevents unauthorized cancellation
     """
+    # Security: Verify deposit belongs to user
     deposit = get_object_or_404(Deposit, id=deposit_id, user=request.user)
     
-    # Update deposit status if still pending
-    if deposit.status == 'PENDING':
-        deposit.status = 'CANCELLED'
-        deposit.save(update_fields=['status'])
-        logger.info(f"Payment cancelled by user {request.user.username} for deposit {deposit_id}")
+    # Security: Only allow cancellation of pending/processing deposits
+    if deposit.status in ['PENDING', 'PROCESSING']:
+        with transaction.atomic():
+            # Reload with lock
+            deposit = Deposit.objects.select_for_update().get(id=deposit_id)
+            
+            # Double-check status (prevent race conditions)
+            if deposit.status in ['PENDING', 'PROCESSING']:
+                deposit.status = 'CANCELLED'
+                deposit.failure_reason = 'Payment cancelled by user'
+                deposit.gateway_response = {
+                    **deposit.gateway_response,
+                    'cancellation': {
+                        'timestamp': timezone.now().isoformat(),
+                        'ip': _get_client_ip(request),
+                    }
+                }
+                deposit.save(update_fields=['status', 'failure_reason', 'gateway_response'])
+                
+                logger.info(
+                    f"Payment cancelled by user - "
+                    f"User: {request.user.username}, Deposit: {deposit_id}, "
+                    f"Amount: ${deposit.amount}, IP: {_get_client_ip(request)}"
+                )
+                
+                messages.info(request, 'Payment was cancelled successfully.')
+            else:
+                messages.warning(
+                    request,
+                    f'Payment cannot be cancelled. Current status: {deposit.get_status_display()}'
+                )
+    elif deposit.status == 'COMPLETED':
+        messages.warning(request, 'This payment has already been completed and cannot be cancelled.')
+    elif deposit.status == 'CANCELLED':
+        messages.info(request, 'This payment was already cancelled.')
+    else:
+        messages.warning(
+            request,
+            f'Payment cannot be cancelled. Current status: {deposit.get_status_display()}'
+        )
     
-    messages.info(request, 'Payment was cancelled.')
     return redirect('wallet')
 
 
