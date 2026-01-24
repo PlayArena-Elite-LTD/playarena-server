@@ -16,6 +16,11 @@ from .models import Wallet, Transaction, Deposit, Withdrawal
 from .forms import DepositForm, WithdrawalForm
 from .payment_service import PaymentManager
 from .utils import complete_deposit_and_credit_wallet
+from .error_handlers import (
+    handle_payment_error, log_security_event, validate_payment_amount,
+    detect_suspicious_activity, PaymentError, PaymentSecurityError,
+    PaymentGatewayError, PaymentValidationError
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +88,16 @@ def deposit(request):
                     amount = form.cleaned_data['amount']
                     payment_method = form.cleaned_data['payment_method']
                     
+                    # Security: Validate amount
+                    try:
+                        validated_amount = validate_payment_amount(amount)
+                    except PaymentValidationError as e:
+                        error_result = handle_payment_error(e, request=request, operation='deposit_validation')
+                        messages.error(request, error_result['user_message'])
+                        if request.headers.get('Content-Type', '').startswith('application/json'):
+                            return JsonResponse({'status': 'error', 'message': error_result['user_message']}, status=400)
+                        return redirect('deposit')
+                    
                     # Security: Capture client information
                     client_ip = _get_client_ip(request)
                     user_agent = request.META.get('HTTP_USER_AGENT', '')[:500]  # Limit length
@@ -90,7 +105,7 @@ def deposit(request):
                     # Create Deposit instance with security fields
                     deposit = Deposit(
                         user=request.user,
-                        amount=amount,
+                        amount=validated_amount,
                         payment_method=payment_method,
                         status='PENDING',
                         wallet=wallet,
@@ -99,6 +114,15 @@ def deposit(request):
                     )
                     deposit.full_clean()
                     deposit.save()
+                    
+                    # Security: Detect suspicious activity
+                    is_suspicious, reasons = detect_suspicious_activity(request, deposit=deposit)
+                    if is_suspicious:
+                        logger.warning(
+                            f"Suspicious activity detected for deposit {deposit.id} - "
+                            f"User: {request.user.username}, Reasons: {reasons}"
+                        )
+                        # Don't block, but log for review
                     
                     # Generate secure payment reference
                     payment_reference = _generate_secure_payment_reference(
@@ -165,16 +189,25 @@ def deposit(request):
                                 
                                 messages.error(request, f'Payment initialization failed: {error_message}')
                                 
-                        except Exception as e:
-                            # Security: Don't expose internal errors to user
-                            logger.error(
-                                f"Exception initializing payment for deposit {deposit.id} - "
-                                f"User: {request.user.username}, Error: {str(e)}",
-                                exc_info=True
-                            )
-                            
+                        except PaymentError as e:
+                            # Payment-specific error - use error handler
+                            error_result = handle_payment_error(e, request=request, deposit=deposit, operation='payment_initialization')
                             deposit.status = 'FAILED'
-                            deposit.failure_reason = 'Internal payment processing error'
+                            deposit.failure_reason = error_result['log_message']
+                            deposit.gateway_response = {
+                                'initialization': {
+                                    'success': False,
+                                    'error': error_result['log_message'],
+                                    'timestamp': timezone.now().isoformat(),
+                                }
+                            }
+                            deposit.save(update_fields=['status', 'failure_reason', 'gateway_response'])
+                            messages.error(request, error_result['user_message'])
+                        except Exception as e:
+                            # Unexpected error - use error handler
+                            error_result = handle_payment_error(e, request=request, deposit=deposit, operation='payment_initialization')
+                            deposit.status = 'FAILED'
+                            deposit.failure_reason = error_result['log_message']
                             deposit.gateway_response = {
                                 'initialization': {
                                     'success': False,
@@ -183,8 +216,7 @@ def deposit(request):
                                 }
                             }
                             deposit.save(update_fields=['status', 'failure_reason', 'gateway_response'])
-                            
-                            messages.error(request, 'An error occurred while processing your payment. Please try again.')
+                            messages.error(request, error_result['user_message'])
                     else:
                         # Manual payment method - just save the deposit
                         deposit.save(update_fields=['payment_reference'])
@@ -363,11 +395,16 @@ def payment_success(request, deposit_id):
     # Security: Validate reference matches deposit (prevents manipulation)
     if reference_from_gateway and deposit.payment_reference:
         if reference_from_gateway != deposit.payment_reference:
-            logger.warning(
-                f"Payment callback reference mismatch - "
-                f"User: {request.user.username}, Deposit: {deposit_id}, "
-                f"Expected: {deposit.payment_reference}, Received: {reference_from_gateway}, "
-                f"IP: {_get_client_ip(request)}"
+            # Security event - potential tampering
+            log_security_event(
+                'payment_reference_mismatch',
+                {
+                    'deposit_id': deposit_id,
+                    'expected': deposit.payment_reference,
+                    'received': reference_from_gateway,
+                },
+                request=request,
+                severity='ERROR'
             )
             messages.error(request, 'Payment verification failed. Reference mismatch.')
             return redirect('wallet')

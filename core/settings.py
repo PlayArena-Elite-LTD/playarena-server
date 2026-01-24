@@ -213,6 +213,10 @@ PAYSTACK_PUBLIC_KEY = config('PAYSTACK_PUBLIC_KEY', default='')
 PAYSTACK_SECRET_KEY = config('PAYSTACK_SECRET_KEY', default='')
 PAYSTACK_WEBHOOK_SECRET = config('PAYSTACK_WEBHOOK_SECRET', default='')
 
+# Payment Gateway Settings
+DEFAULT_PAYMENT_CURRENCY = config('DEFAULT_CURRENCY', default='NGN')
+DEFAULT_PAYMENT_PROVIDER = config('PAYMENT_PROVIDER', default='paystack')  # Options: paystack, flutterwave
+
 # Rate limiting settings
 RATELIMIT_USE_CACHE = 'default'
 RATELIMIT_ENABLE = True
@@ -242,6 +246,16 @@ LOGGING = {
     },
     'loggers': {
         'django_ratelimit': {
+            'handlers': ['file', 'console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'security': {
+            'handlers': ['file', 'console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'wallet': {
             'handlers': ['file', 'console'],
             'level': 'INFO',
             'propagate': False,
