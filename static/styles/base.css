@@ -24,6 +24,51 @@
   --color-silver: #cccccc;
   --color-smoke: #eeeeee;
 
+  /*========== Bank-Style Professional Colors ==========*/
+  /* Primary Navy & Blue Colors */
+  --color-primary-navy: #003366;
+  --color-primary-blue: #004080;
+  --color-primary-dark: #002244;
+  --color-primary-light: #0059B3;
+  
+  /* Accent Colors */
+  --color-accent-green: #27AE60;
+  --color-accent-green-light: #2ECC71;
+  --color-accent-gold: #F39C12;
+  --color-accent-gold-light: #F5B041;
+  
+  /* Text Colors */
+  --color-text-primary: #2C3E50;
+  --color-text-secondary: #5D6D7E;
+  --color-text-muted: #7F8C8D;
+  
+  /* Background Colors */
+  --color-bg-light: #F5F7FA;
+  --color-bg-lighter: #ECF0F1;
+  --color-bg-white: #FFFFFF;
+  
+  /* Border Colors */
+  --color-border-light: #E1E8ED;
+  --color-border-medium: #BDC3C7;
+  --color-border-dark: #95A5A6;
+  
+  /* Status Colors */
+  --color-success: #27AE60;
+  --color-success-light: #D5F4E6;
+  --color-warning: #F39C12;
+  --color-warning-light: #FDEBD0;
+  --color-error: #E74C3C;
+  --color-error-light: #FADBD8;
+  --color-info: #3498DB;
+  --color-info-light: #D6EAF8;
+
+  /*========== Professional Gradients ==========*/
+  --gradient-primary: linear-gradient(135deg, #003366 0%, #004080 100%);
+  --gradient-primary-dark: linear-gradient(135deg, #002244 0%, #003366 100%);
+  --gradient-accent: linear-gradient(135deg, #27AE60 0%, #2ECC71 100%);
+  --gradient-gold: linear-gradient(135deg, #F39C12 0%, #F5B041 100%);
+  --gradient-subtle: linear-gradient(180deg, #FFFFFF 0%, #F5F7FA 100%);
+
   /*========== Font and typography ==========*/
   --body-font: "Inter", sans-serif;
   --biggest-font-size: 2rem; /* H1 */
@@ -73,6 +118,36 @@
   --color-slate: #cccccc;
   --color-silver: #444444;
   --color-smoke: #222222;
+
+  /* Bank-Style Dark Mode Colors */
+  --color-primary-navy: #1A4D7A;
+  --color-primary-blue: #2E6BA0;
+  --color-primary-dark: #0F2A44;
+  --color-primary-light: #4A8FC7;
+  
+  --color-accent-green: #2ECC71;
+  --color-accent-green-light: #58D68D;
+  --color-accent-gold: #F5B041;
+  --color-accent-gold-light: #F7C96B;
+  
+  --color-text-primary: #E8E8E8;
+  --color-text-secondary: #B8B8B8;
+  --color-text-muted: #888888;
+  
+  --color-bg-light: #1A1A1A;
+  --color-bg-lighter: #222222;
+  --color-bg-white: #0F0F0F;
+  
+  --color-border-light: #333333;
+  --color-border-medium: #444444;
+  --color-border-dark: #555555;
+  
+  /* Dark Mode Gradients */
+  --gradient-primary: linear-gradient(135deg, #1A4D7A 0%, #2E6BA0 100%);
+  --gradient-primary-dark: linear-gradient(135deg, #0F2A44 0%, #1A4D7A 100%);
+  --gradient-accent: linear-gradient(135deg, #2ECC71 0%, #58D68D 100%);
+  --gradient-gold: linear-gradient(135deg, #F5B041 0%, #F7C96B 100%);
+  --gradient-subtle: linear-gradient(180deg, #0F0F0F 0%, #1A1A1A 100%);
 }
 
 /*========== Responsive typography ==========*/
