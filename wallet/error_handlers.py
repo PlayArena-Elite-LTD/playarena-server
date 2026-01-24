@@ -315,6 +315,100 @@ def validate_payment_amount(amount, min_amount=Decimal('1.00'), max_amount=Decim
         )
 
 
+def validate_withdrawal_amount(amount, user, min_amount=Decimal('1.00'), max_amount=Decimal('5000.00')):
+    """
+    Validate withdrawal amount with security checks including daily limits
+    
+    Security: Prevents invalid amounts, overflow attacks, daily limit abuse, etc.
+    
+    Args:
+        amount: Withdrawal amount to validate
+        user: User instance making the withdrawal
+        min_amount: Minimum withdrawal amount (default: $1.00)
+        max_amount: Maximum single withdrawal amount (default: $5,000.00)
+    
+    Returns:
+        Decimal: Validated amount
+    
+    Raises:
+        PaymentValidationError: If validation fails
+    """
+    from .models import Withdrawal
+    from django.utils import timezone
+    from django.db.models import Sum
+    
+    try:
+        if not isinstance(amount, Decimal):
+            amount = Decimal(str(amount))
+        
+        if amount <= 0:
+            raise PaymentValidationError(
+                "Amount must be positive",
+                user_message="Withdrawal amount must be greater than zero."
+            )
+        
+        if amount < min_amount:
+            raise PaymentValidationError(
+                f"Amount below minimum: {min_amount}",
+                user_message=f"Minimum withdrawal amount is ${min_amount:.2f}"
+            )
+        
+        if amount > max_amount:
+            raise PaymentValidationError(
+                f"Amount exceeds maximum: {max_amount}",
+                user_message=f"Maximum withdrawal amount is ${max_amount:.2f}"
+            )
+        
+        # Check wallet balance
+        if user and hasattr(user, 'wallet'):
+            wallet = user.wallet
+            if amount > wallet.balance:
+                raise PaymentValidationError(
+                    f"Insufficient balance: {wallet.balance}",
+                    user_message=f"Insufficient balance. Your balance is ${wallet.balance:.2f}"
+                )
+        
+        # Check daily withdrawal limits
+        if user:
+            now = timezone.now()
+            today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            
+            today_withdrawals = Withdrawal.objects.filter(
+                user=user,
+                created_at__gte=today_start,
+                status__in=['PENDING', 'PROCESSING', 'COMPLETED']
+            )
+            
+            # Check daily withdrawal count limit
+            today_count = today_withdrawals.count()
+            if today_count >= Withdrawal.MAX_DAILY_WITHDRAWAL_COUNT:
+                raise PaymentValidationError(
+                    f"Daily withdrawal count limit reached: {today_count}",
+                    user_message=f'Daily withdrawal limit reached. Maximum {Withdrawal.MAX_DAILY_WITHDRAWAL_COUNT} withdrawals per day.'
+                )
+            
+            # Check daily withdrawal amount limit
+            today_total = today_withdrawals.aggregate(
+                total=Sum('amount')
+            )['total'] or Decimal('0.00')
+            
+            if (today_total + amount) > Withdrawal.MAX_DAILY_WITHDRAWAL_AMOUNT:
+                remaining = Withdrawal.MAX_DAILY_WITHDRAWAL_AMOUNT - today_total
+                raise PaymentValidationError(
+                    f"Daily withdrawal amount limit exceeded: {today_total + amount}",
+                    user_message=f'Daily withdrawal amount limit exceeded. Maximum ${Withdrawal.MAX_DAILY_WITHDRAWAL_AMOUNT:.2f} per day. '
+                    f'You can withdraw up to ${remaining:.2f} more today.'
+                )
+        
+        return amount
+        
+    except (ValueError, InvalidOperation) as e:
+        raise PaymentValidationError(
+            f"Invalid amount format: {str(e)}",
+            user_message="Invalid withdrawal amount. Please enter a valid number."
+        )
+
+
 def detect_suspicious_activity(request, deposit=None):
     """
     Detect suspicious payment activity patterns

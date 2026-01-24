@@ -242,7 +242,7 @@ def deposit(request):
                     
                     # If payment URL was set, redirect already happened
                     if not payment_url:
-                    return redirect('wallet')
+                        return redirect('wallet')
                         
             except Exception as e:
                 # Security: Log full error but show generic message to user

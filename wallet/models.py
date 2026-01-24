@@ -1,6 +1,7 @@
 from django.db import models
 from django.conf import settings
 from django.db.models.signals import post_save
+from django.db.models import Sum
 from django.dispatch import receiver
 from django.core.exceptions import ValidationError
 from decimal import Decimal
@@ -303,6 +304,9 @@ class Withdrawal(models.Model):
     ]
     
     MIN_WITHDRAWAL_AMOUNT = Decimal('1.00')
+    MAX_WITHDRAWAL_AMOUNT = Decimal('5000.00')  # Maximum single withdrawal amount
+    MAX_DAILY_WITHDRAWAL_AMOUNT = Decimal('10000.00')  # Maximum total withdrawals per day
+    MAX_DAILY_WITHDRAWAL_COUNT = 5  # Maximum number of withdrawals per day
     
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='withdrawals')
     amount = models.DecimalField(max_digits=10, decimal_places=2)
@@ -323,16 +327,54 @@ class Withdrawal(models.Model):
     
     def clean(self):
         from django.core.exceptions import ValidationError
+        from django.utils import timezone
+        from datetime import timedelta
+        
         if self.amount <= 0:
             raise ValidationError({'amount': 'Withdrawal amount must be positive'})
         if self.amount < self.MIN_WITHDRAWAL_AMOUNT:
             raise ValidationError({'amount': f'Minimum withdrawal amount is ${self.MIN_WITHDRAWAL_AMOUNT}'})
+        if self.amount > self.MAX_WITHDRAWAL_AMOUNT:
+            raise ValidationError({'amount': f'Maximum withdrawal amount is ${self.MAX_WITHDRAWAL_AMOUNT}'})
         if not self.account_details or not self.account_details.strip():
             raise ValidationError({'account_details': 'Account details are required for withdrawal'})
+        
         if self.user and hasattr(self.user, 'wallet'):
             wallet = self.user.wallet
             if self.amount > wallet.balance:
                 raise ValidationError({'amount': f'Insufficient balance. Your balance is ${wallet.balance}'})
+            
+            # Security: Check daily withdrawal limits (only for new withdrawals, not updates)
+            if not self.pk:  # Only check for new withdrawals
+                now = timezone.now()
+                today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                
+                # Get today's withdrawals (excluding this one if it exists)
+                today_withdrawals = Withdrawal.objects.filter(
+                    user=self.user,
+                    created_at__gte=today_start,
+                    status__in=['PENDING', 'PROCESSING', 'COMPLETED']
+                )
+                if self.pk:
+                    today_withdrawals = today_withdrawals.exclude(id=self.pk)
+                
+                # Check daily withdrawal count limit
+                today_count = today_withdrawals.count()
+                if today_count >= self.MAX_DAILY_WITHDRAWAL_COUNT:
+                    raise ValidationError({
+                        'amount': f'Daily withdrawal limit reached. Maximum {self.MAX_DAILY_WITHDRAWAL_COUNT} withdrawals per day.'
+                    })
+                
+                # Check daily withdrawal amount limit
+                today_total = today_withdrawals.aggregate(
+                    total=Sum('amount')
+                )['total'] or Decimal('0.00')
+                
+                if (today_total + self.amount) > self.MAX_DAILY_WITHDRAWAL_AMOUNT:
+                    remaining = self.MAX_DAILY_WITHDRAWAL_AMOUNT - today_total
+                    raise ValidationError({
+                        'amount': f'Daily withdrawal amount limit exceeded. Maximum ${self.MAX_DAILY_WITHDRAWAL_AMOUNT} per day. You can withdraw up to ${remaining:.2f} more today.'
+                    })
     
     def save(self, *args, **kwargs):
         self.full_clean()
