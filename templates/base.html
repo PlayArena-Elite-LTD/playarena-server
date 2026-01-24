@@ -28,9 +28,15 @@
     <header class="header" id="header">
       <div class="overlay" id="overlay"></div>
       <nav class="nav container">
-        <a href="#" class="nav-brand">
-          Play<span>Arena</span>
-        </a>
+        <div class="nav-brand-container">
+          <a href="#" class="nav-brand">
+            Play<span>Arena</span>
+          </a>
+          <span class="nav-trust-badge">
+            <i class="fas fa-lock"></i>
+            <span>Secure</span>
+          </span>
+        </div>
         
         {% block nav %}
             {% if user.is_authenticated %}
