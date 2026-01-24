@@ -224,7 +224,7 @@ def deposit(request):
                             f"Manual deposit request created - "
                             f"User: {request.user.username}, Amount: ${amount}, Method: {payment_method}"
                         )
-                        messages.success(request, f'Deposit request of ${amount:.2f} created successfully. It will be processed shortly.')
+                    messages.success(request, f'Deposit request of ${amount:.2f} created successfully. It will be processed shortly.')
                     
                     # Handle JSON requests
                     if request.headers.get('Content-Type', '').startswith('application/json') or \
@@ -242,7 +242,7 @@ def deposit(request):
                     
                     # If payment URL was set, redirect already happened
                     if not payment_url:
-                        return redirect('wallet')
+                    return redirect('wallet')
                         
             except Exception as e:
                 # Security: Log full error but show generic message to user
