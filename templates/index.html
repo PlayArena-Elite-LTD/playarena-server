@@ -275,47 +275,61 @@
 
       <section class="pricing section" id="pricing">
         <div class="container">
-          <h2 class="section-title">Simple, Transparent Pricing</h2>
+          <h2 class="section-title">Transparent Fee Structure</h2>
 
           <div class="pricing-intro">
             <p class="pricing-description">
-              Players pay the same fee to enter a challenge. Play Arena takes
-              only 10% of the total entry fee. The winner gets the remaining 90%
-              as their reward. No hidden fees, no complicated tiers - just
-              straightforward value for players.
+              Our fee structure is designed with transparency and fairness in mind. No hidden costs, no surprises—just clear, straightforward pricing that works for you.
             </p>
           </div>
 
-          <div class="pricing-chart">
-            <div class="pricing-chart-header">
-              <div class="pricing-header-cell">Total Entry Fee</div>
-              <div class="pricing-header-cell">Platform Fee (10%)</div>
-              <div class="pricing-header-cell">Winner's Prize (90%)</div>
+          <div class="pricing-trust-badges">
+            <div class="pricing-trust-badge">
+              <i class="fas fa-check-circle"></i>
+              <span>No Hidden Fees</span>
             </div>
+            <div class="pricing-trust-badge">
+              <i class="fas fa-check-circle"></i>
+              <span>Transparent Pricing</span>
+            </div>
+            <div class="pricing-trust-badge">
+              <i class="fas fa-check-circle"></i>
+              <span>Industry-Leading Rates</span>
+            </div>
+          </div>
 
-            <div class="pricing-chart-row">
-              <div class="pricing-cell">$100</div>
-              <div class="pricing-cell">$10</div>
-              <div class="pricing-cell pricing-cell--highlight">$90</div>
-            </div>
-
-            <div class="pricing-chart-row">
-              <div class="pricing-cell">$500</div>
-              <div class="pricing-cell">$50</div>
-              <div class="pricing-cell pricing-cell--highlight">$450</div>
-            </div>
-
-            <div class="pricing-chart-row">
-              <div class="pricing-cell">$1,000</div>
-              <div class="pricing-cell">$100</div>
-              <div class="pricing-cell pricing-cell--highlight">$900</div>
-            </div>
-
-            <div class="pricing-chart-row">
-              <div class="pricing-cell">$10,000</div>
-              <div class="pricing-cell">$1,000</div>
-              <div class="pricing-cell pricing-cell--highlight">$9,000</div>
-            </div>
+          <div class="pricing-table-container">
+            <table class="pricing-table">
+              <thead>
+                <tr>
+                  <th>Total Entry Fee</th>
+                  <th>Platform Fee (10%)</th>
+                  <th class="pricing-table-highlight">Winner's Prize (90%)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>$100</td>
+                  <td>$10</td>
+                  <td class="pricing-table-highlight">$90</td>
+                </tr>
+                <tr>
+                  <td>$500</td>
+                  <td>$50</td>
+                  <td class="pricing-table-highlight">$450</td>
+                </tr>
+                <tr>
+                  <td>$1,000</td>
+                  <td>$100</td>
+                  <td class="pricing-table-highlight">$900</td>
+                </tr>
+                <tr>
+                  <td>$10,000</td>
+                  <td>$1,000</td>
+                  <td class="pricing-table-highlight">$9,000</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
 
           <div class="pricing-benefits">
@@ -360,7 +374,7 @@
           </div>
 
           <div class="pricing-cta">
-            <a href="{% url 'login' %}" class="button button--primary">Start Competing</a>
+            <a href="{% url 'login' %}" class="button button--primary">Create Account</a>
           </div>
         </div>
       </section>
