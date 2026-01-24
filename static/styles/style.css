@@ -1534,7 +1534,7 @@
   border-radius: 0.75rem;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   border: 1px solid var(--color-border-light);
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem;
   overflow: hidden;
   transition: all 0.3s ease;
 }
@@ -1542,6 +1542,12 @@
 .faq-item:hover {
   box-shadow: 0 4px 12px rgba(0, 51, 102, 0.12);
   border-color: var(--color-primary-navy);
+  transform: translateY(-2px);
+}
+
+.faq-item.active {
+  border-color: var(--color-primary-navy);
+  box-shadow: 0 4px 16px rgba(0, 51, 102, 0.15);
 }
 
 .faq-header {
@@ -1558,8 +1564,8 @@
 }
 
 .faq-question {
-  font-size: var(--normal-font-size);
-  font-weight: var(--font-bold);
+  font-size: var(--h3-font-size);
+  font-weight: var(--font-semi-bold);
   color: var(--color-text-primary);
   flex: 1;
   padding-right: 1.5rem;
@@ -1567,9 +1573,9 @@
 }
 
 .faq-icon {
-  font-size: 1.125rem;
-  width: 32px;
-  height: 32px;
+  font-size: 1rem;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1578,19 +1584,31 @@
   color: var(--color-primary-navy);
   transition: all 0.3s ease;
   flex-shrink: 0;
-  border: 1px solid var(--color-border-light);
+  border: 2px solid var(--color-border-light);
 }
 
 .faq-header:hover .faq-icon {
-  background-color: var(--color-primary-navy);
+  background-color: var(--gradient-primary);
   color: var(--color-white);
   border-color: var(--color-primary-navy);
+  transform: rotate(90deg);
+}
+
+.faq-item.active .faq-icon {
+  background: var(--gradient-primary);
+  color: var(--color-white);
+  border-color: var(--color-primary-navy);
+  transform: rotate(45deg);
 }
 
 .faq-content {
   height: 0;
   overflow: hidden;
   transition: height 0.3s ease;
+}
+
+.faq-item.active .faq-content {
+  height: auto;
 }
 
 .faq-answer {
@@ -1601,21 +1619,9 @@
 }
 
 /* Active state when FAQ is open */
-.faq-item.active .faq-icon {
-  transform: rotate(45deg);
-  background-color: var(--color-primary-navy);
-  color: var(--color-white);
-  border-color: var(--color-primary-navy);
-}
-
 .faq-item.active .faq-header {
   background-color: var(--color-bg-light);
   border-bottom: 1px solid var(--color-border-light);
-}
-
-.faq-item.active {
-  box-shadow: 0 4px 12px rgba(0, 51, 102, 0.15);
-  border-color: var(--color-primary-navy);
 }
 
 /* Additional questions section */
