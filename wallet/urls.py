@@ -7,6 +7,9 @@ urlpatterns = [
     path('deposit/', views.deposit, name='deposit'),
     path('withdraw/', views.withdraw, name='withdraw'),
     path('transactions/', views.transaction_history, name='transaction_history'),
+    # Payment callbacks (will be enhanced in Task 12)
+    path('payment/success/<int:deposit_id>/', views.payment_success, name='payment_success'),
+    path('payment/cancel/<int:deposit_id>/', views.payment_cancel, name='payment_cancel'),
 ]
 
 

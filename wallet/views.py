@@ -1,17 +1,22 @@
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import transaction
 from django.http import JsonResponse, HttpResponse
 from django.views.decorators.http import require_http_methods
+from django.views.decorators.csrf import csrf_exempt
+from django.utils import timezone
 from django_ratelimit.decorators import ratelimit
 from decimal import Decimal, InvalidOperation
 import logging
+import secrets
+import hashlib
 
 from .models import Wallet, Transaction, Deposit, Withdrawal
 from .forms import DepositForm, WithdrawalForm
+from .payment_service import PaymentManager
 
-logger = logging.getLogger('django_ratelimit')
+logger = logging.getLogger(__name__)
 
 
 @login_required
@@ -36,10 +41,37 @@ def check_balance(request):
         return redirect('dashboard')
 
 
+def _get_client_ip(request):
+    """Securely extract client IP address"""
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        ip = x_forwarded_for.split(',')[0].strip()
+    else:
+        ip = request.META.get('REMOTE_ADDR')
+    return ip
+
+
+def _generate_secure_payment_reference(deposit_id, user_id, timestamp):
+    """Generate cryptographically secure payment reference"""
+    # Combine multiple entropy sources for security
+    random_part = secrets.token_urlsafe(16)
+    hash_input = f"{deposit_id}_{user_id}_{timestamp}_{random_part}"
+    hash_part = hashlib.sha256(hash_input.encode()).hexdigest()[:12]
+    return f"dep_{deposit_id}_{hash_part}"
+
+
 @login_required
 @ratelimit(key='user', rate='10/m', method='POST', block=True)
 def deposit(request):
-    """Create deposit request - 10 per minute per user. Creates PENDING deposit."""
+    """
+    Create deposit request with payment gateway integration (Paystack/Flutterwave)
+    Security features:
+    - IP address tracking
+    - User agent tracking
+    - Secure payment reference generation
+    - Gateway response storage
+    - Comprehensive error handling
+    """
     wallet = request.user.wallet
     
     if request.method == 'POST':
@@ -50,33 +82,142 @@ def deposit(request):
                     amount = form.cleaned_data['amount']
                     payment_method = form.cleaned_data['payment_method']
                     
-                    # Create Deposit instance with PENDING status (wallet balance not updated yet)
+                    # Security: Capture client information
+                    client_ip = _get_client_ip(request)
+                    user_agent = request.META.get('HTTP_USER_AGENT', '')[:500]  # Limit length
+                    
+                    # Create Deposit instance with security fields
                     deposit = Deposit(
                         user=request.user,
                         amount=amount,
                         payment_method=payment_method,
                         status='PENDING',
-                        wallet=wallet
+                        wallet=wallet,
+                        ip_address=client_ip,
+                        user_agent=user_agent,
                     )
                     deposit.full_clean()
                     deposit.save()
                     
-                    logger.info(f"Deposit request of ${amount} created for user {request.user.username} via {payment_method}")
-                    messages.success(request, f'Deposit request of ${amount:.2f} created successfully. It will be processed shortly.')
+                    # Generate secure payment reference
+                    payment_reference = _generate_secure_payment_reference(
+                        deposit.id, 
+                        request.user.id, 
+                        deposit.created_at.timestamp()
+                    )
+                    deposit.payment_reference = payment_reference
+                    
+                    # Initialize payment gateway if Paystack or Flutterwave
+                    payment_url = None
+                    if payment_method in ['PAYSTACK', 'FLUTTERWAVE']:
+                        try:
+                            payment_manager = PaymentManager()
+                            payment_result = payment_manager.initialize_payment(deposit, request)
+                            
+                            if payment_result['success']:
+                                payment_url = payment_result.get('payment_url')
+                                # Store gateway response securely
+                                deposit.gateway_response = {
+                                    'initialization': {
+                                        'success': True,
+                                        'gateway': payment_result.get('gateway'),
+                                        'payment_reference': payment_result.get('payment_reference'),
+                                        'timestamp': timezone.now().isoformat(),
+                                    }
+                                }
+                                
+                                # Update deposit with payment reference from gateway
+                                if payment_result.get('payment_reference'):
+                                    deposit.payment_reference = payment_result.get('payment_reference')
+                                
+                                deposit.save(update_fields=['payment_reference', 'gateway_response', 'status'])
+                                
+                                logger.info(
+                                    f"Payment initialized for deposit {deposit.id} - "
+                                    f"User: {request.user.username}, Amount: ${amount}, "
+                                    f"Gateway: {payment_method}, IP: {client_ip}"
+                                )
+                                
+                                # Redirect to payment gateway
+                                if payment_url:
+                                    return redirect(payment_url)
+                                else:
+                                    messages.warning(request, 'Payment initialized but no payment URL received.')
+                            else:
+                                # Payment initialization failed
+                                error_message = payment_result.get('message', 'Payment initialization failed')
+                                deposit.status = 'FAILED'
+                                deposit.failure_reason = error_message
+                                deposit.gateway_response = {
+                                    'initialization': {
+                                        'success': False,
+                                        'error': error_message,
+                                        'timestamp': timezone.now().isoformat(),
+                                    }
+                                }
+                                deposit.save(update_fields=['status', 'failure_reason', 'gateway_response'])
+                                
+                                logger.error(
+                                    f"Payment initialization failed for deposit {deposit.id} - "
+                                    f"User: {request.user.username}, Error: {error_message}"
+                                )
+                                
+                                messages.error(request, f'Payment initialization failed: {error_message}')
+                                
+                        except Exception as e:
+                            # Security: Don't expose internal errors to user
+                            logger.error(
+                                f"Exception initializing payment for deposit {deposit.id} - "
+                                f"User: {request.user.username}, Error: {str(e)}",
+                                exc_info=True
+                            )
+                            
+                            deposit.status = 'FAILED'
+                            deposit.failure_reason = 'Internal payment processing error'
+                            deposit.gateway_response = {
+                                'initialization': {
+                                    'success': False,
+                                    'error': 'Internal error',
+                                    'timestamp': timezone.now().isoformat(),
+                                }
+                            }
+                            deposit.save(update_fields=['status', 'failure_reason', 'gateway_response'])
+                            
+                            messages.error(request, 'An error occurred while processing your payment. Please try again.')
+                    else:
+                        # Manual payment method - just save the deposit
+                        deposit.save(update_fields=['payment_reference'])
+                        logger.info(
+                            f"Manual deposit request created - "
+                            f"User: {request.user.username}, Amount: ${amount}, Method: {payment_method}"
+                        )
+                        messages.success(request, f'Deposit request of ${amount:.2f} created successfully. It will be processed shortly.')
                     
                     # Handle JSON requests
                     if request.headers.get('Content-Type', '').startswith('application/json') or \
                        request.headers.get('Accept', '').startswith('application/json'):
-                        return JsonResponse({
-                            'status': 'success',
+                        response_data = {
+                            'status': 'success' if deposit.status != 'FAILED' else 'error',
                             'deposit_id': deposit.id,
                             'amount': float(amount),
+                            'payment_reference': deposit.payment_reference,
                             'message': f'Deposit request created. Status: {deposit.get_status_display()}'
-                        })
+                        }
+                        if payment_url:
+                            response_data['payment_url'] = payment_url
+                        return JsonResponse(response_data)
                     
-                    return redirect('wallet')
+                    # If payment URL was set, redirect already happened
+                    if not payment_url:
+                        return redirect('wallet')
+                        
             except Exception as e:
-                logger.error(f"Error creating deposit for user {request.user.username}: {str(e)}")
+                # Security: Log full error but show generic message to user
+                logger.error(
+                    f"Error creating deposit for user {request.user.username} - "
+                    f"IP: {_get_client_ip(request)}, Error: {str(e)}",
+                    exc_info=True
+                )
                 error_msg = str(e)
                 if hasattr(e, 'message_dict'):
                     error_msg = ', '.join([f"{k}: {', '.join(v)}" for k, v in e.message_dict.items()])
@@ -194,3 +335,40 @@ def transaction_history(request):
     }
     
     return render(request, 'wallet/transactions.html', context)
+
+
+@login_required
+def payment_success(request, deposit_id):
+    """
+    Payment success callback handler (temporary - will be enhanced in Task 12)
+    Security: Verify deposit belongs to user
+    """
+    deposit = get_object_or_404(Deposit, id=deposit_id, user=request.user)
+    
+    # Security: Verify payment status
+    if deposit.status == 'COMPLETED':
+        messages.success(request, f'Payment of ${deposit.amount:.2f} completed successfully!')
+    elif deposit.status == 'PROCESSING':
+        messages.info(request, 'Your payment is being processed. Please wait for confirmation.')
+    else:
+        messages.warning(request, 'Payment status is pending. Please check back later.')
+    
+    return redirect('wallet')
+
+
+@login_required
+def payment_cancel(request, deposit_id):
+    """
+    Payment cancellation handler (temporary - will be enhanced in Task 12)
+    Security: Verify deposit belongs to user
+    """
+    deposit = get_object_or_404(Deposit, id=deposit_id, user=request.user)
+    
+    # Update deposit status if still pending
+    if deposit.status == 'PENDING':
+        deposit.status = 'CANCELLED'
+        deposit.save(update_fields=['status'])
+        logger.info(f"Payment cancelled by user {request.user.username} for deposit {deposit_id}")
+    
+    messages.info(request, 'Payment was cancelled.')
+    return redirect('wallet')
