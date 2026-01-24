@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="section">
+  <div class="container">
+    {% if messages %}
+    <div class="messages">
+      {% for message in messages %}
+      <p class="message {{ message.tags }}">
+        <i class="fas fa-info-circle"></i>
+        <span>{{ message }}</span>
+      </p>
+      {% endfor %}
+    </div>
+    {% endif %}
+    
+    <!-- Success Card -->
+    <div class="dashboard-card" style="max-width: 600px; margin: 2rem auto; text-align: center;">
+      <div class="dashboard-card-header">
+        <div style="font-size: 4rem; color: #10b981; margin-bottom: 1rem;">
+          <i class="fas fa-check-circle"></i>
+        </div>
+        <h2 class="dashboard-card-title" style="color: #10b981;">Payment Successful!</h2>
+      </div>
+      
+      <div style="padding: 2rem;">
+        <p style="font-size: 1.125rem; color: #6b7280; margin-bottom: 2rem;">
+          Your payment has been processed successfully and your wallet has been credited.
+        </p>
+        
+        <!-- Payment Details -->
+        <div style="background-color: #f9fafb; border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 2rem; text-align: left;">
+          <h3 style="font-size: 1rem; font-weight: 600; margin-bottom: 1rem; color: #111827;">Payment Details</h3>
+          
+          <div style="display: flex; justify-content: space-between; padding: 0.75rem 0; border-bottom: 1px solid #e5e7eb;">
+            <span style="color: #6b7280;">Amount:</span>
+            <span style="font-weight: 600; color: #111827;">${{ deposit.amount|floatformat:2 }}</span>
+          </div>
+          
+          {% if deposit.payment_reference %}
+          <div style="display: flex; justify-content: space-between; padding: 0.75rem 0; border-bottom: 1px solid #e5e7eb;">
+            <span style="color: #6b7280;">Reference:</span>
+            <span style="font-family: monospace; font-size: 0.875rem; color: #111827;">{{ deposit.payment_reference|truncatechars:20 }}</span>
+          </div>
+          {% endif %}
+          
+          <div style="display: flex; justify-content: space-between; padding: 0.75rem 0; border-bottom: 1px solid #e5e7eb;">
+            <span style="color: #6b7280;">Payment Method:</span>
+            <span style="font-weight: 600; color: #111827;">{{ deposit.get_payment_method_display }}</span>
+          </div>
+          
+          {% if deposit.completed_at %}
+          <div style="display: flex; justify-content: space-between; padding: 0.75rem 0;">
+            <span style="color: #6b7280;">Completed:</span>
+            <span style="color: #111827;">{{ deposit.completed_at|date:"M d, Y h:i A" }}</span>
+          </div>
+          {% endif %}
+        </div>
+        
+        <!-- Updated Balance -->
+        {% if deposit.wallet %}
+        <div style="background-color: #ecfdf5; border: 2px solid #10b981; border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 2rem;">
+          <div style="color: #065f46; font-size: 0.875rem; margin-bottom: 0.5rem;">New Balance</div>
+          <div style="font-size: 2rem; font-weight: 700; color: #10b981;">${{ deposit.wallet.balance|floatformat:2 }}</div>
+        </div>
+        {% endif %}
+        
+        <!-- Status Badge -->
+        <div style="margin-bottom: 2rem;">
+          <span class="status-badge status-completed">{{ deposit.get_status_display }}</span>
+        </div>
+        
+        <!-- Action Buttons -->
+        <div style="display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;">
+          <a href="{% url 'wallet' %}" class="dashboard-button dashboard-button-primary">
+            <i class="fas fa-wallet"></i> Go to Wallet
+          </a>
+          <a href="{% url 'transaction_history' %}" class="dashboard-button">
+            <i class="fas fa-history"></i> View Transactions
+          </a>
+          <a href="{% url 'deposit' %}" class="dashboard-button">
+            <i class="fas fa-plus-circle"></i> Make Another Deposit
+          </a>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Security Note -->
+    <div style="max-width: 600px; margin: 1rem auto; text-align: center;">
+      <p style="font-size: 0.875rem; color: #6b7280;">
+        <i class="fas fa-shield-alt"></i>
+        Your payment has been securely processed. A confirmation email has been sent to your registered email address.
+      </p>
+    </div>
+  </div>
+</section>
+
+<style>
+.status-badge {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.status-completed {
+  background-color: #10b981;
+  color: #ffffff;
+}
+.dashboard-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.5rem;
+  text-decoration: none;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+.dashboard-button-primary {
+  background-color: #10b981;
+  color: #ffffff;
+}
+.dashboard-button-primary:hover {
+  background-color: #059669;
+}
+.dashboard-button:not(.dashboard-button-primary) {
+  background-color: #f3f4f6;
+  color: #111827;
+}
+.dashboard-button:not(.dashboard-button-primary):hover {
+  background-color: #e5e7eb;
+}
+</style>
+
+{% endblock %}

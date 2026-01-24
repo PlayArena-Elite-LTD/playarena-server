@@ -371,14 +371,15 @@ def payment_success(request, deposit_id):
             messages.error(request, 'Payment verification failed. Reference mismatch.')
             return redirect('wallet')
     
-    # If deposit already completed, just show success (prevent replay)
+    # If deposit already completed, show success page (prevent replay)
     if deposit.status == 'COMPLETED':
         logger.info(
             f"Payment success callback for already completed deposit - "
             f"User: {request.user.username}, Deposit: {deposit_id}"
         )
-        messages.success(request, f'Payment of ${deposit.amount:.2f} was completed successfully!')
-        return redirect('wallet')
+        # Refresh deposit to get latest wallet balance
+        deposit.refresh_from_db()
+        return render(request, 'wallet/payment_success.html', {'deposit': deposit})
     
     # Verify payment with gateway API (security: don't trust redirect alone)
     try:
@@ -429,13 +430,12 @@ def payment_success(request, deposit_id):
                             f"User: {request.user.username}, Deposit: {deposit_id}, "
                             f"Amount: ${deposit.amount}, Provider: {deposit.payment_provider}"
                         )
-                        
-                        messages.success(
-                            request,
-                            f'Payment of ${deposit.amount:.2f} completed and verified successfully!'
-                        )
                     else:
-                        messages.success(request, f'Payment of ${deposit.amount:.2f} completed successfully!')
+                        # Already completed, just refresh
+                        deposit.refresh_from_db()
+                    
+                    # Render success page
+                    return render(request, 'wallet/payment_success.html', {'deposit': deposit})
                         
                 elif verified_status == 'FAILED':
                     # Payment verified as failed
@@ -456,14 +456,16 @@ def payment_success(request, deposit_id):
                         f"User: {request.user.username}, Deposit: {deposit_id}"
                     )
                     
-                    messages.error(request, 'Payment verification failed. Please contact support.')
+                    # Render failure page
+                    return render(request, 'wallet/payment_failure.html', {'deposit': deposit})
                     
                 else:
-                    # Payment still pending
+                    # Payment still pending - redirect to wallet with message
                     messages.info(
                         request,
                         'Your payment is being processed. You will be notified when it\'s completed.'
                     )
+                    return redirect('wallet')
         else:
             # Verification failed
             logger.error(
@@ -473,10 +475,12 @@ def payment_success(request, deposit_id):
             )
             
             # Don't update status if verification fails - wait for webhook
+            # Show pending status
             messages.info(
                 request,
                 'Payment is being processed. Please wait for confirmation or check back later.'
             )
+            return redirect('wallet')
             
     except Exception as e:
         # Security: Log error but don't expose to user
@@ -492,8 +496,7 @@ def payment_success(request, deposit_id):
             request,
             'Payment verification is in progress. Please check back in a few moments.'
         )
-    
-    return redirect('wallet')
+        return redirect('wallet')
 
 
 @login_required
@@ -535,23 +538,26 @@ def payment_cancel(request, deposit_id):
                     f"Amount: ${deposit.amount}, IP: {_get_client_ip(request)}"
                 )
                 
-                messages.info(request, 'Payment was cancelled successfully.')
+                # Render failure page for cancelled payment
+                return render(request, 'wallet/payment_failure.html', {'deposit': deposit})
             else:
                 messages.warning(
                     request,
                     f'Payment cannot be cancelled. Current status: {deposit.get_status_display()}'
                 )
+                return redirect('wallet')
     elif deposit.status == 'COMPLETED':
         messages.warning(request, 'This payment has already been completed and cannot be cancelled.')
+        return redirect('wallet')
     elif deposit.status == 'CANCELLED':
-        messages.info(request, 'This payment was already cancelled.')
+        # Already cancelled, show failure page
+        return render(request, 'wallet/payment_failure.html', {'deposit': deposit})
     else:
         messages.warning(
             request,
             f'Payment cannot be cancelled. Current status: {deposit.get_status_display()}'
         )
-    
-    return redirect('wallet')
+        return redirect('wallet')
 
 
 @csrf_exempt
