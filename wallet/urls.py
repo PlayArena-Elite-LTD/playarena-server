@@ -10,6 +10,8 @@ urlpatterns = [
     # Payment callbacks (will be enhanced in Task 12)
     path('payment/success/<int:deposit_id>/', views.payment_success, name='payment_success'),
     path('payment/cancel/<int:deposit_id>/', views.payment_cancel, name='payment_cancel'),
+    # Webhook endpoints (CSRF exempt for external services)
+    path('webhook/paystack/', views.paystack_webhook, name='paystack_webhook'),
 ]
 
 
