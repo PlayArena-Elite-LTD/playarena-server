@@ -15,6 +15,7 @@ import hashlib
 from .models import Wallet, Transaction, Deposit, Withdrawal
 from .forms import DepositForm, WithdrawalForm
 from .payment_service import PaymentManager
+from .utils import complete_deposit_and_credit_wallet
 
 logger = logging.getLogger(__name__)
 
@@ -397,16 +398,9 @@ def payment_success(request, deposit_id):
                 if verified_status == 'COMPLETED':
                     # Payment verified as completed
                     if deposit.status != 'COMPLETED':
-                        deposit.status = 'COMPLETED'
-                        deposit.completed_at = timezone.now()
-                        
                         # Update transaction IDs if provided
                         if transaction_id_from_gateway:
                             deposit.gateway_transaction_id = transaction_id_from_gateway
-                        
-                        # Generate verification hash if not exists
-                        if not deposit.verification_hash:
-                            deposit.verification_hash = deposit.generate_verification_hash()
                         
                         # Store verification response
                         deposit.gateway_response = {
@@ -419,20 +413,26 @@ def payment_success(request, deposit_id):
                                 'transaction_id': transaction_id_from_gateway,
                             }
                         }
-                        
-                        deposit.save(update_fields=[
-                            'status', 'completed_at', 'gateway_transaction_id',
-                            'verification_hash', 'gateway_response'
-                        ])
-                        
+                        deposit.save(update_fields=['gateway_transaction_id', 'gateway_response'])
+                    
+                    # Complete deposit and credit wallet (idempotent)
+                    credit_result = complete_deposit_and_credit_wallet(deposit)
+                    
+                    if credit_result['success']:
                         logger.info(
-                            f"Payment verified and completed via callback - "
+                            f"Payment verified and wallet credited via callback - "
                             f"User: {request.user.username}, Deposit: {deposit_id}, "
-                            f"Amount: ${deposit.amount}, Provider: {deposit.payment_provider}"
+                            f"Amount: ${deposit.amount}, Provider: {deposit.payment_provider}, "
+                            f"New Balance: ${credit_result.get('new_balance', 'N/A')}"
                         )
                     else:
-                        # Already completed, just refresh
-                        deposit.refresh_from_db()
+                        logger.warning(
+                            f"Payment verified but wallet credit failed - "
+                            f"Deposit: {deposit_id}, Error: {credit_result.get('message')}"
+                        )
+                    
+                    # Refresh deposit to get updated status
+                    deposit.refresh_from_db()
                     
                     # Render success page
                     return render(request, 'wallet/payment_success.html', {'deposit': deposit})
@@ -666,30 +666,26 @@ def paystack_webhook(request):
                     deposit.save(update_fields=['status', 'failure_reason', 'last_webhook_at', 'webhook_signature', 'webhook_verified', 'gateway_response'])
                     return HttpResponse('Amount mismatch', status=400)
                 
-                # Update deposit status
-                deposit.status = 'COMPLETED'
-                deposit.completed_at = timezone.now()
+                # Update transaction IDs
                 deposit.transaction_id = event_data.get('id', deposit.transaction_id)
                 deposit.gateway_transaction_id = event_data.get('id')
+                deposit.save(update_fields=['transaction_id', 'gateway_transaction_id'])
                 
-                # Verify hash integrity
-                if not deposit.verification_hash:
-                    deposit.verification_hash = deposit.generate_verification_hash()
+                # Complete deposit and credit wallet (idempotent)
+                credit_result = complete_deposit_and_credit_wallet(deposit)
                 
-                deposit.save(update_fields=[
-                    'status', 'completed_at', 'transaction_id', 'gateway_transaction_id',
-                    'last_webhook_at', 'webhook_signature', 'webhook_verified',
-                    'gateway_response', 'verification_hash'
-                ])
-                
-                # Note: Wallet balance update will be handled in Task 15
-                # For now, we just mark the deposit as completed
-                
-                logger.info(
-                    f"Paystack payment completed via webhook - "
-                    f"Deposit: {deposit.id}, User: {deposit.user.username}, "
-                    f"Amount: ${deposit.amount}, Reference: {reference}"
-                )
+                if credit_result['success']:
+                    logger.info(
+                        f"Paystack payment completed and wallet credited via webhook - "
+                        f"Deposit: {deposit.id}, User: {deposit.user.username}, "
+                        f"Amount: ${deposit.amount}, Reference: {reference}, "
+                        f"New Balance: ${credit_result.get('new_balance', 'N/A')}"
+                    )
+                else:
+                    logger.error(
+                        f"Paystack payment completed but wallet credit failed - "
+                        f"Deposit: {deposit.id}, Error: {credit_result.get('message')}"
+                    )
                 
             elif event_type == 'charge.failed':
                 deposit.status = 'FAILED'
@@ -842,21 +838,26 @@ def flutterwave_webhook(request):
                         ])
                         return HttpResponse('Amount mismatch', status=400)
                     
-                    # Update deposit status
-                    deposit.status = 'COMPLETED'
-                    deposit.completed_at = timezone.now()
+                    # Update transaction IDs
                     deposit.transaction_id = tx_ref
                     deposit.gateway_transaction_id = event_data.get('flw_ref', '')
+                    deposit.save(update_fields=['transaction_id', 'gateway_transaction_id'])
                     
-                    # Verify hash integrity
-                    if not deposit.verification_hash:
-                        deposit.verification_hash = deposit.generate_verification_hash()
+                    # Complete deposit and credit wallet (idempotent)
+                    credit_result = complete_deposit_and_credit_wallet(deposit)
                     
-                    deposit.save(update_fields=[
-                        'status', 'completed_at', 'transaction_id', 'gateway_transaction_id',
-                        'last_webhook_at', 'webhook_signature', 'webhook_verified',
-                        'gateway_response', 'verification_hash'
-                    ])
+                    if credit_result['success']:
+                        logger.info(
+                            f"Flutterwave payment completed and wallet credited via webhook - "
+                            f"Deposit: {deposit.id}, User: {deposit.user.username}, "
+                            f"Amount: ${deposit.amount}, tx_ref: {tx_ref}, "
+                            f"New Balance: ${credit_result.get('new_balance', 'N/A')}"
+                        )
+                    else:
+                        logger.error(
+                            f"Flutterwave payment completed but wallet credit failed - "
+                            f"Deposit: {deposit.id}, Error: {credit_result.get('message')}"
+                        )
                     
                     # Note: Wallet balance update will be handled in Task 15
                     
