@@ -4,6 +4,7 @@ Paystack Payment Service
 Handles all Paystack payment gateway operations including:
 - Payment initialization
 - Payment verification
+- Transfer/withdrawal operations
 - Webhook signature verification
 - Webhook event handling
 """
