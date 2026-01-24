@@ -4,6 +4,7 @@ Flutterwave Payment Service
 Handles all Flutterwave payment gateway operations including:
 - Payment initialization
 - Payment verification
+- Transfer/withdrawal operations
 - Webhook signature verification
 - Webhook event handling
 """
