@@ -1,13 +1,14 @@
 """
-Utility functions for wallet operations
+Utility functions for wallet operations, transaction reconciliation and auditing.
 """
-
-from django.db import transaction
-from django.utils import timezone
 from decimal import Decimal
+from django.db import transaction
+from django.db.models import Sum, Q
+from django.utils import timezone
+from datetime import timedelta
 import logging
 
-from .models import Wallet, Transaction, Deposit
+from .models import Wallet, Transaction, Deposit, Withdrawal
 
 logger = logging.getLogger(__name__)
 
