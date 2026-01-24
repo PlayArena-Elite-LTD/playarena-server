@@ -1508,7 +1508,7 @@
 /*=============== FAQ SECTION ===============*/
 .faq {
   position: relative;
-  background-color: var(--color-off-white);
+  background-color: var(--color-bg-light);
 }
 
 .faq-intro {
@@ -1518,103 +1518,117 @@
 }
 
 .faq-description {
-  font-size: 1.1rem;
-  line-height: 1.6;
-  color: var(--color-medium-gray);
+  font-size: 1.125rem;
+  line-height: 1.7;
+  color: var(--color-text-secondary);
 }
 
 /* FAQ container and items */
 .faq-container {
-  max-width: 800px;
+  max-width: 900px;
   margin: 0 auto var(--mb-3);
 }
 
 .faq-item {
-  background-color: var(--color-white);
+  background-color: var(--color-bg-white);
   border-radius: 0.75rem;
-  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--color-border-light);
   margin-bottom: 1rem;
   overflow: hidden;
   transition: all 0.3s ease;
 }
 
 .faq-item:hover {
-  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 51, 102, 0.12);
+  border-color: var(--color-primary-navy);
 }
 
 .faq-header {
-  padding: 1.5rem;
+  padding: 1.75rem 2rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
   cursor: pointer;
-  transition: background-color 0.3s ease;
+  transition: all 0.3s ease;
 }
 
 .faq-header:hover {
-  background-color: rgba(0, 0, 0, 0.02); /* Subtle hover effect */
+  background-color: var(--color-bg-light);
 }
 
 .faq-question {
   font-size: var(--normal-font-size);
-  font-weight: var(--font-semi-bold);
-  color: var(--color-near-black);
+  font-weight: var(--font-bold);
+  color: var(--color-text-primary);
   flex: 1;
-  padding-right: 1rem;
+  padding-right: 1.5rem;
+  line-height: 1.5;
 }
 
 .faq-icon {
-  font-size: 1rem;
-  width: 24px;
-  height: 24px;
+  font-size: 1.125rem;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background-color: var(--color-off-white);
-  color: var(--color-dark-gray);
+  background-color: var(--color-bg-light);
+  color: var(--color-primary-navy);
   transition: all 0.3s ease;
-  flex-shrink: 0; /* Prevent icon from shrinking */
+  flex-shrink: 0;
+  border: 1px solid var(--color-border-light);
+}
+
+.faq-header:hover .faq-icon {
+  background-color: var(--color-primary-navy);
+  color: var(--color-white);
+  border-color: var(--color-primary-navy);
 }
 
 .faq-content {
-  height: 0; /* Initially hidden */
+  height: 0;
   overflow: hidden;
   transition: height 0.3s ease;
 }
 
 .faq-answer {
-  padding: 0 1.5rem 1.5rem;
-  font-size: var(--small-font-size);
-  line-height: 1.6;
-  color: var(--color-medium-gray);
+  padding: 0 2rem 2rem;
+  font-size: var(--normal-font-size);
+  line-height: 1.7;
+  color: var(--color-text-secondary);
 }
 
 /* Active state when FAQ is open */
 .faq-item.active .faq-icon {
   transform: rotate(45deg);
-  background-color: var(--color-dark-gray);
+  background-color: var(--color-primary-navy);
   color: var(--color-white);
+  border-color: var(--color-primary-navy);
+}
+
+.faq-item.active .faq-header {
+  background-color: var(--color-bg-light);
+  border-bottom: 1px solid var(--color-border-light);
 }
 
 .faq-item.active {
-  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 51, 102, 0.15);
+  border-color: var(--color-primary-navy);
 }
-
-/* Add this style if you implement the JS to dynamically set the height */
-/* .faq-item.active .faq-content { */
-/* height: auto; /* Or set dynamically with JS */
-/* } */
 
 /* Additional questions section */
 .faq-more {
   text-align: center;
   margin-top: var(--mb-3);
+  padding-top: 2rem;
 }
 
 .faq-more p {
-  margin-bottom: var(--mb-1);
-  color: var(--color-medium-gray);
+  margin-bottom: var(--mb-1-5);
+  color: var(--color-text-secondary);
+  font-size: var(--normal-font-size);
 }
 
 /* Media queries for FAQ Section */
