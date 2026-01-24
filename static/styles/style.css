@@ -526,6 +526,164 @@
   }
 }
 
+/*=============== TRUST & SECURITY SECTION ===============*/
+.trust {
+  position: relative;
+  background-color: var(--color-bg-white);
+  border-top: 4px solid var(--color-primary-navy);
+  padding-top: 4rem;
+}
+
+.trust-intro {
+  text-align: center;
+  max-width: 800px;
+  margin: 0 auto var(--mb-3);
+}
+
+.trust-description {
+  font-size: 1.125rem;
+  line-height: 1.7;
+  color: var(--color-text-secondary);
+}
+
+.trust-badges {
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 2rem;
+  margin-bottom: var(--mb-3);
+}
+
+.trust-badge {
+  background: var(--color-bg-white);
+  border: 1px solid var(--color-border-light);
+  border-radius: 0.75rem;
+  padding: 2rem 1.5rem;
+  text-align: center;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.trust-badge:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  border-color: var(--color-primary-navy);
+}
+
+.trust-badge-icon {
+  width: 80px;
+  height: 80px;
+  margin: 0 auto var(--mb-1-5);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  color: var(--color-white);
+  background: var(--gradient-primary);
+  box-shadow: 0 4px 12px rgba(0, 51, 102, 0.2);
+}
+
+.trust-badge-title {
+  font-size: var(--h3-font-size);
+  font-weight: var(--font-bold);
+  color: var(--color-text-primary);
+  margin-bottom: var(--mb-0-75);
+}
+
+.trust-badge-text {
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+  font-size: var(--normal-font-size);
+}
+
+.trust-indicators {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 2rem;
+  margin-top: var(--mb-3);
+}
+
+.trust-indicator {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.5rem;
+  padding: 1.5rem;
+  background: var(--color-bg-light);
+  border-radius: 0.75rem;
+  border-left: 4px solid var(--color-accent-green);
+  transition: all 0.3s ease;
+}
+
+.trust-indicator:hover {
+  background: var(--color-bg-lighter);
+  transform: translateX(4px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.trust-indicator-icon {
+  flex-shrink: 0;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  color: var(--color-white);
+  background: var(--gradient-accent);
+  box-shadow: 0 2px 8px rgba(39, 174, 96, 0.2);
+}
+
+.trust-indicator-content {
+  flex: 1;
+}
+
+.trust-indicator-title {
+  font-size: var(--h3-font-size);
+  font-weight: var(--font-semi-bold);
+  color: var(--color-text-primary);
+  margin-bottom: var(--mb-0-5);
+}
+
+.trust-indicator-text {
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+  font-size: var(--normal-font-size);
+}
+
+/* Trust Section Media Queries */
+@media screen and (min-width: 768px) {
+  .trust-badges {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .trust-indicators {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media screen and (max-width: 767px) {
+  .trust {
+    padding-top: 3rem;
+  }
+
+  .trust-badges {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+
+  .trust-indicators {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+
+  .trust-badge {
+    padding: 1.5rem 1rem;
+  }
+
+  .trust-indicator {
+    padding: 1.25rem;
+  }
+}
+
 /*=============== ABOUT SECTION ===============*/
 .about {
   position: relative;
