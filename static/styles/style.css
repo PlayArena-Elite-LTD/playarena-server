@@ -364,6 +364,39 @@
   display: flex;
   flex-wrap: wrap;
   gap: 1rem;
+  margin-bottom: var(--mb-2);
+}
+
+.hero-security-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: var(--mb-2);
+}
+
+.hero-security-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1rem;
+  background: var(--color-bg-light);
+  border: 1px solid var(--color-border-light);
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--color-text-primary);
+  transition: all 0.3s ease;
+}
+
+.hero-security-badge i {
+  color: var(--color-accent-green);
+  font-size: 1rem;
+}
+
+.hero-security-badge:hover {
+  background: var(--color-bg-lighter);
+  border-color: var(--color-accent-green);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
 
 .button {
@@ -561,6 +594,46 @@
     min-height: 300px;
   }
 
+  .hero-security-badges {
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-top: var(--mb-1-5);
+  }
+
+  .hero-security-badge {
+    justify-content: center;
+    width: 100%;
+    max-width: 280px;
+    margin: 0 auto;
+  }
+
+  .payment-methods {
+    padding: 1.5rem 1rem;
+    margin-top: var(--mb-3);
+  }
+
+  .payment-methods-title {
+    font-size: var(--h3-font-size);
+  }
+
+  .payment-methods-icons {
+    gap: 1rem;
+  }
+
+  .payment-method-icon {
+    min-width: 100px;
+    padding: 1.25rem 1rem;
+  }
+
+  .payment-method-icon i {
+    font-size: 2rem;
+  }
+
+  .payment-security-badge {
+    font-size: 0.875rem;
+    padding: 0.875rem 1.25rem;
+  }
+
   .hero-icon {
     width: 80px;
     height: 80px;
@@ -704,6 +777,92 @@
   color: var(--color-text-secondary);
   line-height: 1.6;
   font-size: var(--normal-font-size);
+}
+
+/* Payment Methods Section */
+.payment-methods {
+  margin-top: var(--mb-4);
+  padding: 2.5rem;
+  background: var(--color-bg-white);
+  border: 1px solid var(--color-border-light);
+  border-radius: 1rem;
+  text-align: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.payment-methods-title {
+  font-size: var(--h2-font-size);
+  font-weight: var(--font-bold);
+  color: var(--color-text-primary);
+  margin-bottom: var(--mb-1);
+}
+
+.payment-methods-description {
+  color: var(--color-text-secondary);
+  margin-bottom: var(--mb-2-5);
+  font-size: var(--normal-font-size);
+}
+
+.payment-methods-icons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2rem;
+  margin-bottom: var(--mb-2-5);
+}
+
+.payment-method-icon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.5rem 1.25rem;
+  background: var(--color-bg-light);
+  border: 1px solid var(--color-border-light);
+  border-radius: 0.75rem;
+  transition: all 0.3s ease;
+  min-width: 120px;
+}
+
+.payment-method-icon i {
+  font-size: 2.5rem;
+  color: var(--color-primary-navy);
+  transition: all 0.3s ease;
+}
+
+.payment-method-icon span {
+  font-size: 0.875rem;
+  font-weight: var(--font-semi-bold);
+  color: var(--color-text-primary);
+}
+
+.payment-method-icon:hover {
+  background: var(--color-bg-lighter);
+  border-color: var(--color-primary-navy);
+  transform: translateY(-4px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+}
+
+.payment-method-icon:hover i {
+  color: var(--color-accent-green);
+  transform: scale(1.1);
+}
+
+.payment-security-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  background: var(--gradient-primary);
+  color: var(--color-white);
+  border-radius: 0.5rem;
+  font-weight: var(--font-semi-bold);
+  font-size: var(--normal-font-size);
+  box-shadow: 0 4px 12px rgba(0, 51, 102, 0.2);
+}
+
+.payment-security-badge i {
+  font-size: 1.25rem;
 }
 
 /* Trust Section Media Queries */
