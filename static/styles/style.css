@@ -238,12 +238,19 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 2.5rem;
-    height: 2.5rem;
+    width: 2.75rem; /* 44px minimum */
+    height: 2.75rem; /* 44px minimum */
+    min-width: 44px;
+    min-height: 44px;
     background-color: var(--color-off-white);
     border-radius: 50%;
     margin-right: 0.9375rem;
     transition: background-color 0.4s;
+  }
+
+  .nav-link {
+    min-height: 44px; /* Minimum touch target */
+    padding: 0.75rem 1rem;
   }
 
   .nav-toggle,
@@ -372,6 +379,8 @@
   text-decoration: none;
   border: none;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  min-height: 44px; /* Minimum touch target size */
+  min-width: 44px; /* Minimum touch target size */
 }
 
 .button--primary {
@@ -2230,5 +2239,115 @@
   }
   .footer-link:hover {
     transform: translateX(0) scale(1.05); /* Adjust hover for centered text */
+  }
+}
+
+/*=============== COMPREHENSIVE MOBILE OPTIMIZATIONS ===============*/
+/* Mobile Typography Adjustments */
+@media screen and (max-width: 767px) {
+  :root {
+    --biggest-font-size: 2rem; /* Reduced from 3.5rem */
+    --h1-font-size: 1.75rem; /* Reduced from 2.75rem */
+    --h2-font-size: 1.5rem; /* Reduced from 2rem */
+    --h3-font-size: 1.125rem; /* Reduced from 1.5rem */
+    --normal-font-size: 0.938rem; /* Slightly reduced */
+  }
+
+  .section {
+    padding: 3rem 0 1.5rem; /* Reduced padding */
+  }
+
+  .section-title {
+    font-size: 1.75rem;
+    margin-bottom: var(--mb-1-5);
+  }
+
+  .container {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+}
+
+/* Small Mobile Devices (320px - 480px) */
+@media screen and (max-width: 480px) {
+  :root {
+    --biggest-font-size: 1.75rem;
+    --h1-font-size: 1.5rem;
+    --h2-font-size: 1.25rem;
+    --h3-font-size: 1rem;
+    --normal-font-size: 0.875rem;
+  }
+
+  .section {
+    padding: 2rem 0 1rem;
+  }
+
+  .section-title {
+    font-size: 1.5rem;
+    margin-bottom: var(--mb-1);
+  }
+
+  /* Ensure all buttons meet touch target minimum */
+  .button {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0.75rem 1.5rem;
+    font-size: 0.938rem;
+  }
+
+  /* Ensure nav links meet touch target minimum */
+  .nav-link {
+    min-height: 44px;
+    padding: 0.75rem 1rem;
+  }
+
+  /* Ensure all clickable elements meet touch target minimum */
+  .nav-toggle,
+  .nav-close,
+  .theme-toggle {
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Image optimizations */
+  img {
+    max-width: 100%;
+    height: auto;
+  }
+
+  /* Reduce spacing for cards and sections */
+  .about-card,
+  .trust-badge,
+  .trust-indicator,
+  .pricing-benefit,
+  .games-category,
+  .reviews-card {
+    padding: 1.5rem 1rem;
+    margin-bottom: 1rem;
+  }
+
+  /* Optimize grid gaps */
+  .grid {
+    gap: 1rem;
+  }
+}
+
+/* Extra Small Devices (320px) */
+@media screen and (max-width: 320px) {
+  .container {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  .button {
+    padding: 0.625rem 1.25rem;
+    font-size: 0.875rem;
+  }
+
+  .section-title {
+    font-size: 1.25rem;
   }
 }
