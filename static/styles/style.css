@@ -109,6 +109,14 @@
   color: var(--color-primary-navy);
 }
 
+.nav-toggle:focus,
+.nav-close:focus,
+.theme-toggle:focus {
+  outline: 3px solid var(--color-accent-green);
+  outline-offset: 2px;
+  color: var(--color-primary-navy);
+}
+
 .theme-menu-buttons {
   display: flex;
   align-items: center;
@@ -289,6 +297,13 @@
   background-color: var(--color-bg-light);
 }
 
+.nav-link:focus {
+  outline: 3px solid var(--color-accent-green);
+  outline-offset: 2px;
+  color: var(--color-primary-navy);
+  background-color: var(--color-bg-light);
+}
+
 .logout-btn {
 	background: inherit;
 	border: none;
@@ -399,6 +414,13 @@
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
 
+.hero-security-badge:focus {
+  outline: 3px solid var(--color-accent-green);
+  outline-offset: 2px;
+  background: var(--color-bg-lighter);
+  border-color: var(--color-accent-green);
+}
+
 .button {
   display: inline-flex;
   align-items: center;
@@ -416,6 +438,26 @@
   min-width: 44px; /* Minimum touch target size */
 }
 
+.button:focus,
+.button:focus-visible {
+  outline: 3px solid var(--color-accent-green);
+  outline-offset: 2px;
+}
+
+/* Ensure all interactive elements have focus states */
+a:focus,
+a:focus-visible {
+  outline: 3px solid var(--color-accent-green);
+  outline-offset: 2px;
+}
+
+.faq-header:focus,
+.faq-header:focus-visible {
+  outline: 3px solid var(--color-accent-green);
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}
+
 .button--primary {
   background: var(--gradient-primary);
   color: var(--color-white);
@@ -425,6 +467,13 @@
   background: var(--gradient-primary-dark);
   box-shadow: 0 4px 8px rgba(0, 51, 102, 0.3);
   transform: translateY(-2px);
+}
+
+.button--primary:focus,
+.button--outline:focus,
+.button--secondary:focus {
+  outline: 3px solid var(--color-accent-green);
+  outline-offset: 2px;
 }
 
 .button--outline {
@@ -1831,6 +1880,11 @@
   transition: all 0.3s ease;
 }
 
+.faq-header:focus {
+  outline: 3px solid var(--color-accent-green);
+  outline-offset: 2px;
+}
+
 .faq-header:hover {
   background-color: var(--color-bg-light);
 }
@@ -2329,6 +2383,16 @@
 .footer-link:hover {
   color: var(--color-white);
   transform: translateX(5px); /* Subtle move effect */
+}
+
+.footer-link:focus,
+.contact-social-link:focus,
+.contact-card:focus,
+.about-card:focus,
+.trust-badge:focus,
+.disclaimer-item:focus {
+  outline: 3px solid var(--color-accent-green);
+  outline-offset: 2px;
 }
 
 /* Footer trust section */
