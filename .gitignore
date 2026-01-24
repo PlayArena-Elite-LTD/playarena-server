@@ -1,20 +1,89 @@
-# Ignore Windows system files
-Thumbs.db
-Desktop.ini
+# Security: Environment variables and secrets
+.env
+.env.local
+.env.*.local
+*.env
+!.env.example
 
-# Ignore IDE and editor files
+# Security: Payment gateway keys and secrets
+*_secret_key.txt
+*_api_key.txt
+payment_keys/
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Django
+*.log
+*.pot
+*.pyc
+db.sqlite3
+db.sqlite3-journal
+/staticfiles/
+/media/
+/static/
+
+# IDE and editors
 .idea/
 .vscode/
+*.swp
+*.swo
+*~
+.DS_Store
 
-# Ignore log files
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Temporary files
+*.bak
+*.tmp
+*.temp
+
+# Windows
+Thumbs.db
+Desktop.ini
+AppData/
+
+# Node
+node_modules/
+package-lock.json
+
+# Security: Backup files
+*.backup
+*.old
+*_backup.*
+
+# Security: Log files with sensitive data
+rate_limit.log
+payment.log
+security.log
 *.log
 
-# Ignore temporary files
-*.bak
-*.swp
+# Security: Database backups
+*.sql
+*.db
+*.sqlite
+*.sqlite3
 
-# Ignore node_modules
-node_modules/
-
-# Ignore AppData and similar system files
-AppData/
+# Security: Certificate files
+*.pem
+*.key
+*.crt
+*.cert
