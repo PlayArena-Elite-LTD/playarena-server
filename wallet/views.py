@@ -66,8 +66,47 @@ def deposit_view(request):
                 deposit.full_clean()
                 deposit.save()
                 
-                messages.success(request, f'Deposit request of ${amount:.2f} created successfully. Processing...')
-                return redirect('wallet')
+                # Initialize payment gateway transaction
+                from wallet.payment_manager import get_payment_manager
+                
+                payment_manager = get_payment_manager()
+                
+                # Build callback URL for payment completion
+                from django.urls import reverse
+                callback_url = request.build_absolute_uri(reverse('wallet'))
+                
+                # Initialize payment
+                payment_result = payment_manager.initialize_deposit(deposit, callback_url)
+                
+                if payment_result['success']:
+                    # Update deposit with transaction reference
+                    deposit.transaction_id = payment_result.get('payment_reference')
+                    deposit.save()
+                    
+                    # If authorization URL is provided, redirect to payment gateway
+                    if payment_result.get('authorization_url'):
+                        # Store deposit ID in session for verification after redirect
+                        request.session['pending_deposit_id'] = deposit.id
+                        return redirect(payment_result['authorization_url'])
+                    else:
+                        # Bank transfer or other methods that don't require redirect
+                        messages.success(
+                            request,
+                            f'Deposit request of ${amount:.2f} created successfully. '
+                            f'Reference: {payment_result.get("payment_reference")}. '
+                            f'Please complete the transfer and wait for verification.'
+                        )
+                        return redirect('wallet')
+                else:
+                    # Payment initialization failed
+                    deposit.status = 'FAILED'
+                    deposit.save()
+                    messages.error(
+                        request,
+                        f'Failed to initialize payment: {payment_result.get("failure_reason", "Unknown error")}'
+                    )
+                    return redirect('wallet')
+                    
             except Exception as e:
                 # Handle validation errors from Deposit model
                 error_message = str(e)

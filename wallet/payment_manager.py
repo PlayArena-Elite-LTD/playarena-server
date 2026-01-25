@@ -1,8 +1,8 @@
 """
 Payment Manager for handling payment gateway integrations.
 
-This module provides a unified interface for processing withdrawals through
-multiple payment gateways (Paystack, Flutterwave, etc.).
+This module provides a unified interface for processing deposits and withdrawals
+through multiple payment gateways (Paystack, Flutterwave, etc.).
 
 Security features:
 - API key management
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 class PaymentManager:
     """
-    Unified payment gateway manager for processing withdrawals.
+    Unified payment gateway manager for processing deposits and withdrawals.
     
     Supports multiple payment gateways:
     - Paystack
@@ -46,6 +46,58 @@ class PaymentManager:
         
         # General settings
         self.test_mode = getattr(settings, 'PAYMENT_GATEWAY_TEST_MODE', True)
+    
+    def initialize_deposit(self, deposit, callback_url: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Initialize a deposit payment through the appropriate payment gateway.
+        
+        This method creates a payment request with the gateway and returns
+        the authorization URL or payment details needed to complete the deposit.
+        
+        Args:
+            deposit: Deposit model instance
+            callback_url: Optional callback URL for payment completion
+            
+        Returns:
+            dict: {
+                'success': bool,
+                'authorization_url': str or None,
+                'payment_reference': str or None,
+                'gateway_response': dict,
+                'failure_reason': str or None
+            }
+        """
+        payment_method = deposit.payment_method
+        
+        try:
+            if payment_method == 'STRIPE':
+                return self._initialize_stripe_deposit(deposit, callback_url)
+            elif payment_method == 'MOBILE_MONEY':
+                return self._initialize_mobile_money_deposit(deposit, callback_url)
+            elif payment_method == 'BANK_TRANSFER':
+                return self._initialize_bank_transfer_deposit(deposit, callback_url)
+            elif payment_method == 'PAYPAL':
+                return self._initialize_paypal_deposit(deposit, callback_url)
+            else:
+                return {
+                    'success': False,
+                    'authorization_url': None,
+                    'payment_reference': None,
+                    'gateway_response': {'status': 'error', 'message': 'Unsupported payment method'},
+                    'failure_reason': f'Payment method {payment_method} is not supported'
+                }
+        except Exception as e:
+            logger.error(
+                f'Error initializing deposit {deposit.id}: {str(e)}',
+                exc_info=True
+            )
+            return {
+                'success': False,
+                'authorization_url': None,
+                'payment_reference': None,
+                'gateway_response': {'status': 'error', 'error': str(e)},
+                'failure_reason': f'Processing error: {str(e)}'
+            }
     
     def process_withdrawal(self, withdrawal) -> Dict[str, Any]:
         """
