@@ -165,6 +165,12 @@ class WithdrawalAdmin(admin.ModelAdmin):
         This action uses the same processing logic as the management command.
         """
         from wallet.payment_manager import get_payment_manager
+        from wallet.notifications import (
+            notify_withdrawal_processing,
+            notify_withdrawal_completed,
+            notify_withdrawal_failed,
+            notify_withdrawal_retry
+        )
         import logging
         
         logger = logging.getLogger(__name__)
@@ -195,6 +201,8 @@ class WithdrawalAdmin(admin.ModelAdmin):
                         updated_at=timezone.now()
                     )
                     withdrawal.refresh_from_db()
+                    # Send processing notification
+                    notify_withdrawal_processing(withdrawal)
                 
                 # Process through payment gateway using PaymentManager
                 payment_manager = get_payment_manager()
@@ -227,6 +235,11 @@ class WithdrawalAdmin(admin.ModelAdmin):
                     )
                     
                     completed_count += 1
+                    
+                    # Send completion notification
+                    withdrawal.refresh_from_db()
+                    notify_withdrawal_completed(withdrawal)
+                    
                     logger.info(
                         f'Withdrawal {withdrawal.id} processed successfully via admin. '
                         f'Transaction ID: {result["transaction_id"]}'
@@ -247,6 +260,11 @@ class WithdrawalAdmin(admin.ModelAdmin):
                         )
                         
                         failed_count += 1
+                        
+                        # Send failure notification
+                        withdrawal.refresh_from_db()
+                        notify_withdrawal_failed(withdrawal, result['failure_reason'])
+                        
                         logger.warning(
                             f'Withdrawal {withdrawal.id} failed after {new_retry_count} retries. '
                             f'Reason: {result["failure_reason"]}'
@@ -262,6 +280,11 @@ class WithdrawalAdmin(admin.ModelAdmin):
                         )
                         
                         failed_count += 1  # Count as failed for this attempt
+                        
+                        # Send retry notification
+                        withdrawal.refresh_from_db()
+                        notify_withdrawal_retry(withdrawal, new_retry_count, withdrawal.max_retry_count)
+                        
                         logger.info(
                             f'Withdrawal {withdrawal.id} failed, will retry. '
                             f'Retry count: {new_retry_count}/{withdrawal.max_retry_count}. '
@@ -282,6 +305,10 @@ class WithdrawalAdmin(admin.ModelAdmin):
                         updated_at=timezone.now()
                     )
                     failed_count += 1
+                    
+                    # Send failure notification
+                    withdrawal.refresh_from_db()
+                    notify_withdrawal_failed(withdrawal, f'Processing error: {str(e)}')
                 except Exception as update_error:
                     logger.error(
                         f'Error updating withdrawal {withdrawal.id} status: {str(update_error)}',

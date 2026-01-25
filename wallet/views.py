@@ -128,6 +128,10 @@ def withdraw_view(request):
                 withdrawal.full_clean()
                 withdrawal.save()
                 
+                # Send notification for withdrawal creation
+                from wallet.notifications import notify_withdrawal_created
+                notify_withdrawal_created(withdrawal)
+                
                 messages.success(request, f'Withdrawal request of ${amount:.2f} created successfully. Processing...')
                 return redirect('wallet')
             except Exception as e:

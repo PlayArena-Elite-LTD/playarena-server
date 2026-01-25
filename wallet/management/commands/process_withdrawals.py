@@ -26,6 +26,12 @@ from django.conf import settings
 
 from wallet.models import Withdrawal, Transaction, Wallet
 from wallet.payment_manager import get_payment_manager
+from wallet.notifications import (
+    notify_withdrawal_processing,
+    notify_withdrawal_completed,
+    notify_withdrawal_failed,
+    notify_withdrawal_retry
+)
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +144,9 @@ class Command(BaseCommand):
                     )
                     withdrawal.refresh_from_db()
                     
+                    # Send processing notification
+                    notify_withdrawal_processing(withdrawal)
+                    
                     # Process through payment gateway using PaymentManager
                     payment_manager = get_payment_manager()
                     result = payment_manager.process_withdrawal(withdrawal)
@@ -169,6 +178,11 @@ class Command(BaseCommand):
                         )
                         
                         completed_count += 1
+                        
+                        # Send completion notification
+                        withdrawal.refresh_from_db()
+                        notify_withdrawal_completed(withdrawal)
+                        
                         logger.info(
                             f'Withdrawal {withdrawal.id} completed successfully. '
                             f'Transaction ID: {result["transaction_id"]}'
@@ -196,6 +210,11 @@ class Command(BaseCommand):
                             )
                             
                             failed_count += 1
+                            
+                            # Send failure notification
+                            withdrawal.refresh_from_db()
+                            notify_withdrawal_failed(withdrawal, result['failure_reason'])
+                            
                             logger.warning(
                                 f'Withdrawal {withdrawal.id} failed after {new_retry_count} retries. '
                                 f'Reason: {result["failure_reason"]}'
@@ -217,6 +236,11 @@ class Command(BaseCommand):
                             )
                             
                             retry_count += 1
+                            
+                            # Send retry notification
+                            withdrawal.refresh_from_db()
+                            notify_withdrawal_retry(withdrawal, new_retry_count, withdrawal.max_retry_count)
+                            
                             logger.info(
                                 f'Withdrawal {withdrawal.id} failed, will retry. '
                                 f'Retry count: {new_retry_count}/{withdrawal.max_retry_count}. '
@@ -249,6 +273,10 @@ class Command(BaseCommand):
                             failure_reason=f'Processing error: {str(e)}',
                             updated_at=timezone.now()
                         )
+                        
+                        # Send failure notification
+                        withdrawal.refresh_from_db()
+                        notify_withdrawal_failed(withdrawal, f'Processing error: {str(e)}')
                     except Exception as update_error:
                         logger.error(
                             f'Error updating withdrawal {withdrawal.id} status: {str(update_error)}',
