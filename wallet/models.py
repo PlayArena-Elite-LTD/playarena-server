@@ -322,6 +322,15 @@ class Withdrawal(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
+    # Enhanced fields for retry and tracking (Task 15)
+    gateway_response = models.JSONField(default=dict, blank=True, help_text='Full response from payment gateway')
+    failure_reason = models.TextField(blank=True, null=True, help_text='Reason for withdrawal failure')
+    retry_count = models.PositiveIntegerField(default=0, help_text='Number of retry attempts')
+    max_retry_count = models.PositiveIntegerField(default=3, help_text='Maximum retry attempts allowed')
+    gateway_transaction_id = models.CharField(max_length=255, blank=True, null=True, help_text='Payment gateway transaction ID (alternative to transaction_id)')
+    ip_address = models.GenericIPAddressField(blank=True, null=True, help_text='IP address of withdrawal request')
+    user_agent = models.CharField(max_length=500, blank=True, null=True, help_text='User agent of withdrawal request')
+    
     class Meta:
         ordering = ['-created_at']
         verbose_name = 'Withdrawal'
@@ -330,6 +339,7 @@ class Withdrawal(models.Model):
         indexes = [
             models.Index(fields=['user', '-created_at']),
             models.Index(fields=['status']),
+            models.Index(fields=['retry_count']),  # For efficient retry queries
         ]
         constraints = [
             # Security: Ensure transaction_id is unique (prevent duplicate processing)
@@ -364,6 +374,12 @@ class Withdrawal(models.Model):
             wallet = self.user.wallet
             if self.amount > wallet.balance:
                 raise ValidationError({'amount': f'Insufficient balance. Your balance is ${wallet.balance}'})
+        
+        # Security: Validate retry_count doesn't exceed max_retry_count
+        if self.retry_count > self.max_retry_count:
+            raise ValidationError({
+                'retry_count': f'Retry count ({self.retry_count}) cannot exceed maximum retry count ({self.max_retry_count})'
+            })
         
         # Security: Validate status transitions (prevent invalid state changes)
         if self.pk:  # Only validate transitions for existing withdrawals
