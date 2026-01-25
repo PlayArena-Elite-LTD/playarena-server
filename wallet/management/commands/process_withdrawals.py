@@ -25,95 +25,9 @@ from django.utils import timezone
 from django.conf import settings
 
 from wallet.models import Withdrawal, Transaction, Wallet
+from wallet.payment_manager import get_payment_manager
 
 logger = logging.getLogger(__name__)
-
-
-def process_withdrawal_with_gateway(withdrawal):
-    """
-    Process a withdrawal through payment gateway.
-    
-    This is a placeholder function that simulates payment gateway processing.
-    In production, this should integrate with actual payment gateways (Paystack, Flutterwave, etc.)
-    as implemented in PaymentManager (Tasks 1-5).
-    
-    Args:
-        withdrawal: Withdrawal instance to process
-        
-    Returns:
-        dict: {
-            'success': bool,
-            'transaction_id': str or None,
-            'gateway_response': dict,
-            'failure_reason': str or None
-        }
-    """
-    # TODO: Replace with actual PaymentManager.process_withdrawal() when available
-    # For now, this simulates processing
-    
-    try:
-        # Simulate payment gateway API call
-        # In production, this would call:
-        # - Paystack Transfer API
-        # - Flutterwave Transfer API
-        # - Bank API
-        # etc.
-        
-        # Simulate success for most withdrawals (90% success rate for demo)
-        import random
-        success = random.random() > 0.1  # 90% success rate
-        
-        if success:
-            # Generate mock transaction ID
-            transaction_id = f"TXN_{withdrawal.id}_{int(timezone.now().timestamp())}"
-            
-            gateway_response = {
-                'status': 'success',
-                'transaction_id': transaction_id,
-                'message': 'Transfer initiated successfully',
-                'gateway': withdrawal.payment_method.lower(),
-                'processed_at': timezone.now().isoformat()
-            }
-            
-            return {
-                'success': True,
-                'transaction_id': transaction_id,
-                'gateway_response': gateway_response,
-                'failure_reason': None
-            }
-        else:
-            # Simulate failure
-            failure_reasons = [
-                'Insufficient funds in gateway account',
-                'Invalid account details',
-                'Gateway service temporarily unavailable',
-                'Account verification failed'
-            ]
-            failure_reason = random.choice(failure_reasons)
-            
-            gateway_response = {
-                'status': 'failed',
-                'error_code': 'PROCESSING_ERROR',
-                'message': failure_reason,
-                'gateway': withdrawal.payment_method.lower(),
-                'processed_at': timezone.now().isoformat()
-            }
-            
-            return {
-                'success': False,
-                'transaction_id': None,
-                'gateway_response': gateway_response,
-                'failure_reason': failure_reason
-            }
-            
-    except Exception as e:
-        logger.error(f"Error processing withdrawal {withdrawal.id}: {str(e)}", exc_info=True)
-        return {
-            'success': False,
-            'transaction_id': None,
-            'gateway_response': {'status': 'error', 'error': str(e)},
-            'failure_reason': f'Processing error: {str(e)}'
-        }
 
 
 class Command(BaseCommand):
@@ -224,8 +138,9 @@ class Command(BaseCommand):
                     )
                     withdrawal.refresh_from_db()
                     
-                    # Process through payment gateway
-                    result = process_withdrawal_with_gateway(withdrawal)
+                    # Process through payment gateway using PaymentManager
+                    payment_manager = get_payment_manager()
+                    result = payment_manager.process_withdrawal(withdrawal)
                     
                     if result['success']:
                         # Withdrawal successful

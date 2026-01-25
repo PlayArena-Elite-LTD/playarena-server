@@ -164,7 +164,7 @@ class WithdrawalAdmin(admin.ModelAdmin):
         Manually process selected withdrawals through payment gateway.
         This action uses the same processing logic as the management command.
         """
-        from wallet.management.commands.process_withdrawals import process_withdrawal_with_gateway
+        from wallet.payment_manager import get_payment_manager
         import logging
         
         logger = logging.getLogger(__name__)
@@ -196,8 +196,9 @@ class WithdrawalAdmin(admin.ModelAdmin):
                     )
                     withdrawal.refresh_from_db()
                 
-                # Process through payment gateway
-                result = process_withdrawal_with_gateway(withdrawal)
+                # Process through payment gateway using PaymentManager
+                payment_manager = get_payment_manager()
+                result = payment_manager.process_withdrawal(withdrawal)
                 
                 if result['success']:
                     # Withdrawal successful

@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -234,3 +235,20 @@ CSP_FONT_SRC = ("'self'",)
 # Enable/disable automatic withdrawal processing
 # When False, withdrawals must be manually approved via admin panel
 WALLET_AUTO_PROCESS_WITHDRAWALS = True
+
+# Payment Gateway Settings
+# Test mode: Set to False in production
+PAYMENT_GATEWAY_TEST_MODE = True
+
+# Paystack Configuration
+# Get keys from: https://dashboard.paystack.com/#/settings/developer
+PAYSTACK_SECRET_KEY = os.environ.get('PAYSTACK_SECRET_KEY', '')
+PAYSTACK_PUBLIC_KEY = os.environ.get('PAYSTACK_PUBLIC_KEY', '')
+PAYSTACK_BASE_URL = 'https://api.paystack.co'  # Use 'https://api.paystack.co' for production
+
+# Flutterwave Configuration
+# Get keys from: https://dashboard.flutterwave.com/settings/apis
+FLUTTERWAVE_SECRET_KEY = os.environ.get('FLUTTERWAVE_SECRET_KEY', '')
+FLUTTERWAVE_PUBLIC_KEY = os.environ.get('FLUTTERWAVE_PUBLIC_KEY', '')
+FLUTTERWAVE_BASE_URL = 'https://api.flutterwave.com/v3'
+FLUTTERWAVE_WEBHOOK_URL = os.environ.get('FLUTTERWAVE_WEBHOOK_URL', None)  # Optional webhook URL
