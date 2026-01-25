@@ -1,5 +1,6 @@
 from django import forms
 from decimal import Decimal
+from .models import SavedPaymentMethod
 from .models import Deposit, Withdrawal
 
 class DepositForm(forms.Form):
@@ -106,11 +107,80 @@ class WithdrawalForm(forms.Form):
         
         return amount
     
+    use_saved_method = forms.BooleanField(
+        required=False,
+        initial=False,
+        widget=forms.CheckboxInput(attrs={
+            'class': 'form-check-input'
+        }),
+        label='Use saved payment method'
+    )
+    
+    saved_payment_method = forms.ModelChoiceField(
+        queryset=SavedPaymentMethod.objects.none(),
+        required=False,
+        widget=forms.Select(attrs={
+            'class': 'form-control'
+        }),
+        label='Select Saved Payment Method'
+    )
+    
+    def __init__(self, *args, **kwargs):
+        self.user = kwargs.pop('user', None)
+        super().__init__(*args, **kwargs)
+        
+        # Populate saved payment methods for this user
+        if self.user:
+            saved_methods = SavedPaymentMethod.objects.filter(
+                user=self.user,
+                is_active=True,
+                payment_method_type__in=[choice[0] for choice in Withdrawal.PAYMENT_METHOD_CHOICES]
+            ).order_by('-is_default', '-created_at')
+            
+            self.fields['saved_payment_method'].queryset = saved_methods
+            
+            # Set default saved method if available
+            default_method = saved_methods.filter(is_default=True).first()
+            if default_method:
+                self.fields['saved_payment_method'].initial = default_method
+                self.fields['use_saved_method'].initial = True
+                self.fields['payment_method'].initial = default_method.payment_method_type
+    
+    def clean(self):
+        """Validate form data"""
+        cleaned_data = super().clean()
+        use_saved = cleaned_data.get('use_saved_method', False)
+        saved_method = cleaned_data.get('saved_payment_method')
+        account_details = cleaned_data.get('account_details', '')
+        
+        # If using saved method, validate it exists and is active
+        if use_saved:
+            if not saved_method:
+                raise forms.ValidationError('Please select a saved payment method.')
+            if not saved_method.is_active:
+                raise forms.ValidationError('Selected payment method is not active.')
+            # Set account_details from saved method
+            cleaned_data['account_details'] = saved_method.account_details
+            cleaned_data['payment_method'] = saved_method.payment_method_type
+        else:
+            # If not using saved method, account_details is required
+            if not account_details or not account_details.strip():
+                raise forms.ValidationError({
+                    'account_details': 'Account details are required when not using a saved payment method.'
+                })
+            cleaned_data['account_details'] = account_details.strip()
+        
+        return cleaned_data
+    
     def clean_account_details(self):
         """Validate account details are provided"""
-        account_details = self.cleaned_data.get('account_details')
+        account_details = self.cleaned_data.get('account_details', '')
+        use_saved = self.data.get('use_saved_method', False)
         
-        if not account_details or not account_details.strip():
-            raise forms.ValidationError('Account details are required for withdrawal')
+        # Only validate if not using saved method
+        if not use_saved:
+            if not account_details or not account_details.strip():
+                raise forms.ValidationError('Account details are required for withdrawal')
+            return account_details.strip()
         
-        return account_details.strip()
+        return account_details

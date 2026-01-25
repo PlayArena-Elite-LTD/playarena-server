@@ -9,8 +9,9 @@ from django.db import transaction
 from decimal import Decimal
 import json
 
-from .models import Wallet, Transaction, Deposit, Withdrawal
+from .models import Wallet, Transaction, Deposit, Withdrawal, SavedPaymentMethod
 from .forms import DepositForm, WithdrawalForm
+from .payment_method_forms import SavedPaymentMethodForm, DeletePaymentMethodForm
 
 @login_required
 def wallet_view(request):
@@ -167,3 +168,109 @@ def transaction_history(request):
     return render(request, 'wallet/transactions.html', {
         'transactions': transactions
     })
+
+
+@login_required
+def payment_methods_list(request):
+    """List user's saved payment methods"""
+    payment_methods = SavedPaymentMethod.objects.filter(
+        user=request.user,
+        is_active=True
+    ).order_by('-is_default', '-created_at')
+    
+    return render(request, 'wallet/payment_methods_list.html', {
+        'payment_methods': payment_methods
+    })
+
+
+@login_required
+def payment_method_create(request):
+    """Create a new saved payment method"""
+    if request.method == 'POST':
+        form = SavedPaymentMethodForm(request.POST, user=request.user)
+        if form.is_valid():
+            payment_method = form.save(commit=False)
+            payment_method.user = request.user
+            payment_method.save()
+            messages.success(request, f'Payment method "{payment_method.label}" saved successfully.')
+            return redirect('payment_methods_list')
+    else:
+        form = SavedPaymentMethodForm(user=request.user)
+    
+    return render(request, 'wallet/payment_method_form.html', {
+        'form': form,
+        'title': 'Add Payment Method'
+    })
+
+
+@login_required
+def payment_method_edit(request, payment_method_id):
+    """Edit an existing saved payment method"""
+    payment_method = get_object_or_404(
+        SavedPaymentMethod,
+        id=payment_method_id,
+        user=request.user  # Security: Ensure user owns this payment method
+    )
+    
+    if request.method == 'POST':
+        form = SavedPaymentMethodForm(request.POST, instance=payment_method, user=request.user)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f'Payment method "{payment_method.label}" updated successfully.')
+            return redirect('payment_methods_list')
+    else:
+        form = SavedPaymentMethodForm(instance=payment_method, user=request.user)
+    
+    return render(request, 'wallet/payment_method_form.html', {
+        'form': form,
+        'payment_method': payment_method,
+        'title': 'Edit Payment Method'
+    })
+
+
+@login_required
+@require_POST
+def payment_method_delete(request, payment_method_id):
+    """Delete a saved payment method"""
+    payment_method = get_object_or_404(
+        SavedPaymentMethod,
+        id=payment_method_id,
+        user=request.user  # Security: Ensure user owns this payment method
+    )
+    
+    form = DeletePaymentMethodForm(request.POST)
+    if form.is_valid() and form.cleaned_data['confirm']:
+        label = payment_method.label
+        payment_method.delete()
+        messages.success(request, f'Payment method "{label}" deleted successfully.')
+    else:
+        messages.error(request, 'Please confirm deletion.')
+    
+    return redirect('payment_methods_list')
+
+
+@login_required
+@require_POST
+def payment_method_set_default(request, payment_method_id):
+    """Set a payment method as default"""
+    payment_method = get_object_or_404(
+        SavedPaymentMethod,
+        id=payment_method_id,
+        user=request.user,  # Security: Ensure user owns this payment method
+        is_active=True
+    )
+    
+    # Unset other defaults of same type
+    SavedPaymentMethod.objects.filter(
+        user=request.user,
+        payment_method_type=payment_method.payment_method_type,
+        is_default=True,
+        is_active=True
+    ).exclude(pk=payment_method.pk).update(is_default=False)
+    
+    # Set this as default
+    payment_method.is_default = True
+    payment_method.save()
+    
+    messages.success(request, f'"{payment_method.label}" set as default payment method.')
+    return redirect('payment_methods_list')

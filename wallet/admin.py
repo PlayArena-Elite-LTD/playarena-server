@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.db import transaction
 from django.utils import timezone
-from .models import Wallet, Transaction, Deposit, Withdrawal
+from .models import Wallet, Transaction, Deposit, Withdrawal, SavedPaymentMethod
 
 @admin.register(Wallet)
 class WalletAdmin(admin.ModelAdmin):
@@ -328,3 +328,43 @@ class WithdrawalAdmin(admin.ModelAdmin):
         
         message = f"Withdrawal processing: {', '.join(message_parts)}."
         self.message_user(request, message)
+
+
+@admin.register(SavedPaymentMethod)
+class SavedPaymentMethodAdmin(admin.ModelAdmin):
+    list_display = ['user', 'label', 'payment_method_type', 'is_default', 'is_active', 'created_at']
+    list_filter = ['payment_method_type', 'is_default', 'is_active', 'created_at']
+    search_fields = ['user__username', 'user__email', 'label', 'account_details']
+    readonly_fields = ['created_at', 'updated_at', 'masked_account_display']
+    date_hierarchy = 'created_at'
+    
+    fieldsets = (
+        ('User Information', {
+            'fields': ('user',)
+        }),
+        ('Payment Method Details', {
+            'fields': ('payment_method_type', 'label', 'account_details', 'masked_account_display', 'gateway_identifier', 'metadata')
+        }),
+        ('Settings', {
+            'fields': ('is_default', 'is_active')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    def masked_account_display(self, obj):
+        """Display masked account details in admin"""
+        if obj:
+            return obj.mask_account_details()
+        return "N/A"
+    masked_account_display.short_description = 'Masked Account Details'
+    
+    def get_queryset(self, request):
+        """Security: Filter queryset based on user permissions"""
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        # Non-superusers can only see their own payment methods
+        return qs.filter(user=request.user)

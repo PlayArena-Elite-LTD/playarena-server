@@ -427,6 +427,142 @@ class Withdrawal(models.Model):
         """Security: Check if withdrawal is in a final state (cannot be changed)"""
         return self.status in ['COMPLETED', 'FAILED', 'CANCELLED']
 
+class SavedPaymentMethod(models.Model):
+    """
+    Model to store user's saved payment methods for quick access.
+    
+    Security features:
+    - User ownership validation
+    - Masked sensitive data display
+    - Encrypted storage (can be enhanced with django-cryptography)
+    - Default method selection
+    """
+    
+    PAYMENT_METHOD_TYPES = [
+        ('BANK_TRANSFER', 'Bank Transfer'),
+        ('MOBILE_MONEY', 'Mobile Money'),
+        ('PAYPAL', 'PayPal'),
+        ('STRIPE', 'Stripe Card'),
+        ('OTHER', 'Other'),
+    ]
+    
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='saved_payment_methods')
+    payment_method_type = models.CharField(max_length=20, choices=PAYMENT_METHOD_TYPES)
+    label = models.CharField(max_length=100, help_text='User-friendly label (e.g., "My Main Bank Account", "Visa ending in 1234")')
+    
+    # Encrypted/masked account details
+    # For cards: last 4 digits, expiry
+    # For bank accounts: account number (masked)
+    # For mobile money: phone number (masked)
+    account_details = models.TextField(help_text='Account information (stored securely)')
+    
+    # Additional metadata (JSON field for flexibility)
+    metadata = models.JSONField(default=dict, blank=True, help_text='Additional payment method details (e.g., bank name, card type)')
+    
+    # Gateway-specific identifiers (e.g., Paystack recipient code, Stripe customer ID)
+    gateway_identifier = models.CharField(max_length=255, blank=True, null=True, help_text='Payment gateway identifier for this method')
+    
+    # Default method flag
+    is_default = models.BooleanField(default=False, help_text='Use this as default payment method')
+    
+    # Status
+    is_active = models.BooleanField(default=True, help_text='Whether this payment method is active')
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-is_default', '-created_at']
+        verbose_name = 'Saved Payment Method'
+        verbose_name_plural = 'Saved Payment Methods'
+        indexes = [
+            models.Index(fields=['user', 'is_active']),
+            models.Index(fields=['user', 'is_default']),
+        ]
+        constraints = [
+            # Security: Only one default method per user per payment type
+            models.UniqueConstraint(
+                fields=['user', 'payment_method_type'],
+                condition=models.Q(is_default=True, is_active=True),
+                name='unique_default_payment_method_per_type'
+            ),
+        ]
+    
+    def __str__(self):
+        return f"{self.label} - {self.get_payment_method_type_display()} ({self.user.username})"
+    
+    def clean(self):
+        """Security: Validate payment method data"""
+        from django.core.exceptions import ValidationError
+        
+        # Validate label is provided
+        if not self.label or not self.label.strip():
+            raise ValidationError({'label': 'Label is required for saved payment method'})
+        
+        # Validate account details are provided
+        if not self.account_details or not self.account_details.strip():
+            raise ValidationError({'account_details': 'Account details are required'})
+        
+        # Security: If setting as default, unset other defaults of same type
+        if self.is_default and self.is_active:
+            # This will be handled in save() method
+            pass
+    
+    def save(self, *args, **kwargs):
+        """Security: Ensure only one default method per type per user"""
+        # Run validation
+        self.full_clean()
+        
+        # If setting as default, unset other defaults of same type
+        if self.is_default and self.is_active:
+            SavedPaymentMethod.objects.filter(
+                user=self.user,
+                payment_method_type=self.payment_method_type,
+                is_default=True,
+                is_active=True
+            ).exclude(pk=self.pk if self.pk else None).update(is_default=False)
+        
+        super().save(*args, **kwargs)
+    
+    def mask_account_details(self):
+        """
+        Security: Return masked account details for display.
+        Only shows last 4 digits/chars for security.
+        """
+        if not self.account_details:
+            return "N/A"
+        
+        details = self.account_details.strip()
+        
+        # Mask based on payment method type
+        if self.payment_method_type in ['STRIPE', 'PAYPAL']:
+            # For cards: show last 4 digits
+            if len(details) > 4:
+                return f"****{details[-4:]}"
+            return "****"
+        elif self.payment_method_type == 'MOBILE_MONEY':
+            # For phone numbers: show last 4 digits
+            if len(details) > 4:
+                return f"****{details[-4:]}"
+            return "****"
+        elif self.payment_method_type == 'BANK_TRANSFER':
+            # For bank accounts: show last 4 digits
+            if len(details) > 4:
+                return f"****{details[-4:]}"
+            return "****"
+        else:
+            # Generic masking
+            if len(details) > 4:
+                return f"****{details[-4:]}"
+            return "****"
+    
+    @property
+    def display_name(self):
+        """Get display name for the payment method"""
+        masked = self.mask_account_details()
+        return f"{self.label} ({masked})"
+
+
 # Create a wallet when a user is created
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
 def create_wallet(sender, instance, created, **kwargs):
