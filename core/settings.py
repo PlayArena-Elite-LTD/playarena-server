@@ -229,3 +229,8 @@ CSP_SCRIPT_SRC = ("'self'", "'unsafe-inline'")
 CSP_STYLE_SRC = ("'self'", "'unsafe-inline'")
 CSP_IMG_SRC = ("'self'", "data:", "https:")
 CSP_FONT_SRC = ("'self'",)
+
+# Wallet Settings
+# Enable/disable automatic withdrawal processing
+# When False, withdrawals must be manually approved via admin panel
+WALLET_AUTO_PROCESS_WITHDRAWALS = True

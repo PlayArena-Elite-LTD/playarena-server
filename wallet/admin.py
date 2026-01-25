@@ -94,7 +94,7 @@ class WithdrawalAdmin(admin.ModelAdmin):
     search_fields = ['user__username', 'user__email', 'transaction_id', 'account_details']
     readonly_fields = ['created_at', 'updated_at']
     date_hierarchy = 'created_at'
-    actions = ['mark_as_completed', 'mark_as_failed', 'mark_as_cancelled']
+    actions = ['mark_as_completed', 'mark_as_failed', 'mark_as_cancelled', 'process_withdrawals']
     
     fieldsets = (
         ('User Information', {
@@ -156,3 +156,147 @@ class WithdrawalAdmin(admin.ModelAdmin):
             status__in=['PENDING', 'PROCESSING']
         ).update(status='CANCELLED', updated_at=timezone.now())
         self.message_user(request, f'{count} withdrawal(s) marked as cancelled.')
+    
+    @admin.action(description='Process selected withdrawals manually')
+    @transaction.atomic
+    def process_withdrawals(self, request, queryset):
+        """
+        Manually process selected withdrawals through payment gateway.
+        This action uses the same processing logic as the management command.
+        """
+        from wallet.management.commands.process_withdrawals import process_withdrawal_with_gateway
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        processed_count = 0
+        completed_count = 0
+        failed_count = 0
+        skipped_count = 0
+        
+        for withdrawal in queryset:
+            # Skip if already in final state
+            if withdrawal.is_final:
+                skipped_count += 1
+                continue
+            
+            # Skip if not in processable state
+            if withdrawal.status not in ['PENDING', 'PROCESSING']:
+                skipped_count += 1
+                continue
+            
+            try:
+                processed_count += 1
+                
+                # Update status to PROCESSING if PENDING
+                if withdrawal.status == 'PENDING':
+                    Withdrawal.objects.filter(id=withdrawal.id).update(
+                        status='PROCESSING',
+                        updated_at=timezone.now()
+                    )
+                    withdrawal.refresh_from_db()
+                
+                # Process through payment gateway
+                result = process_withdrawal_with_gateway(withdrawal)
+                
+                if result['success']:
+                    # Withdrawal successful
+                    wallet = withdrawal.wallet
+                    
+                    # Update wallet balance (subtract amount)
+                    wallet.balance -= withdrawal.amount
+                    wallet.save()
+                    
+                    # Create transaction record
+                    Transaction.objects.create(
+                        wallet=wallet,
+                        amount=-withdrawal.amount,
+                        transaction_type='WITHDRAWAL',
+                        description=f"Withdrawal of ${withdrawal.amount} via {withdrawal.get_payment_method_display()}"
+                    )
+                    
+                    # Update withdrawal status to COMPLETED
+                    Withdrawal.objects.filter(id=withdrawal.id).update(
+                        status='COMPLETED',
+                        transaction_id=result['transaction_id'],
+                        gateway_transaction_id=result['transaction_id'],
+                        gateway_response=result['gateway_response'],
+                        failure_reason=None,
+                        updated_at=timezone.now()
+                    )
+                    
+                    completed_count += 1
+                    logger.info(
+                        f'Withdrawal {withdrawal.id} processed successfully via admin. '
+                        f'Transaction ID: {result["transaction_id"]}'
+                    )
+                else:
+                    # Withdrawal failed
+                    new_retry_count = withdrawal.retry_count + 1
+                    
+                    # Determine if we should retry or mark as failed
+                    if new_retry_count >= withdrawal.max_retry_count:
+                        # Max retries exceeded - mark as FAILED
+                        Withdrawal.objects.filter(id=withdrawal.id).update(
+                            status='FAILED',
+                            gateway_response=result['gateway_response'],
+                            failure_reason=result['failure_reason'],
+                            retry_count=new_retry_count,
+                            updated_at=timezone.now()
+                        )
+                        
+                        failed_count += 1
+                        logger.warning(
+                            f'Withdrawal {withdrawal.id} failed after {new_retry_count} retries. '
+                            f'Reason: {result["failure_reason"]}'
+                        )
+                    else:
+                        # Retry later - set back to PENDING
+                        Withdrawal.objects.filter(id=withdrawal.id).update(
+                            status='PENDING',
+                            gateway_response=result['gateway_response'],
+                            failure_reason=result['failure_reason'],
+                            retry_count=new_retry_count,
+                            updated_at=timezone.now()
+                        )
+                        
+                        failed_count += 1  # Count as failed for this attempt
+                        logger.info(
+                            f'Withdrawal {withdrawal.id} failed, will retry. '
+                            f'Retry count: {new_retry_count}/{withdrawal.max_retry_count}. '
+                            f'Reason: {result["failure_reason"]}'
+                        )
+            
+            except Exception as e:
+                logger.error(
+                    f'Error processing withdrawal {withdrawal.id} via admin: {str(e)}',
+                    exc_info=True
+                )
+                
+                # Mark as FAILED if error occurred
+                try:
+                    Withdrawal.objects.filter(id=withdrawal.id).update(
+                        status='FAILED',
+                        failure_reason=f'Processing error: {str(e)}',
+                        updated_at=timezone.now()
+                    )
+                    failed_count += 1
+                except Exception as update_error:
+                    logger.error(
+                        f'Error updating withdrawal {withdrawal.id} status: {str(update_error)}',
+                        exc_info=True
+                    )
+        
+        # Report results
+        message_parts = []
+        if processed_count > 0:
+            message_parts.append(f'{processed_count} processed')
+        if completed_count > 0:
+            message_parts.append(f'{completed_count} completed')
+        if failed_count > 0:
+            message_parts.append(f'{failed_count} failed')
+        if skipped_count > 0:
+            message_parts.append(f'{skipped_count} skipped')
+        
+        message = f"Withdrawal processing: {', '.join(message_parts)}."
+        self.message_user(request, message)
