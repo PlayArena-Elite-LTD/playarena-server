@@ -289,3 +289,258 @@ class FlutterwaveService:
                 'amount': Decimal(0),
                 'message': f'Error processing webhook: {str(e)}'
             }
+    
+    def create_transfer_beneficiary(self, account_number, bank_code, account_name, email=None, currency='NGN', account_bank=None):
+        """
+        Create a transfer beneficiary (bank account, mobile money, etc.)
+        
+        Args:
+            account_number: Account number or mobile money number
+            bank_code: Bank code (for bank transfers) or network code (for mobile money)
+            account_name: Account holder name
+            email: Beneficiary email (optional)
+            currency: Currency code (default: NGN)
+            account_bank: Bank name (optional, can be derived from bank_code)
+        
+        Returns:
+            dict: {
+                'success': bool,
+                'beneficiary_id': int,
+                'account_number': str,
+                'account_name': str,
+                'bank_code': str,
+                'bank_name': str,
+                'message': str
+            }
+        """
+        if not self.secret_key:
+            return {
+                'success': False,
+                'beneficiary_id': None,
+                'account_number': None,
+                'account_name': None,
+                'bank_code': None,
+                'bank_name': None,
+                'message': 'Flutterwave not configured'
+            }
+        
+        try:
+            url = f"{self.base_url}/beneficiaries"
+            payload = {
+                "account_number": account_number,
+                "bank_code": bank_code,
+                "account_name": account_name,
+                "currency": currency,
+            }
+            
+            if email:
+                payload["email"] = email
+            
+            if account_bank:
+                payload["account_bank"] = account_bank
+            
+            response = requests.post(url, json=payload, headers=self._get_headers())
+            response_data = response.json()
+            
+            if response_data.get('status') == 'success' and response_data.get('data'):
+                data = response_data['data']
+                return {
+                    'success': True,
+                    'beneficiary_id': data.get('id'),
+                    'account_number': data.get('account_number'),
+                    'account_name': data.get('account_name'),
+                    'bank_code': data.get('bank_code'),
+                    'bank_name': data.get('bank_name'),
+                    'message': 'Transfer beneficiary created successfully'
+                }
+            else:
+                error_message = response_data.get('message', 'Unknown error')
+                logger.error(f"Flutterwave transfer beneficiary creation failed: {error_message}")
+                return {
+                    'success': False,
+                    'beneficiary_id': None,
+                    'account_number': None,
+                    'account_name': None,
+                    'bank_code': None,
+                    'bank_name': None,
+                    'message': error_message
+                }
+        except Exception as e:
+            logger.error(f"Exception creating Flutterwave transfer beneficiary: {str(e)}")
+            return {
+                'success': False,
+                'beneficiary_id': None,
+                'account_number': None,
+                'account_name': None,
+                'bank_code': None,
+                'bank_name': None,
+                'message': f'Error: {str(e)}'
+            }
+    
+    def initiate_transfer(self, amount, beneficiary_id, reference=None, narration=None, currency='NGN'):
+        """
+        Initiate a transfer to a beneficiary
+        
+        Args:
+            amount: Transfer amount (Decimal or float)
+            beneficiary_id: Beneficiary ID from create_transfer_beneficiary
+            reference: Unique transfer reference (optional, auto-generated if not provided)
+            narration: Transfer narration/description (optional)
+            currency: Currency code (default: NGN)
+        
+        Returns:
+            dict: {
+                'success': bool,
+                'transfer_id': int,
+                'reference': str,
+                'amount': Decimal,
+                'status': str,
+                'message': str
+            }
+        """
+        if not self.secret_key:
+            return {
+                'success': False,
+                'transfer_id': None,
+                'reference': None,
+                'amount': None,
+                'status': None,
+                'message': 'Flutterwave not configured'
+            }
+        
+        try:
+            url = f"{self.base_url}/transfers"
+            payload = {
+                "account_bank": "flutterwave",  # Transfer from Flutterwave balance
+                "account_number": str(beneficiary_id),  # Using beneficiary_id
+                "amount": str(float(amount)),
+                "narration": narration or f"Withdrawal - {reference or 'N/A'}",
+                "currency": currency,
+                "beneficiary_id": beneficiary_id,
+            }
+            
+            if reference:
+                payload["reference"] = reference
+            
+            response = requests.post(url, json=payload, headers=self._get_headers())
+            response_data = response.json()
+            
+            if response_data.get('status') == 'success' and response_data.get('data'):
+                data = response_data['data']
+                transfer_amount = Decimal(str(data.get('amount', 0)))
+                
+                return {
+                    'success': True,
+                    'transfer_id': data.get('id'),
+                    'reference': data.get('reference'),
+                    'amount': transfer_amount,
+                    'status': data.get('status'),  # NEW, PENDING, SUCCESSFUL, FAILED
+                    'message': 'Transfer initiated successfully'
+                }
+            else:
+                error_message = response_data.get('message', 'Unknown error')
+                logger.error(f"Flutterwave transfer initiation failed: {error_message}")
+                return {
+                    'success': False,
+                    'transfer_id': None,
+                    'reference': None,
+                    'amount': None,
+                    'status': None,
+                    'message': error_message
+                }
+        except Exception as e:
+            logger.error(f"Exception initiating Flutterwave transfer: {str(e)}")
+            return {
+                'success': False,
+                'transfer_id': None,
+                'reference': None,
+                'amount': None,
+                'status': None,
+                'message': f'Error: {str(e)}'
+            }
+    
+    def verify_transfer(self, transfer_id=None, reference=None):
+        """
+        Verify a transfer status
+        
+        Args:
+            transfer_id: Transfer ID from initiate_transfer (preferred)
+            reference: Transfer reference (alternative if transfer_id not available)
+        
+        Returns:
+            dict: {
+                'success': bool,
+                'status': str (NEW, PENDING, SUCCESSFUL, FAILED),
+                'amount': Decimal,
+                'beneficiary_id': int,
+                'transfer_id': int,
+                'reference': str,
+                'message': str
+            }
+        """
+        if not self.secret_key:
+            return {
+                'success': False,
+                'status': 'pending',
+                'message': 'Flutterwave not configured'
+            }
+        
+        if not transfer_id and not reference:
+            return {
+                'success': False,
+                'status': 'pending',
+                'message': 'Either transfer_id or reference is required'
+            }
+        
+        try:
+            # Use transfer_id if available, otherwise use reference
+            if transfer_id:
+                url = f"{self.base_url}/transfers/{transfer_id}"
+            else:
+                # Flutterwave allows querying by reference
+                url = f"{self.base_url}/transfers?reference={reference}"
+            
+            response = requests.get(url, headers=self._get_headers())
+            response_data = response.json()
+            
+            if response_data.get('status') == 'success' and response_data.get('data'):
+                data = response_data['data']
+                # Handle both single object and list responses
+                if isinstance(data, list) and len(data) > 0:
+                    data = data[0]
+                
+                transfer_amount = Decimal(str(data.get('amount', 0)))
+                status = data.get('status', '').upper()
+                
+                # Normalize status to lowercase for consistency
+                status_map = {
+                    'NEW': 'pending',
+                    'PENDING': 'pending',
+                    'SUCCESSFUL': 'success',
+                    'FAILED': 'failed'
+                }
+                normalized_status = status_map.get(status, status.lower())
+                
+                return {
+                    'success': True,
+                    'status': normalized_status,
+                    'amount': transfer_amount,
+                    'beneficiary_id': data.get('beneficiary_id'),
+                    'transfer_id': data.get('id'),
+                    'reference': data.get('reference'),
+                    'message': 'Transfer verified successfully'
+                }
+            else:
+                error_message = response_data.get('message', 'Unknown error')
+                return {
+                    'success': False,
+                    'status': 'pending',
+                    'message': error_message
+                }
+        except Exception as e:
+            logger.error(f"Exception verifying Flutterwave transfer: {str(e)}")
+            return {
+                'success': False,
+                'status': 'pending',
+                'message': f'Verification error: {str(e)}'
+            }

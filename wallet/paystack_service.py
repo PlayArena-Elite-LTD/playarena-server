@@ -262,3 +262,243 @@ class PaystackService:
                 'amount': Decimal(0),
                 'message': f'Error processing webhook: {str(e)}'
             }
+    
+    def create_transfer_recipient(self, account_number, bank_code, account_name=None, email=None, currency='NGN', type='nuban'):
+        """
+        Create a transfer recipient (bank account, mobile money, etc.)
+        
+        Args:
+            account_number: Account number or mobile money number
+            bank_code: Bank code (for bank transfers) or network code (for mobile money)
+            account_name: Account holder name (optional, will be validated by Paystack)
+            email: Recipient email (optional)
+            currency: Currency code (default: NGN)
+            type: Recipient type - 'nuban' (bank account), 'mobile_money', etc.
+        
+        Returns:
+            dict: {
+                'success': bool,
+                'recipient_code': str,
+                'account_number': str,
+                'account_name': str,
+                'bank_code': str,
+                'bank_name': str,
+                'message': str
+            }
+        """
+        if not self.secret_key:
+            return {
+                'success': False,
+                'recipient_code': None,
+                'account_number': None,
+                'account_name': None,
+                'bank_code': None,
+                'bank_name': None,
+                'message': 'Paystack not configured'
+            }
+        
+        try:
+            url = f"{self.base_url}/transferrecipient"
+            payload = {
+                "type": type,
+                "name": account_name or account_number,
+                "account_number": account_number,
+                "bank_code": bank_code,
+                "currency": currency,
+            }
+            
+            if email:
+                payload["email"] = email
+            
+            response = requests.post(url, json=payload, headers=self._get_headers())
+            response_data = response.json()
+            
+            if response_data.get('status') and response_data.get('data'):
+                data = response_data['data']
+                return {
+                    'success': True,
+                    'recipient_code': data.get('recipient_code'),
+                    'account_number': data.get('details', {}).get('account_number'),
+                    'account_name': data.get('details', {}).get('account_name'),
+                    'bank_code': data.get('details', {}).get('bank_code'),
+                    'bank_name': data.get('details', {}).get('bank_name'),
+                    'message': 'Transfer recipient created successfully'
+                }
+            else:
+                error_message = response_data.get('message', 'Unknown error')
+                logger.error(f"Paystack transfer recipient creation failed: {error_message}")
+                return {
+                    'success': False,
+                    'recipient_code': None,
+                    'account_number': None,
+                    'account_name': None,
+                    'bank_code': None,
+                    'bank_name': None,
+                    'message': error_message
+                }
+        except Exception as e:
+            logger.error(f"Exception creating Paystack transfer recipient: {str(e)}")
+            return {
+                'success': False,
+                'recipient_code': None,
+                'account_number': None,
+                'account_name': None,
+                'bank_code': None,
+                'bank_name': None,
+                'message': f'Error: {str(e)}'
+            }
+    
+    def initiate_transfer(self, amount, recipient_code, reason=None, reference=None, currency='NGN'):
+        """
+        Initiate a transfer to a recipient
+        
+        Args:
+            amount: Transfer amount (Decimal or float)
+            recipient_code: Recipient code from create_transfer_recipient
+            reason: Transfer reason/description (optional)
+            reference: Unique transfer reference (optional, auto-generated if not provided)
+            currency: Currency code (default: NGN)
+        
+        Returns:
+            dict: {
+                'success': bool,
+                'transfer_code': str,
+                'reference': str,
+                'amount': Decimal,
+                'status': str,
+                'message': str
+            }
+        """
+        if not self.secret_key:
+            return {
+                'success': False,
+                'transfer_code': None,
+                'reference': None,
+                'amount': None,
+                'status': None,
+                'message': 'Paystack not configured'
+            }
+        
+        try:
+            # Convert amount to kobo (Paystack uses smallest currency unit)
+            amount_in_kobo = int(float(amount) * 100)
+            
+            url = f"{self.base_url}/transfer"
+            payload = {
+                "source": "balance",  # Transfer from Paystack balance
+                "amount": amount_in_kobo,
+                "recipient": recipient_code,
+                "currency": currency,
+            }
+            
+            if reason:
+                payload["reason"] = reason
+            
+            if reference:
+                payload["reference"] = reference
+            
+            response = requests.post(url, json=payload, headers=self._get_headers())
+            response_data = response.json()
+            
+            if response_data.get('status') and response_data.get('data'):
+                data = response_data['data']
+                transfer_amount = Decimal(data.get('amount', 0)) / 100  # Convert from kobo
+                
+                return {
+                    'success': True,
+                    'transfer_code': data.get('transfer_code'),
+                    'reference': data.get('reference'),
+                    'amount': transfer_amount,
+                    'status': data.get('status'),  # pending, success, failed
+                    'message': 'Transfer initiated successfully'
+                }
+            else:
+                error_message = response_data.get('message', 'Unknown error')
+                logger.error(f"Paystack transfer initiation failed: {error_message}")
+                return {
+                    'success': False,
+                    'transfer_code': None,
+                    'reference': None,
+                    'amount': None,
+                    'status': None,
+                    'message': error_message
+                }
+        except Exception as e:
+            logger.error(f"Exception initiating Paystack transfer: {str(e)}")
+            return {
+                'success': False,
+                'transfer_code': None,
+                'reference': None,
+                'amount': None,
+                'status': None,
+                'message': f'Error: {str(e)}'
+            }
+    
+    def verify_transfer(self, transfer_code=None, reference=None):
+        """
+        Verify a transfer status
+        
+        Args:
+            transfer_code: Transfer code from initiate_transfer (preferred)
+            reference: Transfer reference (alternative if transfer_code not available)
+        
+        Returns:
+            dict: {
+                'success': bool,
+                'status': str (pending, success, failed),
+                'amount': Decimal,
+                'recipient_code': str,
+                'transfer_code': str,
+                'reference': str,
+                'message': str
+            }
+        """
+        if not self.secret_key:
+            return {
+                'success': False,
+                'status': 'pending',
+                'message': 'Paystack not configured'
+            }
+        
+        if not transfer_code and not reference:
+            return {
+                'success': False,
+                'status': 'pending',
+                'message': 'Either transfer_code or reference is required'
+            }
+        
+        try:
+            # Use transfer_code if available, otherwise use reference
+            identifier = transfer_code or reference
+            url = f"{self.base_url}/transfer/{identifier}"
+            
+            response = requests.get(url, headers=self._get_headers())
+            response_data = response.json()
+            
+            if response_data.get('status') and response_data.get('data'):
+                data = response_data['data']
+                transfer_amount = Decimal(data.get('amount', 0)) / 100  # Convert from kobo
+                
+                return {
+                    'success': True,
+                    'status': data.get('status'),  # pending, success, failed
+                    'amount': transfer_amount,
+                    'recipient_code': data.get('recipient', {}).get('recipient_code') if isinstance(data.get('recipient'), dict) else data.get('recipient'),
+                    'transfer_code': data.get('transfer_code'),
+                    'reference': data.get('reference'),
+                    'message': 'Transfer verified successfully'
+                }
+            else:
+                error_message = response_data.get('message', 'Unknown error')
+                return {
+                    'success': False,
+                    'status': 'pending',
+                    'message': error_message
+                }
+        except Exception as e:
+            logger.error(f"Exception verifying Paystack transfer: {str(e)}")
+            return {
+                'success': False,
+                'status': 'pending',
+                'message': f'Verification error: {str(e)}'
+            }
