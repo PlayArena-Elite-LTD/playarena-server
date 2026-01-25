@@ -1,5 +1,6 @@
 from django.urls import path
 from . import views
+from .webhooks import paystack_webhook, flutterwave_webhook
 
 urlpatterns = [
     path('', views.wallet_view, name='wallet'),
@@ -12,4 +13,7 @@ urlpatterns = [
     path('payment-methods/<int:payment_method_id>/edit/', views.payment_method_edit, name='payment_method_edit'),
     path('payment-methods/<int:payment_method_id>/delete/', views.payment_method_delete, name='payment_method_delete'),
     path('payment-methods/<int:payment_method_id>/set-default/', views.payment_method_set_default, name='payment_method_set_default'),
+    # Webhook endpoints
+    path('webhooks/paystack/', paystack_webhook, name='paystack_webhook'),
+    path('webhooks/flutterwave/', flutterwave_webhook, name='flutterwave_webhook'),
 ]
