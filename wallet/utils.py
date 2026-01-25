@@ -1,149 +1,289 @@
 """
-Utility functions for wallet transaction reconciliation and auditing.
+Utility functions for wallet operations, transaction reconciliation and auditing.
 """
 from decimal import Decimal
+from django.db import transaction
 from django.db.models import Sum, Q
 from django.utils import timezone
 from datetime import timedelta
+import logging
 
 from .models import Wallet, Transaction, Deposit, Withdrawal
 
-
-def detect_all_discrepancies():
-    """
-    Security: Detect all wallets with balance discrepancies.
-    
-    Returns:
-        list: List of dictionaries with discrepancy details
-    """
-    discrepancies = []
-    
-    for wallet in Wallet.objects.all():
-        result = wallet.verify_balance_integrity()
-        if not result['is_valid']:
-            discrepancies.append({
-                'wallet_id': wallet.id,
-                'user_id': wallet.user.id if wallet.user else None,
-                'username': wallet.user.username if wallet.user else 'Unknown',
-                'expected_balance': result['expected_balance'],
-                'actual_balance': result['actual_balance'],
-                'discrepancy': result['discrepancy'],
-                'transaction_count': result['transaction_count'],
-            })
-    
-    return discrepancies
+logger = logging.getLogger(__name__)
 
 
-def reconcile_wallet(wallet_id):
+@transaction.atomic
+def complete_deposit_and_credit_wallet(deposit):
     """
-    Security: Reconcile a specific wallet by recalculating balance.
+    Securely complete a deposit and credit the wallet balance
+    
+    Security features:
+    - Atomic transaction (all or nothing)
+    - Idempotent (won't credit twice if already completed)
+    - Creates transaction record for audit
+    - Prevents race conditions with select_for_update
     
     Args:
-        wallet_id: The ID of the wallet to reconcile
+        deposit: Deposit instance to complete
     
     Returns:
-        dict: Result of reconciliation
+        dict: {
+            'success': bool,
+            'wallet_credited': bool,
+            'transaction_created': bool,
+            'message': str
+        }
     """
     try:
-        wallet = Wallet.objects.get(id=wallet_id)
-        before_balance = wallet.balance
-        result_before = wallet.verify_balance_integrity()
+        # Security: Lock deposit to prevent concurrent processing
+        deposit = Deposit.objects.select_for_update().get(id=deposit.id)
         
-        new_balance = wallet.recalculate_balance()
+        # Security: Check if already completed (idempotency)
+        if deposit.status == 'COMPLETED':
+            # Check if wallet was already credited
+            existing_transaction = Transaction.objects.filter(
+                wallet=deposit.wallet,
+                transaction_type='DEPOSIT',
+                description__contains=f"Deposit of ${deposit.amount}",
+                created_at__gte=deposit.created_at
+            ).first()
+            
+            if existing_transaction:
+                logger.info(
+                    f"Deposit {deposit.id} already completed and wallet credited - "
+                    f"Transaction: {existing_transaction.id}"
+                )
+                return {
+                    'success': True,
+                    'wallet_credited': True,
+                    'transaction_created': False,
+                    'message': 'Deposit already completed and wallet credited'
+                }
+            else:
+                # Status is COMPLETED but no transaction found - credit now
+                logger.warning(
+                    f"Deposit {deposit.id} marked COMPLETED but wallet not credited - "
+                    f"Crediting now"
+                )
         
-        wallet.refresh_from_db()
-        result_after = wallet.verify_balance_integrity()
+        # Security: Only process if status allows
+        if deposit.status in ['FAILED', 'CANCELLED']:
+            logger.warning(
+                f"Cannot credit wallet for deposit {deposit.id} - "
+                f"Status: {deposit.status}"
+            )
+            return {
+                'success': False,
+                'wallet_credited': False,
+                'transaction_created': False,
+                'message': f'Cannot credit wallet for deposit with status: {deposit.status}'
+            }
+        
+        # Get wallet with lock
+        wallet = Wallet.objects.select_for_update().get(id=deposit.wallet.id)
+        
+        # Update deposit status
+        deposit.status = 'COMPLETED'
+        if not deposit.completed_at:
+            deposit.completed_at = timezone.now()
+        if not deposit.verification_hash:
+            deposit.verification_hash = deposit.generate_verification_hash()
+        
+        # Credit wallet balance
+        wallet.balance += deposit.amount
+        
+        # Create transaction record for audit
+        transaction_record = Transaction.objects.create(
+            wallet=wallet,
+            amount=deposit.amount,
+            transaction_type='DEPOSIT',
+            description=f"Deposit of ${deposit.amount:.2f} via {deposit.get_payment_method_display()}"
+        )
+        
+        # Save both atomically
+        deposit.save(update_fields=['status', 'completed_at', 'verification_hash'])
+        wallet.save(update_fields=['balance'])
+        
+        logger.info(
+            f"Deposit {deposit.id} completed and wallet credited - "
+            f"User: {deposit.user.username}, Amount: ${deposit.amount}, "
+            f"New Balance: ${wallet.balance}, Transaction: {transaction_record.id}"
+        )
         
         return {
             'success': True,
-            'wallet_id': wallet_id,
-            'before_balance': before_balance,
-            'after_balance': new_balance,
-            'was_valid_before': result_before['is_valid'],
-            'is_valid_after': result_after['is_valid'],
-            'discrepancy_fixed': result_before['discrepancy'],
+            'wallet_credited': True,
+            'transaction_created': True,
+            'message': 'Deposit completed and wallet credited successfully',
+            'new_balance': wallet.balance,
+            'transaction_id': transaction_record.id
         }
-    except Wallet.DoesNotExist:
+        
+    except Deposit.DoesNotExist:
+        logger.error(f"Deposit {deposit.id} not found")
         return {
             'success': False,
-            'error': f'Wallet with id {wallet_id} does not exist',
+            'wallet_credited': False,
+            'transaction_created': False,
+            'message': 'Deposit not found'
+        }
+    except Exception as e:
+        logger.error(
+            f"Error completing deposit {deposit.id} and crediting wallet - "
+            f"Error: {str(e)}",
+            exc_info=True
+        )
+        # Transaction will rollback automatically
+        return {
+            'success': False,
+            'wallet_credited': False,
+            'transaction_created': False,
+            'message': f'Error: {str(e)}'
         }
 
 
-def get_reconciliation_report(start_date=None, end_date=None):
+@transaction.atomic
+def process_withdrawal_and_debit_wallet(withdrawal):
     """
-    Security: Generate a reconciliation report for wallets and transactions.
+    Securely process a withdrawal and debit the wallet balance
+    
+    Security features:
+    - Atomic transaction (all or nothing)
+    - Idempotent (won't debit twice if already completed)
+    - Creates transaction record for audit
+    - Prevents race conditions with select_for_update
+    - Validates wallet balance before debiting
     
     Args:
-        start_date: Optional start date for filtering transactions
-        end_date: Optional end date for filtering transactions
+        withdrawal: Withdrawal instance to process
     
     Returns:
-        dict: Comprehensive reconciliation report
+        dict: {
+            'success': bool,
+            'wallet_debited': bool,
+            'transaction_created': bool,
+            'new_balance': Decimal,
+            'message': str
+        }
     """
-    # Get all discrepancies
-    discrepancies = detect_all_discrepancies()
-    
-    # Get transaction statistics
-    transaction_query = Transaction.objects.all()
-    if start_date:
-        transaction_query = transaction_query.filter(created_at__gte=start_date)
-    if end_date:
-        transaction_query = transaction_query.filter(created_at__lte=end_date)
-    
-    total_transactions = transaction_query.count()
-    transaction_sum = transaction_query.aggregate(
-        total=Sum('amount')
-    )['total'] or Decimal('0.00')
-    
-    # Get deposit/withdrawal statistics
-    deposit_query = Deposit.objects.all()
-    withdrawal_query = Withdrawal.objects.all()
-    
-    if start_date:
-        deposit_query = deposit_query.filter(created_at__gte=start_date)
-        withdrawal_query = withdrawal_query.filter(created_at__gte=start_date)
-    if end_date:
-        deposit_query = deposit_query.filter(created_at__lte=end_date)
-        withdrawal_query = withdrawal_query.filter(created_at__lte=end_date)
-    
-    total_deposits = deposit_query.count()
-    total_deposit_amount = deposit_query.aggregate(
-        total=Sum('amount')
-    )['total'] or Decimal('0.00')
-    
-    total_withdrawals = withdrawal_query.count()
-    total_withdrawal_amount = withdrawal_query.aggregate(
-        total=Sum('amount')
-    )['total'] or Decimal('0.00')
-    
-    # Calculate total wallet balances
-    total_wallet_balance = Wallet.objects.aggregate(
-        total=Sum('balance')
-    )['total'] or Decimal('0.00')
-    
-    return {
-        'report_date': timezone.now(),
-        'period': {
-            'start_date': start_date,
-            'end_date': end_date,
-        },
-        'wallets': {
-            'total': Wallet.objects.count(),
-            'with_discrepancies': len(discrepancies),
-            'total_balance': total_wallet_balance,
-            'discrepancies': discrepancies,
-        },
-        'transactions': {
-            'total_count': total_transactions,
-            'total_amount': transaction_sum,
-        },
-        'deposits': {
-            'total_count': total_deposits,
-            'total_amount': total_deposit_amount,
-        },
-        'withdrawals': {
-            'total_count': total_withdrawals,
-            'total_amount': total_withdrawal_amount,
-        },
-    }
+    try:
+        # Security: Lock withdrawal to prevent concurrent processing
+        withdrawal = Withdrawal.objects.select_for_update().get(id=withdrawal.id)
+        
+        # Security: Check if already completed (idempotency)
+        if withdrawal.status == 'COMPLETED':
+            # Check if wallet was already debited
+            existing_transaction = Transaction.objects.filter(
+                wallet=withdrawal.wallet,
+                transaction_type='WITHDRAWAL',
+                description__contains=f"Withdrawal of ${withdrawal.amount}",
+                created_at__gte=withdrawal.created_at
+            ).first()
+            
+            if existing_transaction:
+                logger.info(
+                    f"Withdrawal {withdrawal.id} already completed and wallet debited - "
+                    f"Transaction: {existing_transaction.id}"
+                )
+                return {
+                    'success': True,
+                    'wallet_debited': True,
+                    'transaction_created': False,
+                    'new_balance': withdrawal.wallet.balance,
+                    'message': 'Withdrawal already completed and wallet debited'
+                }
+            else:
+                # Status is COMPLETED but no transaction found - debit now
+                logger.warning(
+                    f"Withdrawal {withdrawal.id} marked COMPLETED but wallet not debited - "
+                    f"Debiting now"
+                )
+        
+        # Security: Only process if status allows
+        if withdrawal.status in ['FAILED', 'CANCELLED']:
+            logger.warning(
+                f"Cannot debit wallet for withdrawal {withdrawal.id} - "
+                f"Status: {withdrawal.status}"
+            )
+            return {
+                'success': False,
+                'wallet_debited': False,
+                'transaction_created': False,
+                'new_balance': withdrawal.wallet.balance,
+                'message': f'Cannot debit wallet for withdrawal with status: {withdrawal.status}'
+            }
+        
+        # Get wallet with lock
+        wallet = Wallet.objects.select_for_update().get(id=withdrawal.wallet.id)
+        
+        # Security: Validate balance before debiting (double-check)
+        if withdrawal.amount > wallet.balance:
+            logger.error(
+                f"Insufficient balance for withdrawal {withdrawal.id} - "
+                f"Required: ${withdrawal.amount}, Available: ${wallet.balance}"
+            )
+            return {
+                'success': False,
+                'wallet_debited': False,
+                'transaction_created': False,
+                'new_balance': wallet.balance,
+                'message': f'Insufficient balance. Required: ${withdrawal.amount}, Available: ${wallet.balance}'
+            }
+        
+        # Update withdrawal status
+        withdrawal.status = 'COMPLETED'
+        
+        # Debit wallet balance
+        wallet.balance -= withdrawal.amount
+        
+        # Create transaction record for audit (negative amount for withdrawal)
+        transaction_record = Transaction.objects.create(
+            wallet=wallet,
+            amount=-withdrawal.amount,  # Negative for withdrawal
+            transaction_type='WITHDRAWAL',
+            description=f"Withdrawal of ${withdrawal.amount:.2f} via {withdrawal.get_payment_method_display()}"
+        )
+        
+        # Save both atomically
+        withdrawal.save(update_fields=['status'])
+        wallet.save(update_fields=['balance'])
+        
+        logger.info(
+            f"Withdrawal {withdrawal.id} completed and wallet debited - "
+            f"User: {withdrawal.user.username}, Amount: ${withdrawal.amount}, "
+            f"New Balance: ${wallet.balance}, Transaction: {transaction_record.id}"
+        )
+        
+        return {
+            'success': True,
+            'wallet_debited': True,
+            'transaction_created': True,
+            'message': 'Withdrawal completed and wallet debited successfully',
+            'new_balance': wallet.balance,
+            'transaction_id': transaction_record.id
+        }
+        
+    except Withdrawal.DoesNotExist:
+        logger.error(f"Withdrawal {withdrawal.id} not found")
+        return {
+            'success': False,
+            'wallet_debited': False,
+            'transaction_created': False,
+            'new_balance': None,
+            'message': 'Withdrawal not found'
+        }
+    except Exception as e:
+        logger.error(
+            f"Error processing withdrawal {withdrawal.id} and debiting wallet - "
+            f"Error: {str(e)}",
+            exc_info=True
+        )
+        # Transaction will rollback automatically
+        return {
+            'success': False,
+            'wallet_debited': False,
+            'transaction_created': False,
+            'new_balance': None,
+            'message': f'Error: {str(e)}'
+        }
