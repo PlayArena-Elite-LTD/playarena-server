@@ -1,6 +1,28 @@
 /*=============== GOOGLE FONTS ===============*/
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap");
 
+/*=============== ACCESSIBILITY ===============*/
+/* Skip to main content link for screen readers */
+.skip-to-main {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: var(--color-primary-navy);
+  color: var(--color-white);
+  padding: 0.75rem 1.5rem;
+  text-decoration: none;
+  font-weight: var(--font-semi-bold);
+  z-index: 10000;
+  border-radius: 0 0 0.5rem 0;
+  transition: top 0.3s ease;
+}
+
+.skip-to-main:focus {
+  top: 0;
+  outline: 3px solid var(--color-accent-green);
+  outline-offset: 2px;
+}
+
 /*=============== VARIABLES CSS ===============*/
 :root {
   --header-height: 3.5rem;

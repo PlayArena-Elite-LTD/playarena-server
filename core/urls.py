@@ -12,5 +12,6 @@ urlpatterns = [
     path('alert/', include('alert.urls')),
     path('messenger/', include('messenger.urls')),
     path('panel/', include('panel.urls')),
+    path('playarena/', TemplateView.as_view(template_name='index.html'), name='playarena'),
     path('', TemplateView.as_view(template_name='index.html'), name='index'),
 ]

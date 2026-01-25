@@ -24,6 +24,8 @@
     {% block additional_styles %}{% endblock %}
   </head>
 <body>
+    <!-- Skip to main content for accessibility -->
+    <a href="#hero" class="skip-to-main" aria-label="Skip to main content">Skip to main content</a>
     <!-- Header -->
     <header class="header" id="header">
       <div class="overlay" id="overlay"></div>
@@ -132,7 +134,8 @@
       </nav>
     </header>
     
-    <main>
+    <a href="#main-content" class="skip-to-main">Skip to main content</a>
+    <main id="main-content">
         {% block content %}{% endblock %}
     </main>
     
