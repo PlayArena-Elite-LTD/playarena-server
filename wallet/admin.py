@@ -11,15 +11,31 @@ class WalletAdmin(admin.ModelAdmin):
 
 @admin.register(Transaction)
 class TransactionAdmin(admin.ModelAdmin):
-    list_display = ['wallet', 'amount', 'transaction_type', 'description', 'created_at']
+    list_display = ['wallet', 'amount_display', 'transaction_type', 'description_short', 'created_at']
     list_filter = ['transaction_type', 'created_at']
     search_fields = ['wallet__user__username', 'description']
     readonly_fields = ['created_at']
     date_hierarchy = 'created_at'
+    
+    def amount_display(self, obj):
+        """Display amount with color coding"""
+        if obj.amount >= 0:
+            return f"+${obj.amount:.2f}"
+        else:
+            return f"-${abs(obj.amount):.2f}"
+    amount_display.short_description = 'Amount'
+    amount_display.admin_order_field = 'amount'
+    
+    def description_short(self, obj):
+        """Display short description"""
+        if obj.description:
+            return obj.description[:50] + '...' if len(obj.description) > 50 else obj.description
+        return '-'
+    description_short.short_description = 'Description'
 
 @admin.register(Deposit)
 class DepositAdmin(admin.ModelAdmin):
-    list_display = ['user', 'amount', 'payment_method', 'status', 'created_at']
+    list_display = ['user', 'amount', 'payment_method', 'status', 'created_at', 'transaction_id_short']
     list_filter = ['status', 'payment_method', 'created_at']
     search_fields = ['user__username', 'user__email', 'transaction_id']
     readonly_fields = ['created_at', 'updated_at']
@@ -38,6 +54,13 @@ class DepositAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
     )
+    
+    def transaction_id_short(self, obj):
+        """Display short transaction ID"""
+        if obj.transaction_id:
+            return obj.transaction_id[:20] + '...' if len(obj.transaction_id) > 20 else obj.transaction_id
+        return '-'
+    transaction_id_short.short_description = 'Transaction ID'
     
     @admin.action(description='Mark selected deposits as COMPLETED')
     @transaction.atomic
@@ -89,10 +112,10 @@ class DepositAdmin(admin.ModelAdmin):
 
 @admin.register(Withdrawal)
 class WithdrawalAdmin(admin.ModelAdmin):
-    list_display = ['user', 'amount', 'payment_method', 'status', 'created_at']
-    list_filter = ['status', 'payment_method', 'created_at']
-    search_fields = ['user__username', 'user__email', 'transaction_id', 'account_details']
-    readonly_fields = ['created_at', 'updated_at']
+    list_display = ['user', 'amount', 'payment_method', 'status', 'retry_count_display', 'created_at', 'transaction_id_short']
+    list_filter = ['status', 'payment_method', 'created_at', 'retry_count']
+    search_fields = ['user__username', 'user__email', 'transaction_id', 'gateway_transaction_id', 'account_details']
+    readonly_fields = ['created_at', 'updated_at', 'retry_info_display', 'gateway_response_display', 'failure_reason_display']
     date_hierarchy = 'created_at'
     actions = ['mark_as_completed', 'mark_as_failed', 'mark_as_cancelled', 'process_withdrawals']
     
@@ -101,13 +124,70 @@ class WithdrawalAdmin(admin.ModelAdmin):
             'fields': ('user', 'wallet')
         }),
         ('Withdrawal Details', {
-            'fields': ('amount', 'payment_method', 'account_details', 'status', 'transaction_id')
+            'fields': ('amount', 'payment_method', 'account_details', 'status', 'transaction_id', 'gateway_transaction_id')
+        }),
+        ('Retry Information', {
+            'fields': ('retry_count', 'max_retry_count', 'retry_info_display'),
+            'classes': ('collapse',)
+        }),
+        ('Gateway Information', {
+            'fields': ('gateway_response_display', 'failure_reason_display', 'ip_address', 'user_agent'),
+            'classes': ('collapse',)
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),
             'classes': ('collapse',)
         }),
     )
+    
+    def retry_count_display(self, obj):
+        """Display retry count with visual indicator"""
+        if obj.retry_count == 0:
+            return f"0/{obj.max_retry_count}"
+        elif obj.retry_count < obj.max_retry_count:
+            return f"⚠️ {obj.retry_count}/{obj.max_retry_count}"
+        else:
+            return f"❌ {obj.retry_count}/{obj.max_retry_count} (Max)"
+    retry_count_display.short_description = 'Retries'
+    retry_count_display.admin_order_field = 'retry_count'
+    
+    def transaction_id_short(self, obj):
+        """Display short transaction ID"""
+        if obj.transaction_id:
+            return obj.transaction_id[:20] + '...' if len(obj.transaction_id) > 20 else obj.transaction_id
+        elif obj.gateway_transaction_id:
+            return obj.gateway_transaction_id[:20] + '...' if len(obj.gateway_transaction_id) > 20 else obj.gateway_transaction_id
+        return '-'
+    transaction_id_short.short_description = 'Transaction ID'
+    
+    def retry_info_display(self, obj):
+        """Display retry information"""
+        if obj:
+            info = f"Retry Count: {obj.retry_count} / {obj.max_retry_count}"
+            if obj.retry_count >= obj.max_retry_count:
+                info += " (Maximum reached)"
+            elif obj.retry_count > 0:
+                info += f" (Can retry {obj.max_retry_count - obj.retry_count} more times)"
+            else:
+                info += " (No retries yet)"
+            return info
+        return "N/A"
+    retry_info_display.short_description = 'Retry Information'
+    
+    def gateway_response_display(self, obj):
+        """Display gateway response in readable format"""
+        if obj and obj.gateway_response:
+            import json
+            return json.dumps(obj.gateway_response, indent=2)
+        return "No gateway response"
+    gateway_response_display.short_description = 'Gateway Response'
+    
+    def failure_reason_display(self, obj):
+        """Display failure reason"""
+        if obj and obj.failure_reason:
+            return obj.failure_reason
+        return "No failure reason"
+    failure_reason_display.short_description = 'Failure Reason'
     
     @admin.action(description='Mark selected withdrawals as COMPLETED')
     @transaction.atomic
