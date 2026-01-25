@@ -101,8 +101,13 @@ class WithdrawalForm(forms.Form):
     )
     
     def clean_amount(self):
-        """Validate withdrawal amount and check balance"""
+        """Validate withdrawal amount, check balance, and enforce limits"""
+        from django.utils import timezone
+        from django.db.models import Sum
+        from datetime import timedelta
+        
         amount = self.cleaned_data.get('amount')
+        payment_method = self.cleaned_data.get('payment_method')
         
         if amount is None:
             return amount
@@ -111,6 +116,27 @@ class WithdrawalForm(forms.Form):
         if amount < Decimal('1.00'):
             raise forms.ValidationError('Minimum withdrawal amount is $1.00')
         
+        # Check maximum withdrawal amount (global limit)
+        if amount > Decimal('50000.00'):
+            raise forms.ValidationError('Maximum withdrawal amount per transaction is $50,000.00')
+        
+        # Check per-payment-method limits
+        payment_method_limits = {
+            'BANK_TRANSFER': {'max': Decimal('50000.00'), 'daily': Decimal('100000.00')},
+            'MOBILE_MONEY': {'max': Decimal('10000.00'), 'daily': Decimal('50000.00')},
+            'PAYPAL': {'max': Decimal('20000.00'), 'daily': Decimal('50000.00')},
+            'STRIPE': {'max': Decimal('20000.00'), 'daily': Decimal('50000.00')},
+            'OTHER': {'max': Decimal('10000.00'), 'daily': Decimal('25000.00')},
+        }
+        
+        if payment_method and payment_method in payment_method_limits:
+            method_limits = payment_method_limits[payment_method]
+            if amount > method_limits['max']:
+                method_display = dict(Withdrawal.PAYMENT_METHOD_CHOICES).get(payment_method, payment_method)
+                raise forms.ValidationError(
+                    f'Maximum withdrawal amount for {method_display} is ${method_limits["max"]}'
+                )
+        
         # Check user has sufficient balance
         if self.user and hasattr(self.user, 'wallet'):
             wallet = self.user.wallet
@@ -118,6 +144,44 @@ class WithdrawalForm(forms.Form):
                 raise forms.ValidationError(
                     f'Insufficient balance. Your balance is ${wallet.balance:.2f}'
                 )
+        
+        # Check daily withdrawal limits (only if user is set)
+        if self.user:
+            from wallet.models import Withdrawal
+            
+            today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            today_withdrawals = Withdrawal.objects.filter(
+                user=self.user,
+                status__in=['PENDING', 'PROCESSING', 'COMPLETED'],
+                created_at__gte=today_start
+            )
+            
+            today_total = today_withdrawals.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+            new_total = today_total + amount
+            
+            # Check global daily limit
+            if new_total > Decimal('100000.00'):
+                remaining = Decimal('100000.00') - today_total
+                raise forms.ValidationError(
+                    f'Daily withdrawal limit exceeded. Maximum daily limit is $100,000.00. '
+                    f'You have ${remaining:.2f} remaining today.'
+                )
+            
+            # Check per-payment-method daily limit
+            if payment_method and payment_method in payment_method_limits:
+                method_limits = payment_method_limits[payment_method]
+                method_today_withdrawals = today_withdrawals.filter(payment_method=payment_method)
+                method_today_total = method_today_withdrawals.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+                method_new_total = method_today_total + amount
+                
+                if method_new_total > method_limits['daily']:
+                    method_remaining = method_limits['daily'] - method_today_total
+                    method_display = dict(Withdrawal.PAYMENT_METHOD_CHOICES).get(payment_method, payment_method)
+                    raise forms.ValidationError(
+                        f'Daily withdrawal limit for {method_display} exceeded. '
+                        f'Maximum daily limit is ${method_limits["daily"]}. '
+                        f'You have ${method_remaining:.2f} remaining today.'
+                    )
         
         return amount
     

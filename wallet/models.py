@@ -309,8 +309,19 @@ class Withdrawal(models.Model):
         ('OTHER', 'Other'),
     ]
     
-    # Security: Minimum withdrawal amount (no maximum - users can withdraw any positive amount)
+    # Security: Withdrawal amount limits
     MIN_WITHDRAWAL_AMOUNT = Decimal('1.00')  # Match deposit minimum for consistency
+    MAX_WITHDRAWAL_AMOUNT = Decimal('50000.00')  # Maximum per transaction
+    DAILY_WITHDRAWAL_LIMIT = Decimal('100000.00')  # Maximum per day per user
+    
+    # Per-payment-method limits
+    PAYMENT_METHOD_LIMITS = {
+        'BANK_TRANSFER': {'max': Decimal('50000.00'), 'daily': Decimal('100000.00')},
+        'MOBILE_MONEY': {'max': Decimal('10000.00'), 'daily': Decimal('50000.00')},
+        'PAYPAL': {'max': Decimal('20000.00'), 'daily': Decimal('50000.00')},
+        'STRIPE': {'max': Decimal('20000.00'), 'daily': Decimal('50000.00')},
+        'OTHER': {'max': Decimal('10000.00'), 'daily': Decimal('25000.00')},
+    }
     
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='withdrawals')
     amount = models.DecimalField(max_digits=10, decimal_places=2)
@@ -365,6 +376,18 @@ class Withdrawal(models.Model):
         if self.amount < self.MIN_WITHDRAWAL_AMOUNT:
             raise ValidationError({'amount': f'Minimum withdrawal amount is ${self.MIN_WITHDRAWAL_AMOUNT}'})
         
+        # Validate maximum withdrawal amount (global limit)
+        if self.amount > self.MAX_WITHDRAWAL_AMOUNT:
+            raise ValidationError({'amount': f'Maximum withdrawal amount per transaction is ${self.MAX_WITHDRAWAL_AMOUNT}'})
+        
+        # Validate per-payment-method limits
+        if self.payment_method in self.PAYMENT_METHOD_LIMITS:
+            method_limits = self.PAYMENT_METHOD_LIMITS[self.payment_method]
+            if self.amount > method_limits['max']:
+                raise ValidationError({
+                    'amount': f'Maximum withdrawal amount for {self.get_payment_method_display()} is ${method_limits["max"]}'
+                })
+        
         # Security: Validate account details are provided
         if not self.account_details or not self.account_details.strip():
             raise ValidationError({'account_details': 'Account details are required for withdrawal'})
@@ -380,6 +403,45 @@ class Withdrawal(models.Model):
             raise ValidationError({
                 'retry_count': f'Retry count ({self.retry_count}) cannot exceed maximum retry count ({self.max_retry_count})'
             })
+        
+        # Security: Validate daily withdrawal limit (only for new withdrawals, not updates)
+        if self.user and not self.pk:  # Only check for new withdrawals
+            from django.utils import timezone
+            from django.db.models import Sum
+            from datetime import timedelta
+            
+            today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            today_withdrawals = Withdrawal.objects.filter(
+                user=self.user,
+                status__in=['PENDING', 'PROCESSING', 'COMPLETED'],
+                created_at__gte=today_start
+            )
+            
+            today_total = today_withdrawals.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+            new_total = today_total + self.amount
+            
+            # Check global daily limit
+            if new_total > self.DAILY_WITHDRAWAL_LIMIT:
+                remaining = self.DAILY_WITHDRAWAL_LIMIT - today_total
+                raise ValidationError({
+                    'amount': f'Daily withdrawal limit exceeded. Maximum daily limit is ${self.DAILY_WITHDRAWAL_LIMIT}. '
+                             f'You have ${remaining:.2f} remaining today.'
+                })
+            
+            # Check per-payment-method daily limit
+            if self.payment_method in self.PAYMENT_METHOD_LIMITS:
+                method_limits = self.PAYMENT_METHOD_LIMITS[self.payment_method]
+                method_today_withdrawals = today_withdrawals.filter(payment_method=self.payment_method)
+                method_today_total = method_today_withdrawals.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+                method_new_total = method_today_total + self.amount
+                
+                if method_new_total > method_limits['daily']:
+                    method_remaining = method_limits['daily'] - method_today_total
+                    raise ValidationError({
+                        'amount': f'Daily withdrawal limit for {self.get_payment_method_display()} exceeded. '
+                                 f'Maximum daily limit is ${method_limits["daily"]}. '
+                                 f'You have ${method_remaining:.2f} remaining today.'
+                    })
         
         # Security: Validate status transitions (prevent invalid state changes)
         if self.pk:  # Only validate transitions for existing withdrawals
