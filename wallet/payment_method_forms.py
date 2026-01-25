@@ -45,6 +45,10 @@ class SavedPaymentMethodForm(forms.ModelForm):
         # Set user if creating new
         if self.user and not self.instance.pk:
             self.instance.user = self.user
+        
+        # Add data attributes to payment method type options for JavaScript
+        if 'payment_method_type' in self.fields:
+            self.fields['payment_method_type'].widget.attrs['data-payment-method'] = True
     
     def clean(self):
         """Security: Validate payment method data"""

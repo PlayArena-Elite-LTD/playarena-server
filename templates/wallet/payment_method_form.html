@@ -1,0 +1,254 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} - PlayArena{% endblock %}
+
+{% block content %}
+<section class="section">
+  <div class="container">
+    {% if messages %}
+    <div class="messages">
+      {% for message in messages %}
+      <p class="message {{ message.tags }}">
+        <i class="fas fa-info-circle"></i>
+        <span>{{ message }}</span>
+      </p>
+      {% endfor %}
+    </div>
+    {% endif %}
+    
+    <div class="form-header">
+      <h2 class="section-title">{{ title }}</h2>
+      <a href="{% url 'payment_methods_list' %}" class="dashboard-button">
+        <i class="fas fa-arrow-left"></i> Back to Payment Methods
+      </a>
+    </div>
+    
+    <div class="form-container">
+      <form method="post" class="payment-method-form">
+        {% csrf_token %}
+        
+        <div class="form-group">
+          <label for="{{ form.payment_method_type.id_for_label }}" class="form-label">
+            Payment Method Type <span class="required">*</span>
+          </label>
+          {{ form.payment_method_type }}
+          {% if form.payment_method_type.errors %}
+          <div class="form-error">
+            {{ form.payment_method_type.errors }}
+          </div>
+          {% endif %}
+          <small class="form-help">Select the type of payment method</small>
+        </div>
+        
+        <div class="form-group">
+          <label for="{{ form.label.id_for_label }}" class="form-label">
+            Label <span class="required">*</span>
+          </label>
+          {{ form.label }}
+          {% if form.label.errors %}
+          <div class="form-error">
+            {{ form.label.errors }}
+          </div>
+          {% endif %}
+          <small class="form-help">Give this payment method a friendly name (e.g., "My Main Bank Account", "Visa ending in 1234")</small>
+        </div>
+        
+        <div class="form-group">
+          <label for="{{ form.account_details.id_for_label }}" class="form-label">
+            Account Details <span class="required">*</span>
+          </label>
+          {{ form.account_details }}
+          {% if form.account_details.errors %}
+          <div class="form-error">
+            {{ form.account_details.errors }}
+          </div>
+          {% endif %}
+          <small class="form-help">
+            Enter account information:
+            <ul style="margin-top: 0.5rem; padding-left: 1.5rem;">
+              <li>Bank Transfer: Account number and bank code (format: account_number|bank_code)</li>
+              <li>Mobile Money: Phone number and provider code (format: phone|provider)</li>
+              <li>Card: Card number (last 4 digits will be shown)</li>
+            </ul>
+          </small>
+        </div>
+        
+        <div class="form-group">
+          <label for="{{ form.metadata.id_for_label }}" class="form-label">
+            Additional Details (Optional)
+          </label>
+          {{ form.metadata }}
+          {% if form.metadata.errors %}
+          <div class="form-error">
+            {{ form.metadata.errors }}
+          </div>
+          {% endif %}
+          <small class="form-help">Optional JSON format: {"bank_name": "Chase", "account_type": "Checking"}</small>
+        </div>
+        
+        <div class="form-group checkbox-group">
+          <div class="form-check">
+            {{ form.is_default }}
+            <label for="{{ form.is_default.id_for_label }}" class="form-check-label">
+              Set as default payment method
+            </label>
+          </div>
+          {% if form.is_default.errors %}
+          <div class="form-error">
+            {{ form.is_default.errors }}
+          </div>
+          {% endif %}
+          <small class="form-help">This will be automatically selected when making withdrawals of this type</small>
+        </div>
+        
+        {% if form.non_field_errors %}
+        <div class="form-error">
+          {{ form.non_field_errors }}
+        </div>
+        {% endif %}
+        
+        <div class="form-actions">
+          <button type="submit" class="dashboard-button dashboard-button-primary">
+            <i class="fas fa-save"></i> Save Payment Method
+          </button>
+          <a href="{% url 'payment_methods_list' %}" class="dashboard-button">
+            Cancel
+          </a>
+        </div>
+      </form>
+    </div>
+  </div>
+</section>
+
+<style>
+.form-container {
+  max-width: 600px;
+  margin: 0 auto;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 2rem;
+}
+
+.form-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+.payment-method-form {
+  width: 100%;
+}
+
+.form-group {
+  margin-bottom: 1.5rem;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.required {
+  color: #dc3545;
+}
+
+.form-control,
+.form-select {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 1rem;
+  transition: all 0.2s ease;
+}
+
+.form-control:focus,
+.form-select:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.1);
+}
+
+.form-control textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+
+.form-help {
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.form-error {
+  color: #dc3545;
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+}
+
+.checkbox-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.form-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.form-check-input {
+  width: auto;
+  margin: 0;
+}
+
+.form-check-label {
+  margin: 0;
+  font-weight: normal;
+}
+
+.form-actions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.dashboard-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  text-decoration: none;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.dashboard-button:hover {
+  background: var(--bg-tertiary);
+}
+
+.dashboard-button-primary {
+  background: var(--primary-color);
+  color: white;
+  border-color: var(--primary-color);
+}
+
+.dashboard-button-primary:hover {
+  background: var(--primary-hover);
+}
+</style>
+{% endblock %}
+

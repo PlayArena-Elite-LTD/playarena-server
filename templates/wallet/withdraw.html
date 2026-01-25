@@ -1,0 +1,356 @@
+{% extends "base.html" %}
+{% block title %}Withdraw Funds - PlayArena{% endblock %}
+
+{% block content %}
+<section class="section">
+  <div class="container">
+    {% if messages %}
+    <div class="messages">
+      {% for message in messages %}
+      <p class="message {{ message.tags }}">
+        <i class="fas fa-info-circle"></i>
+        <span>{{ message }}</span>
+      </p>
+      {% endfor %}
+    </div>
+    {% endif %}
+    
+    <div class="form-header">
+      <h2 class="section-title">Withdraw Funds</h2>
+      <div class="header-actions">
+        <a href="{% url 'payment_methods_list' %}" class="dashboard-button">
+          <i class="fas fa-credit-card"></i> Manage Payment Methods
+        </a>
+        <a href="{% url 'wallet' %}" class="dashboard-button">
+          <i class="fas fa-arrow-left"></i> Back to Wallet
+        </a>
+      </div>
+    </div>
+    
+    <div class="wallet-info-card">
+      <div class="wallet-balance">
+        <span class="balance-label">Available Balance</span>
+        <span class="balance-amount">${{ wallet.balance|floatformat:2 }}</span>
+      </div>
+    </div>
+    
+    <div class="form-container">
+      <form method="post" class="withdrawal-form" id="withdrawalForm">
+        {% csrf_token %}
+        
+        <div class="form-group">
+          <label for="{{ form.amount.id_for_label }}" class="form-label">
+            Withdrawal Amount <span class="required">*</span>
+          </label>
+          {{ form.amount }}
+          {% if form.amount.errors %}
+          <div class="form-error">
+            {{ form.amount.errors }}
+          </div>
+          {% endif %}
+          <small class="form-help">Minimum: $1.00</small>
+        </div>
+        
+        <div class="form-group">
+          <label for="{{ form.payment_method.id_for_label }}" class="form-label">
+            Payment Method <span class="required">*</span>
+          </label>
+          {{ form.payment_method }}
+          {% if form.payment_method.errors %}
+          <div class="form-error">
+            {{ form.payment_method.errors }}
+          </div>
+          {% endif %}
+        </div>
+        
+        {% if form.saved_payment_method.queryset.count > 0 %}
+        <div class="form-group checkbox-group">
+          <div class="form-check">
+            {{ form.use_saved_method }}
+            <label for="{{ form.use_saved_method.id_for_label }}" class="form-check-label">
+              Use saved payment method
+            </label>
+          </div>
+          {% if form.use_saved_method.errors %}
+          <div class="form-error">
+            {{ form.use_saved_method.errors }}
+          </div>
+          {% endif %}
+        </div>
+        
+        <div class="form-group" id="savedMethodGroup" style="display: none;">
+          <label for="{{ form.saved_payment_method.id_for_label }}" class="form-label">
+            Select Saved Payment Method
+          </label>
+          {{ form.saved_payment_method }}
+          {% if form.saved_payment_method.errors %}
+          <div class="form-error">
+            {{ form.saved_payment_method.errors }}
+          </div>
+          {% endif %}
+          <small class="form-help">
+            <a href="{% url 'payment_method_create' %}">Add new payment method</a>
+          </small>
+        </div>
+        {% endif %}
+        
+        <div class="form-group" id="accountDetailsGroup">
+          <label for="{{ form.account_details.id_for_label }}" class="form-label">
+            Account Details <span class="required">*</span>
+          </label>
+          {{ form.account_details }}
+          {% if form.account_details.errors %}
+          <div class="form-error">
+            {{ form.account_details.errors }}
+          </div>
+          {% endif %}
+          <small class="form-help">
+            Enter account information:
+            <ul style="margin-top: 0.5rem; padding-left: 1.5rem; font-size: 0.85rem;">
+              <li>Bank Transfer: account_number|bank_code</li>
+              <li>Mobile Money: phone|provider</li>
+              <li>Other: Provide relevant account details</li>
+            </ul>
+          </small>
+        </div>
+        
+        {% if form.non_field_errors %}
+        <div class="form-error">
+          {{ form.non_field_errors }}
+        </div>
+        {% endif %}
+        
+        <div class="form-actions">
+          <button type="submit" class="dashboard-button dashboard-button-primary">
+            <i class="fas fa-paper-plane"></i> Submit Withdrawal Request
+          </button>
+          <a href="{% url 'wallet' %}" class="dashboard-button">
+            Cancel
+          </a>
+        </div>
+      </form>
+    </div>
+  </div>
+</section>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const useSavedCheckbox = document.getElementById('{{ form.use_saved_method.id_for_label }}');
+  const savedMethodGroup = document.getElementById('savedMethodGroup');
+  const accountDetailsGroup = document.getElementById('accountDetailsGroup');
+  const savedMethodSelect = document.getElementById('{{ form.saved_payment_method.id_for_label }}');
+  
+  if (useSavedCheckbox && savedMethodGroup && accountDetailsGroup) {
+    function toggleFields() {
+      if (useSavedCheckbox.checked) {
+        savedMethodGroup.style.display = 'block';
+        accountDetailsGroup.style.display = 'none';
+        if (savedMethodSelect) {
+          savedMethodSelect.required = true;
+        }
+      } else {
+        savedMethodGroup.style.display = 'none';
+        accountDetailsGroup.style.display = 'block';
+        if (savedMethodSelect) {
+          savedMethodSelect.required = false;
+        }
+      }
+    }
+    
+    // Initial state
+    toggleFields();
+    
+    // Listen for changes
+    useSavedCheckbox.addEventListener('change', toggleFields);
+    
+    // If saved method is selected, update payment method dropdown
+    if (savedMethodSelect) {
+      savedMethodSelect.addEventListener('change', function() {
+        const selectedOption = this.options[this.selectedIndex];
+        if (selectedOption && selectedOption.dataset.paymentMethod) {
+          const paymentMethodSelect = document.getElementById('{{ form.payment_method.id_for_label }}');
+          if (paymentMethodSelect) {
+            paymentMethodSelect.value = selectedOption.dataset.paymentMethod;
+          }
+        }
+      });
+    }
+  }
+});
+</script>
+
+<style>
+.form-container {
+  max-width: 600px;
+  margin: 0 auto;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 2rem;
+}
+
+.form-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.header-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.wallet-info-card {
+  background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+  color: white;
+  text-align: center;
+}
+
+.wallet-balance {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.balance-label {
+  font-size: 0.9rem;
+  opacity: 0.9;
+  margin-bottom: 0.5rem;
+}
+
+.balance-amount {
+  font-size: 2rem;
+  font-weight: 700;
+}
+
+.withdrawal-form {
+  width: 100%;
+}
+
+.form-group {
+  margin-bottom: 1.5rem;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.required {
+  color: #dc3545;
+}
+
+.form-control,
+.form-select {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 1rem;
+  transition: all 0.2s ease;
+}
+
+.form-control:focus,
+.form-select:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.1);
+}
+
+.form-control textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+
+.form-help {
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.form-help a {
+  color: var(--primary-color);
+  text-decoration: none;
+}
+
+.form-help a:hover {
+  text-decoration: underline;
+}
+
+.form-error {
+  color: #dc3545;
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+}
+
+.checkbox-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.form-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.form-check-input {
+  width: auto;
+  margin: 0;
+}
+
+.form-check-label {
+  margin: 0;
+  font-weight: normal;
+}
+
+.form-actions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.dashboard-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  text-decoration: none;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.dashboard-button:hover {
+  background: var(--bg-tertiary);
+}
+
+.dashboard-button-primary {
+  background: var(--primary-color);
+  color: white;
+  border-color: var(--primary-color);
+}
+
+.dashboard-button-primary:hover {
+  background: var(--primary-hover);
+}
+</style>
+{% endblock %}
+

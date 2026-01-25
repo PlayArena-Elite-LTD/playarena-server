@@ -82,10 +82,24 @@ class WithdrawalForm(forms.Form):
         help_text='Required: Provide account information for withdrawal (account number, mobile number, email, etc.)'
     )
     
-    def __init__(self, *args, **kwargs):
-        self.user = kwargs.pop('user', None)
-        super().__init__(*args, **kwargs)
-        
+    use_saved_method = forms.BooleanField(
+        required=False,
+        initial=False,
+        widget=forms.CheckboxInput(attrs={
+            'class': 'form-check-input'
+        }),
+        label='Use saved payment method'
+    )
+    
+    saved_payment_method = forms.ModelChoiceField(
+        queryset=SavedPaymentMethod.objects.none(),
+        required=False,
+        widget=forms.Select(attrs={
+            'class': 'form-control'
+        }),
+        label='Select Saved Payment Method'
+    )
+    
     def clean_amount(self):
         """Validate withdrawal amount and check balance"""
         amount = self.cleaned_data.get('amount')
@@ -138,6 +152,11 @@ class WithdrawalForm(forms.Form):
             ).order_by('-is_default', '-created_at')
             
             self.fields['saved_payment_method'].queryset = saved_methods
+            
+            # Add data attributes to options for JavaScript
+            for method in saved_methods:
+                # This will be handled in the template via JavaScript
+                pass
             
             # Set default saved method if available
             default_method = saved_methods.filter(is_default=True).first()
