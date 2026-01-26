@@ -6,6 +6,7 @@ import random
 import string
 import hashlib
 import os
+from .utils import validate_file_size, validate_file_type
 
 class Match(models.Model):
     # Game choices
@@ -204,9 +205,7 @@ class Evidence(models.Model):
         return f"Evidence for {self.match} by {self.user.username} ({self.get_file_type_display()})"
     
     def clean(self):
-        """Security: Validate file type and size"""
-        from django.conf import settings
-        
+        """Security: Validate file type and size using utility functions"""
         if not self.file:
             return  # File validation happens in form/view
         
@@ -218,19 +217,17 @@ class Evidence(models.Model):
         else:
             raise ValidationError({'file': 'Unable to determine file size'})
         
-        # Validate file size based on type
-        if self.file_type == 'IMAGE':
-            if file_size > settings.MAX_IMAGE_SIZE:
-                max_mb = settings.MAX_IMAGE_SIZE / (1024 * 1024)
-                raise ValidationError({
-                    'file': f'Image file size exceeds maximum allowed size of {max_mb}MB'
-                })
-        elif self.file_type == 'VIDEO':
-            if file_size > settings.MAX_VIDEO_SIZE:
-                max_mb = settings.MAX_VIDEO_SIZE / (1024 * 1024)
-                raise ValidationError({
-                    'file': f'Video file size exceeds maximum allowed size of {max_mb}MB'
-                })
+        # Validate file size using utility function
+        try:
+            validate_file_size(self.file, self.file_type)
+        except ValidationError as e:
+            raise ValidationError({'file': str(e)})
+        
+        # Validate file type using utility function
+        try:
+            validate_file_type(self.file, self.file_type)
+        except ValidationError as e:
+            raise ValidationError({'file': str(e)})
         
         # Validate file size field matches actual file
         if self.file_size and self.file_size != file_size:

@@ -2,6 +2,7 @@ from django import forms
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from .models import Match, Evidence
+from .utils import validate_evidence_file, validate_file_size, validate_file_type
 
 class MatchCreationForm(forms.ModelForm):
     class Meta:
@@ -118,14 +119,11 @@ class EvidenceUploadForm(forms.Form):
         super().__init__(*args, **kwargs)
     
     def clean_file(self):
-        """Security: Validate file type and size"""
+        """Security: Validate file type and size using utility functions"""
         file = self.cleaned_data.get('file')
         
         if not file:
             raise ValidationError("Please select a file to upload.")
-        
-        # Get file size
-        file_size = file.size
         
         # Get file type from form data (may not be cleaned yet, so get from initial data)
         file_type = self.cleaned_data.get('file_type') or self.data.get('file_type')
@@ -133,47 +131,13 @@ class EvidenceUploadForm(forms.Form):
         if not file_type:
             raise ValidationError("Please select a file type.")
         
-        # Validate file size based on type
-        if file_type == 'IMAGE':
-            if file_size > settings.MAX_IMAGE_SIZE:
-                max_mb = settings.MAX_IMAGE_SIZE / (1024 * 1024)
-                raise ValidationError(
-                    f'Image file size exceeds maximum allowed size of {max_mb}MB. '
-                    f'Your file is {file_size / (1024 * 1024):.2f}MB.'
-                )
-        elif file_type == 'VIDEO':
-            if file_size > settings.MAX_VIDEO_SIZE:
-                max_mb = settings.MAX_VIDEO_SIZE / (1024 * 1024)
-                raise ValidationError(
-                    f'Video file size exceeds maximum allowed size of {max_mb}MB. '
-                    f'Your file is {file_size / (1024 * 1024):.2f}MB.'
-                )
-        
-        # Validate MIME type
-        content_type = file.content_type
-        if file_type == 'IMAGE':
-            if content_type not in settings.ALLOWED_IMAGE_TYPES:
-                raise ValidationError(
-                    f'Invalid image file type. Allowed types: {", ".join(settings.ALLOWED_IMAGE_TYPES)}'
-                )
-        elif file_type == 'VIDEO':
-            if content_type not in settings.ALLOWED_VIDEO_TYPES:
-                raise ValidationError(
-                    f'Invalid video file type. Allowed types: {", ".join(settings.ALLOWED_VIDEO_TYPES)}'
-                )
-        
-        # Validate file extension
-        file_name = file.name.lower()
-        if file_type == 'IMAGE':
-            if not any(file_name.endswith(ext) for ext in settings.ALLOWED_IMAGE_EXTENSIONS):
-                raise ValidationError(
-                    f'Invalid image file extension. Allowed extensions: {", ".join(settings.ALLOWED_IMAGE_EXTENSIONS)}'
-                )
-        elif file_type == 'VIDEO':
-            if not any(file_name.endswith(ext) for ext in settings.ALLOWED_VIDEO_EXTENSIONS):
-                raise ValidationError(
-                    f'Invalid video file extension. Allowed extensions: {", ".join(settings.ALLOWED_VIDEO_EXTENSIONS)}'
-                )
+        # Use utility functions for validation
+        try:
+            validate_file_size(file, file_type)
+            validate_file_type(file, file_type)
+        except ValidationError as e:
+            # Re-raise validation errors
+            raise e
         
         return file
     
