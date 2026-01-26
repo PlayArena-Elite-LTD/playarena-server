@@ -145,7 +145,9 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 # Static file serving.
 # https://whitenoise.readthedocs.io/en/stable/django.html#add-compression-and-caching-support
 STORAGES = {
-    # ...
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
     },
@@ -157,9 +159,8 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 # File storage configuration
-# Development: Use local file system storage
-# Production: Configure S3 or Cloudinary (see below)
-DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
+# Development: Use local file system storage (configured in STORAGES above)
+# Production: Configure S3 or Cloudinary by updating STORAGES['default']
 
 # Evidence upload configuration
 # File size limits (in bytes)

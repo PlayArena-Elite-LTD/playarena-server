@@ -1,7 +1,11 @@
 from django.db import models
 from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.utils import timezone
 import random
 import string
+import hashlib
+import os
 
 class Match(models.Model):
     # Game choices
@@ -107,3 +111,189 @@ class MatchResult(models.Model):
     
     def __str__(self):
         return f"Result for {self.match}"
+
+
+class Evidence(models.Model):
+    """
+    Model to store evidence files (screenshots/videos) for match results.
+    
+    Security features:
+    - File type validation (images/videos only)
+    - File size limits (10MB images, 50MB videos)
+    - File hash for integrity checking
+    - IP address and user agent tracking
+    - Organized file storage by date
+    """
+    
+    FILE_TYPE_CHOICES = [
+        ('IMAGE', 'Image'),
+        ('VIDEO', 'Video'),
+    ]
+    
+    match = models.ForeignKey(Match, on_delete=models.CASCADE, related_name='evidence')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='evidence_submissions')
+    file = models.FileField(upload_to='evidence/%Y/%m/%d/')
+    file_type = models.CharField(max_length=10, choices=FILE_TYPE_CHOICES)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    description = models.TextField(blank=True, null=True, help_text='Optional description of the evidence')
+    
+    # Security fields
+    file_size = models.PositiveIntegerField(help_text='File size in bytes')
+    file_hash = models.CharField(max_length=64, blank=True, null=True, help_text='SHA256 hash for integrity checking')
+    ip_address = models.GenericIPAddressField(blank=True, null=True, help_text='IP address of upload request')
+    user_agent = models.CharField(max_length=500, blank=True, null=True, help_text='User agent of upload request')
+    
+    # Support staff verification
+    is_verified = models.BooleanField(default=False, help_text='Verified by support staff')
+    verified_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='verified_evidence',
+        help_text='Support staff who verified this evidence'
+    )
+    verified_at = models.DateTimeField(null=True, blank=True, help_text='Timestamp when evidence was verified')
+    
+    class Meta:
+        ordering = ['-uploaded_at']
+        indexes = [
+            models.Index(fields=['match', 'user']),
+            models.Index(fields=['uploaded_at']),
+            models.Index(fields=['file_type']),
+            models.Index(fields=['is_verified']),
+        ]
+        verbose_name = 'Evidence'
+        verbose_name_plural = 'Evidence'
+    
+    def __str__(self):
+        return f"Evidence for {self.match} by {self.user.username} ({self.get_file_type_display()})"
+    
+    def clean(self):
+        """Security: Validate file type and size"""
+        from django.conf import settings
+        
+        if not self.file:
+            return  # File validation happens in form/view
+        
+        # Get file size
+        if hasattr(self.file, 'size'):
+            file_size = self.file.size
+        elif hasattr(self.file, 'file'):
+            file_size = self.file.file.size
+        else:
+            raise ValidationError({'file': 'Unable to determine file size'})
+        
+        # Validate file size based on type
+        if self.file_type == 'IMAGE':
+            if file_size > settings.MAX_IMAGE_SIZE:
+                max_mb = settings.MAX_IMAGE_SIZE / (1024 * 1024)
+                raise ValidationError({
+                    'file': f'Image file size exceeds maximum allowed size of {max_mb}MB'
+                })
+        elif self.file_type == 'VIDEO':
+            if file_size > settings.MAX_VIDEO_SIZE:
+                max_mb = settings.MAX_VIDEO_SIZE / (1024 * 1024)
+                raise ValidationError({
+                    'file': f'Video file size exceeds maximum allowed size of {max_mb}MB'
+                })
+        
+        # Validate file size field matches actual file
+        if self.file_size and self.file_size != file_size:
+            raise ValidationError({
+                'file_size': 'File size does not match actual file size'
+            })
+    
+    def save(self, *args, **kwargs):
+        """Security: Generate file hash and validate before saving"""
+        # Generate file hash if file exists and hash not set
+        if self.file and not self.file_hash:
+            self.file_hash = self.generate_file_hash()
+        
+        # Set file size if not set
+        if self.file and not self.file_size:
+            if hasattr(self.file, 'size'):
+                self.file_size = self.file.size
+            elif hasattr(self.file, 'file'):
+                self.file_size = self.file.file.size
+        
+        # Run validation
+        self.full_clean()
+        
+        super().save(*args, **kwargs)
+    
+    def generate_file_hash(self):
+        """
+        Generate SHA256 hash of file content for integrity checking.
+        
+        Security: Creates a hash to detect file tampering.
+        """
+        if not self.file:
+            return None
+        
+        try:
+            # Read file content
+            if hasattr(self.file, 'read'):
+                self.file.seek(0)
+                file_content = self.file.read()
+            elif hasattr(self.file, 'file'):
+                self.file.file.seek(0)
+                file_content = self.file.file.read()
+            else:
+                return None
+            
+            # Generate hash
+            file_hash = hashlib.sha256(file_content).hexdigest()
+            
+            # Reset file pointer
+            if hasattr(self.file, 'seek'):
+                self.file.seek(0)
+            elif hasattr(self.file, 'file'):
+                self.file.file.seek(0)
+            
+            return file_hash
+        except Exception:
+            return None
+    
+    def verify_hash(self):
+        """
+        Verify that the current file content matches the stored hash.
+        
+        Security: Detects if file has been tampered with.
+        """
+        if not self.file_hash:
+            return False
+        
+        current_hash = self.generate_file_hash()
+        return current_hash == self.file_hash
+    
+    @property
+    def file_size_mb(self):
+        """Return file size in megabytes (human-readable)"""
+        if self.file_size:
+            return round(self.file_size / (1024 * 1024), 2)
+        return 0
+    
+    @property
+    def is_image(self):
+        """Check if file is an image"""
+        return self.file_type == 'IMAGE'
+    
+    @property
+    def is_video(self):
+        """Check if file is a video"""
+        return self.file_type == 'VIDEO'
+    
+    def mark_as_verified(self, verified_by_user):
+        """
+        Mark evidence as verified by support staff.
+        
+        Security: Only support staff can verify evidence.
+        """
+        if not verified_by_user.is_support_staff:
+            raise ValidationError('Only support staff can verify evidence')
+        
+        self.is_verified = True
+        self.verified_by = verified_by_user
+        self.verified_at = timezone.now()
+        self.save(update_fields=['is_verified', 'verified_by', 'verified_at'])
