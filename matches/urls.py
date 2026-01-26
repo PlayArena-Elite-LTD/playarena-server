@@ -10,4 +10,5 @@ urlpatterns = [
     path('cancel/<int:match_id>/', views.cancel_match, name='cancel_match'),
     path('<int:match_id>/submit-result/', views.submit_match_result, name='submit_match_result'),
     path('<int:match_id>/upload-evidence/', views.upload_evidence, name='upload_evidence'),
+    path('<int:match_id>/evidence-gallery/', views.evidence_gallery, name='evidence_gallery'),
 ]

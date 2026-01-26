@@ -214,7 +214,12 @@
       <div class="match-detail-card">
         <div class="match-detail-card-header">
           <h3 class="match-detail-card-title">Evidence Gallery</h3>
-          <span class="evidence-count-badge">{{ evidence_list|length }} file{{ evidence_list|length|pluralize }}</span>
+          <div class="evidence-header-actions">
+            <span class="evidence-count-badge">{{ evidence_list|length }} file{{ evidence_list|length|pluralize }}</span>
+            <a href="{% url 'evidence_gallery' match_id=match.id %}" class="evidence-gallery-link">
+              <i class="fas fa-th"></i> View Gallery
+            </a>
+          </div>
         </div>
         <div class="evidence-gallery">
           {% for evidence in evidence_list %}

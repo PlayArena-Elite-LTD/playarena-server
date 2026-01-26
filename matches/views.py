@@ -490,6 +490,40 @@ def match_detail(request, match_id):
         messages.error(request, "The requested match is not available.")
         return redirect('my_matches')
 
+
+@login_required
+def evidence_gallery(request, match_id):
+    """Display evidence gallery for a match"""
+    try:
+        match = Match.objects.get(id=match_id)
+        
+        # Check if user is allowed to view this match
+        if match.privacy == 'PRIVATE' and request.user != match.creator and request.user != match.joiner:
+            messages.error(request, "You don't have permission to view this match.")
+            return redirect('dashboard')
+        
+        # Get all evidence for this match
+        evidence_list = Evidence.objects.filter(match=match).order_by('-uploaded_at')
+        
+        # Separate images and videos for better organization
+        images = [e for e in evidence_list if e.file_type == 'IMAGE']
+        videos = [e for e in evidence_list if e.file_type == 'VIDEO']
+        
+        context = {
+            'match': match,
+            'username': request.user.username,
+            'evidence_list': evidence_list,
+            'images': images,
+            'videos': videos,
+            'total_count': evidence_list.count(),
+        }
+        
+        return render(request, 'matches/evidence_gallery.html', context)
+        
+    except Match.DoesNotExist:
+        messages.error(request, "The requested match is not available.")
+        return redirect('my_matches')
+
 @login_required
 def my_matches(request):
     """Display a list of user's matches"""
