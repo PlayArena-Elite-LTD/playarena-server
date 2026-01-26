@@ -4,7 +4,7 @@ from django.utils import timezone
 from django.db import transaction
 from django.contrib.auth import get_user_model
 
-from matches.models import Match
+from matches.models import Match, Evidence
 from panel.models import Dispute
 from wallet.models import Wallet, Transaction
 from alert.models import Notification
@@ -53,10 +53,21 @@ def dispute_detail(request, dispute_id):
     participants = [match.creator]
     if match.joiner:
         participants.append(match.joiner)
+    
+    # Get all evidence for this match
+    evidence_list = Evidence.objects.filter(match=match).order_by('-uploaded_at')
+    
+    # Separate evidence by participant for comparison
+    creator_evidence = evidence_list.filter(user=match.creator)
+    joiner_evidence = evidence_list.filter(user=match.joiner) if match.joiner else Evidence.objects.none()
+    
     context = {
         'dispute': dispute,
         'match': match,
         'participants': participants,
+        'evidence_list': evidence_list,
+        'creator_evidence': creator_evidence,
+        'joiner_evidence': joiner_evidence,
     }
     return render(request, 'panel/dispute_detail.html', context)
 
