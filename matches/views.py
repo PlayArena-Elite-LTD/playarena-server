@@ -15,6 +15,16 @@ from alert.models import Notification
 
 logger = logging.getLogger('django_ratelimit')
 
+
+def get_client_ip(request):
+    """Get client IP address from request"""
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        ip = x_forwarded_for.split(',')[0]
+    else:
+        ip = request.META.get('REMOTE_ADDR')
+    return ip
+
 @login_required
 @transaction.atomic
 @ratelimit(key='user', rate='10/h', method='POST', block=True)
@@ -598,13 +608,24 @@ def upload_evidence(request, match_id):
         # Determine file type
         file_type = form.get_file_type()
         
-        # Create Evidence instance
+        # Get file size
+        file_size = evidence_file.size
+        
+        # Get IP address and user agent for security tracking
+        ip_address = get_client_ip(request)
+        user_agent = request.META.get('HTTP_USER_AGENT', '')[:500]  # Limit to 500 chars
+        
+        # Create Evidence instance with security fields
         evidence = Evidence.objects.create(
             match=match,
             user=request.user,
             file=evidence_file,
             file_type=file_type,
-            description=description if description else None
+            description=description if description else None,
+            file_size=file_size,  # Required security field
+            ip_address=ip_address,  # Security tracking
+            user_agent=user_agent,  # Security tracking
+            # file_hash will be auto-generated in save() method
         )
         
         # Return success response
