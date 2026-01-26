@@ -118,12 +118,14 @@ class DepositAdmin(admin.ModelAdmin):
 
 @admin.register(Withdrawal)
 class WithdrawalAdmin(admin.ModelAdmin):
-    list_display = ['user', 'amount', 'payment_method', 'status', 'retry_count_display', 'created_at', 'transaction_id_short', 'process_withdrawal_link']
+    list_display = ['user', 'amount_display', 'payment_method', 'status_display', 'retry_count_display', 'created_at', 'transaction_id_short', 'process_withdrawal_link']
     list_filter = ['status', 'payment_method', 'created_at', 'retry_count']
     search_fields = ['user__username', 'user__email', 'transaction_id', 'gateway_transaction_id', 'account_details']
     readonly_fields = ['created_at', 'updated_at', 'retry_info_display', 'gateway_response_display', 'failure_reason_display']
     date_hierarchy = 'created_at'
-    actions = ['mark_as_completed', 'mark_as_failed', 'mark_as_cancelled', 'process_withdrawals']
+    list_per_page = 50
+    ordering = ['-created_at']
+    actions = ['mark_as_completed', 'mark_as_failed', 'mark_as_cancelled', 'process_withdrawals', 'bulk_retry_failed']
     
     def get_urls(self):
         """Add custom URLs for withdrawal processing"""
@@ -348,6 +350,34 @@ class WithdrawalAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
     )
+    
+    def amount_display(self, obj):
+        """Display amount with currency formatting"""
+        if obj:
+            return f"${obj.amount:,.2f}"
+        return "-"
+    amount_display.short_description = 'Amount'
+    amount_display.admin_order_field = 'amount'
+    
+    def status_display(self, obj):
+        """Display status with color coding"""
+        if not obj:
+            return "-"
+        status_colors = {
+            'PENDING': 'orange',
+            'PROCESSING': 'blue',
+            'COMPLETED': 'green',
+            'FAILED': 'red',
+            'CANCELLED': 'gray',
+        }
+        color = status_colors.get(obj.status, 'black')
+        return format_html(
+            '<span style="color: {}; font-weight: bold;">{}</span>',
+            color,
+            obj.get_status_display()
+        )
+    status_display.short_description = 'Status'
+    status_display.admin_order_field = 'status'
     
     def retry_count_display(self, obj):
         """Display retry count with visual indicator"""
@@ -616,6 +646,57 @@ class WithdrawalAdmin(admin.ModelAdmin):
             message_parts.append(f'{skipped_count} skipped')
         
         message = f"Withdrawal processing: {', '.join(message_parts)}."
+        self.message_user(request, message)
+    
+    @admin.action(description='Bulk retry failed withdrawals')
+    @transaction.atomic
+    def bulk_retry_failed(self, request, queryset):
+        """
+        Reset failed withdrawals back to PENDING status for retry.
+        Only works on withdrawals that have failed but haven't exceeded max retry count.
+        
+        Security: Staff-only, atomic operations, validation before retry
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        retried_count = 0
+        skipped_count = 0
+        
+        for withdrawal in queryset:
+            # Only retry FAILED withdrawals that haven't exceeded max retry count
+            if withdrawal.status != 'FAILED':
+                skipped_count += 1
+                continue
+            
+            if withdrawal.retry_count >= withdrawal.max_retry_count:
+                skipped_count += 1
+                logger.warning(
+                    f'Skipping withdrawal {withdrawal.id} - max retry count exceeded '
+                    f'({withdrawal.retry_count}/{withdrawal.max_retry_count})'
+                )
+                continue
+            
+            # Reset to PENDING for retry
+            Withdrawal.objects.filter(id=withdrawal.id).update(
+                status='PENDING',
+                failure_reason=None,  # Clear previous failure reason
+                updated_at=timezone.now()
+            )
+            
+            retried_count += 1
+            logger.info(
+                f'Withdrawal {withdrawal.id} reset to PENDING for retry by {request.user.username}'
+            )
+        
+        # Report results
+        message_parts = []
+        if retried_count > 0:
+            message_parts.append(f'{retried_count} withdrawal(s) reset to PENDING for retry')
+        if skipped_count > 0:
+            message_parts.append(f'{skipped_count} withdrawal(s) skipped')
+        
+        message = f"Bulk retry: {', '.join(message_parts)}."
         self.message_user(request, message)
 
 
