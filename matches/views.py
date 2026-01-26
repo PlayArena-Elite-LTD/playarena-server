@@ -3,11 +3,13 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import transaction
 from django.utils import timezone
-from django.http import HttpResponseNotAllowed, JsonResponse
+from django.http import HttpResponseNotAllowed, JsonResponse, FileResponse, Http404
 from django.core.exceptions import ValidationError
+from django.core.paginator import Paginator
 from decimal import Decimal
 from django_ratelimit.decorators import ratelimit
 import logging
+import os
 
 from .forms import MatchCreationForm, JoinMatchForm, EvidenceUploadForm
 from .models import Match, MatchResult, Evidence
@@ -607,3 +609,223 @@ def available_matches(request):
     }
     
     return render(request, 'matches/available_matches.html', context)
+
+
+@login_required
+@ratelimit(key='user', rate='30/h', method='GET', block=True)
+def get_evidence(request, evidence_id):
+    """
+    Retrieve evidence file with access control.
+    
+    Security features:
+    - Only match participants or support staff can view evidence
+    - Rate limiting (30 requests/hour per user)
+    - Access logging
+    - Proper file serving with security headers
+    
+    GET: Retrieve evidence file
+    Returns: FileResponse with evidence file
+    """
+    evidence = get_object_or_404(Evidence, id=evidence_id)
+    match = evidence.match
+    
+    # Security: Check if user has permission to view evidence
+    is_participant = (request.user == match.creator or request.user == match.joiner)
+    is_support_staff = getattr(request.user, 'is_support_staff', False)
+    
+    if not (is_participant or is_support_staff):
+        logger.warning(
+            f"Unauthorized evidence access attempt: evidence_id={evidence_id}, "
+            f"user={request.user.username}, ip={_get_client_ip(request)}"
+        )
+        return JsonResponse({
+            'success': False,
+            'error': 'You do not have permission to view this evidence.'
+        }, status=403)
+    
+    # Security: Check if file exists
+    if not evidence.file or not os.path.exists(evidence.file.path):
+        logger.error(f"Evidence file not found: evidence_id={evidence_id}, path={evidence.file.path if evidence.file else 'None'}")
+        raise Http404("Evidence file not found")
+    
+    # Log access
+    logger.info(
+        f"Evidence accessed: evidence_id={evidence_id}, user={request.user.username}, "
+        f"match_id={match.id}, ip={_get_client_ip(request)}"
+    )
+    
+    # Serve file with appropriate headers
+    response = FileResponse(
+        evidence.file.open('rb'),
+        content_type=f"{'image' if evidence.is_image else 'video'}/{evidence.file.name.split('.')[-1]}"
+    )
+    
+    # Security: Set appropriate headers
+    response['Content-Disposition'] = f'inline; filename="{os.path.basename(evidence.file.name)}"'
+    response['X-Content-Type-Options'] = 'nosniff'
+    response['Cache-Control'] = 'private, max-age=3600'  # Cache for 1 hour
+    
+    return response
+
+
+@login_required
+@ratelimit(key='user', rate='30/h', method='GET', block=True)
+def download_evidence(request, evidence_id):
+    """
+    Download evidence file with access control.
+    
+    Security features:
+    - Only match participants or support staff can download evidence
+    - Rate limiting (30 requests/hour per user)
+    - Access logging
+    - Force download with appropriate headers
+    
+    GET: Download evidence file
+    Returns: FileResponse with evidence file (download)
+    """
+    evidence = get_object_or_404(Evidence, id=evidence_id)
+    match = evidence.match
+    
+    # Security: Check if user has permission to download evidence
+    is_participant = (request.user == match.creator or request.user == match.joiner)
+    is_support_staff = getattr(request.user, 'is_support_staff', False)
+    
+    if not (is_participant or is_support_staff):
+        logger.warning(
+            f"Unauthorized evidence download attempt: evidence_id={evidence_id}, "
+            f"user={request.user.username}, ip={_get_client_ip(request)}"
+        )
+        return JsonResponse({
+            'success': False,
+            'error': 'You do not have permission to download this evidence.'
+        }, status=403)
+    
+    # Security: Check if file exists
+    if not evidence.file or not os.path.exists(evidence.file.path):
+        logger.error(f"Evidence file not found: evidence_id={evidence_id}, path={evidence.file.path if evidence.file else 'None'}")
+        raise Http404("Evidence file not found")
+    
+    # Log access
+    logger.info(
+        f"Evidence downloaded: evidence_id={evidence_id}, user={request.user.username}, "
+        f"match_id={match.id}, ip={_get_client_ip(request)}"
+    )
+    
+    # Serve file with download headers
+    response = FileResponse(
+        evidence.file.open('rb'),
+        content_type='application/octet-stream'
+    )
+    
+    # Security: Force download
+    filename = os.path.basename(evidence.file.name)
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    response['X-Content-Type-Options'] = 'nosniff'
+    
+    return response
+
+
+@login_required
+@ratelimit(key='user', rate='60/h', method='GET', block=True)
+def list_evidence(request, match_id):
+    """
+    List all evidence for a match with access control.
+    
+    Security features:
+    - Only match participants or support staff can list evidence
+    - Rate limiting (60 requests/hour per user)
+    - Pagination support
+    - Optional filtering by user
+    
+    GET Parameters:
+    - user_id (optional): Filter evidence by user
+    - page (optional): Page number for pagination
+    - per_page (optional): Items per page (default: 20, max: 100)
+    
+    Returns: JSON response with evidence list
+    """
+    match = get_object_or_404(Match, id=match_id)
+    
+    # Security: Check if user has permission to list evidence
+    is_participant = (request.user == match.creator or request.user == match.joiner)
+    is_support_staff = getattr(request.user, 'is_support_staff', False)
+    
+    if not (is_participant or is_support_staff):
+        logger.warning(
+            f"Unauthorized evidence list attempt: match_id={match_id}, "
+            f"user={request.user.username}, ip={_get_client_ip(request)}"
+        )
+        return JsonResponse({
+            'success': False,
+            'error': 'You do not have permission to view evidence for this match.'
+        }, status=403)
+    
+    # Get evidence queryset
+    evidence_queryset = Evidence.objects.filter(match=match).select_related('user', 'verified_by')
+    
+    # Optional: Filter by user
+    user_id = request.GET.get('user_id')
+    if user_id:
+        try:
+            evidence_queryset = evidence_queryset.filter(user_id=user_id)
+        except ValueError:
+            return JsonResponse({
+                'success': False,
+                'error': 'Invalid user_id parameter.'
+            }, status=400)
+    
+    # Pagination
+    per_page = min(int(request.GET.get('per_page', 20)), 100)  # Max 100 per page
+    page_number = request.GET.get('page', 1)
+    
+    paginator = Paginator(evidence_queryset, per_page)
+    try:
+        page = paginator.page(page_number)
+    except Exception:
+        return JsonResponse({
+            'success': False,
+            'error': 'Invalid page number.'
+        }, status=400)
+    
+    # Serialize evidence data
+    evidence_list = []
+    for evidence in page.object_list:
+        evidence_list.append({
+            'id': evidence.id,
+            'user': {
+                'id': evidence.user.id,
+                'username': evidence.user.username
+            },
+            'file_type': evidence.file_type,
+            'file_url': evidence.file.url if evidence.file else None,
+            'file_size': evidence.file_size,
+            'file_size_mb': round(evidence.file_size_mb, 2) if evidence.file_size else 0,
+            'description': evidence.description,
+            'uploaded_at': evidence.uploaded_at.isoformat(),
+            'is_verified': evidence.is_verified,
+            'verified_by': {
+                'id': evidence.verified_by.id,
+                'username': evidence.verified_by.username
+            } if evidence.verified_by else None,
+            'verified_at': evidence.verified_at.isoformat() if evidence.verified_at else None,
+        })
+    
+    # Log access
+    logger.info(
+        f"Evidence list accessed: match_id={match_id}, user={request.user.username}, "
+        f"count={len(evidence_list)}, ip={_get_client_ip(request)}"
+    )
+    
+    return JsonResponse({
+        'success': True,
+        'match_id': match_id,
+        'evidence': evidence_list,
+        'pagination': {
+            'page': page.number,
+            'per_page': per_page,
+            'total_pages': paginator.num_pages,
+            'total_count': paginator.count,
+            'has_next': page.has_next(),
+            'has_previous': page.has_previous(),
+        }
+    })
