@@ -1,5 +1,7 @@
 from django import forms
-from .models import Match
+from django.conf import settings
+from django.core.exceptions import ValidationError
+from .models import Match, Evidence
 
 class MatchCreationForm(forms.ModelForm):
     class Meta:
@@ -82,3 +84,107 @@ class JoinMatchForm(forms.Form):
             raise forms.ValidationError("Invalid match code or the match is no longer available.")
             
         return code
+
+
+class EvidenceUploadForm(forms.Form):
+    """
+    Form for uploading evidence files (screenshots/videos) for match results.
+    
+    Security features:
+    - File type validation (images/videos only)
+    - File size limits (10MB images, 50MB videos)
+    - MIME type validation
+    """
+    
+    file = forms.FileField(
+        label="Evidence File",
+        help_text="Upload a screenshot or video (Max 10MB for images, 50MB for videos)"
+    )
+    file_type = forms.ChoiceField(
+        choices=Evidence.FILE_TYPE_CHOICES,
+        label="File Type",
+        help_text="Select whether this is an image or video"
+    )
+    description = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={'rows': 3, 'class': 'form-control'}),
+        label="Description (Optional)",
+        help_text="Optional description of the evidence"
+    )
+    
+    def __init__(self, *args, **kwargs):
+        self.match = kwargs.pop('match', None)
+        self.user = kwargs.pop('user', None)
+        super().__init__(*args, **kwargs)
+    
+    def clean_file(self):
+        """Security: Validate file type and size"""
+        file = self.cleaned_data.get('file')
+        
+        if not file:
+            raise ValidationError("Please select a file to upload.")
+        
+        # Get file size
+        file_size = file.size
+        
+        # Get file type from form data (may not be cleaned yet, so get from initial data)
+        file_type = self.cleaned_data.get('file_type') or self.data.get('file_type')
+        
+        if not file_type:
+            raise ValidationError("Please select a file type.")
+        
+        # Validate file size based on type
+        if file_type == 'IMAGE':
+            if file_size > settings.MAX_IMAGE_SIZE:
+                max_mb = settings.MAX_IMAGE_SIZE / (1024 * 1024)
+                raise ValidationError(
+                    f'Image file size exceeds maximum allowed size of {max_mb}MB. '
+                    f'Your file is {file_size / (1024 * 1024):.2f}MB.'
+                )
+        elif file_type == 'VIDEO':
+            if file_size > settings.MAX_VIDEO_SIZE:
+                max_mb = settings.MAX_VIDEO_SIZE / (1024 * 1024)
+                raise ValidationError(
+                    f'Video file size exceeds maximum allowed size of {max_mb}MB. '
+                    f'Your file is {file_size / (1024 * 1024):.2f}MB.'
+                )
+        
+        # Validate MIME type
+        content_type = file.content_type
+        if file_type == 'IMAGE':
+            if content_type not in settings.ALLOWED_IMAGE_TYPES:
+                raise ValidationError(
+                    f'Invalid image file type. Allowed types: {", ".join(settings.ALLOWED_IMAGE_TYPES)}'
+                )
+        elif file_type == 'VIDEO':
+            if content_type not in settings.ALLOWED_VIDEO_TYPES:
+                raise ValidationError(
+                    f'Invalid video file type. Allowed types: {", ".join(settings.ALLOWED_VIDEO_TYPES)}'
+                )
+        
+        # Validate file extension
+        file_name = file.name.lower()
+        if file_type == 'IMAGE':
+            if not any(file_name.endswith(ext) for ext in settings.ALLOWED_IMAGE_EXTENSIONS):
+                raise ValidationError(
+                    f'Invalid image file extension. Allowed extensions: {", ".join(settings.ALLOWED_IMAGE_EXTENSIONS)}'
+                )
+        elif file_type == 'VIDEO':
+            if not any(file_name.endswith(ext) for ext in settings.ALLOWED_VIDEO_EXTENSIONS):
+                raise ValidationError(
+                    f'Invalid video file extension. Allowed extensions: {", ".join(settings.ALLOWED_VIDEO_EXTENSIONS)}'
+                )
+        
+        return file
+    
+    def clean(self):
+        """Additional validation"""
+        cleaned_data = super().clean()
+        file = cleaned_data.get('file')
+        file_type = cleaned_data.get('file_type')
+        
+        # Ensure file and file_type are both provided
+        if file and not file_type:
+            raise ValidationError("Please select a file type.")
+        
+        return cleaned_data

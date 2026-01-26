@@ -9,4 +9,5 @@ urlpatterns = [
     path('available/', views.available_matches, name='available_matches'),
     path('cancel/<int:match_id>/', views.cancel_match, name='cancel_match'),
     path('<int:match_id>/submit-result/', views.submit_match_result, name='submit_match_result'),
+    path('<int:match_id>/upload-evidence/', views.upload_evidence, name='upload_evidence'),
 ]

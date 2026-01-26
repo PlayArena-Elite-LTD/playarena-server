@@ -4,16 +4,27 @@ from django.contrib import messages
 from django.db import transaction
 from django.utils import timezone
 from django.http import HttpResponseNotAllowed, JsonResponse
+from django.core.exceptions import ValidationError
 from decimal import Decimal
 from django_ratelimit.decorators import ratelimit
 import logging
 
-from .forms import MatchCreationForm, JoinMatchForm
-from .models import Match, MatchResult
+from .forms import MatchCreationForm, JoinMatchForm, EvidenceUploadForm
+from .models import Match, MatchResult, Evidence
 from wallet.models import Wallet, Transaction
 from alert.models import Notification
 
 logger = logging.getLogger('django_ratelimit')
+
+
+def _get_client_ip(request):
+    """Get client IP address from request"""
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        ip = x_forwarded_for.split(',')[0]
+    else:
+        ip = request.META.get('REMOTE_ADDR')
+    return ip
 
 @login_required
 @transaction.atomic
@@ -429,6 +440,121 @@ def submit_match_result(request, match_id):
             
             messages.error(request, "Match has been marked as disputed due to conflicting results and will be reviewed by support.")
             return redirect('match_detail', match_id=match_id)
+
+
+@login_required
+@transaction.atomic
+@ratelimit(key='user', rate='10/h', method='POST', block=True)
+def upload_evidence(request, match_id):
+    """
+    Handle evidence file uploads for match results.
+    
+    Security features:
+    - Rate limiting (10 uploads per hour per user)
+    - IP address tracking
+    - User agent tracking
+    - File type and size validation
+    - Access control (only match participants can upload)
+    
+    POST: Upload evidence file
+    Returns: JSON response with upload result
+    """
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Only POST method allowed'}, status=405)
+    
+    # Get match and verify user is a participant
+    match = get_object_or_404(Match, id=match_id)
+    
+    # Security: Only match participants can upload evidence
+    if request.user != match.creator and request.user != match.joiner:
+        return JsonResponse({
+            'success': False,
+            'error': 'You are not a participant in this match.'
+        }, status=403)
+    
+    # Security: Only allow uploads for matches in JOINED or COMPLETED status
+    if match.status not in ['JOINED', 'COMPLETED', 'DISPUTED']:
+        return JsonResponse({
+            'success': False,
+            'error': f'Cannot upload evidence for a match with status: {match.get_status_display()}'
+        }, status=400)
+    
+    # Create form with match and user context
+    form = EvidenceUploadForm(request.POST, request.FILES, match=match, user=request.user)
+    
+    if form.is_valid():
+        try:
+            file = form.cleaned_data['file']
+            file_type = form.cleaned_data['file_type']
+            description = form.cleaned_data.get('description', '')
+            
+            # Security: Capture IP address and user agent
+            ip_address = _get_client_ip(request)
+            user_agent = request.META.get('HTTP_USER_AGENT', '')[:500]  # Limit length
+            
+            # Create Evidence instance
+            evidence = Evidence(
+                match=match,
+                user=request.user,
+                file=file,
+                file_type=file_type,
+                description=description,
+                file_size=file.size,
+                ip_address=ip_address,
+                user_agent=user_agent
+            )
+            
+            # Save (validation and hash generation happen in save method)
+            try:
+                evidence.save()
+            except ValidationError as ve:
+                # Handle model validation errors
+                errors = {}
+                if hasattr(ve, 'error_dict'):
+                    for field, field_errors in ve.error_dict.items():
+                        errors[field] = [str(err) for err in field_errors]
+                else:
+                    errors['__all__'] = [str(ve)]
+                
+                return JsonResponse({
+                    'success': False,
+                    'errors': errors
+                }, status=400)
+            
+            logger.info(
+                f"Evidence uploaded successfully: match_id={match_id}, "
+                f"user={request.user.username}, file_type={file_type}, "
+                f"file_size={file.size}"
+            )
+            
+            return JsonResponse({
+                'success': True,
+                'evidence_id': evidence.id,
+                'file_url': evidence.file.url,
+                'file_type': file_type,
+                'file_size_mb': evidence.file_size_mb,
+                'message': 'Evidence uploaded successfully'
+            })
+            
+        except Exception as e:
+            logger.error(
+                f"Error uploading evidence for match {match_id}: {str(e)}",
+                exc_info=True
+            )
+            return JsonResponse({
+                'success': False,
+                'error': f'Error uploading evidence: {str(e)}'
+            }, status=500)
+    else:
+        # Return form errors
+        errors = {}
+        for field, field_errors in form.errors.items():
+            errors[field] = field_errors[0] if field_errors else 'Invalid value'
+        
+        return JsonResponse({
+            'success': False,
+            'errors': errors
+        }, status=400)
 
 
 @login_required
