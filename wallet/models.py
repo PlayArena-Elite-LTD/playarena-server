@@ -197,6 +197,22 @@ class Deposit(models.Model):
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES)
     transaction_id = models.CharField(max_length=255, blank=True, null=True, help_text='Payment gateway transaction ID')
     wallet = models.ForeignKey(Wallet, on_delete=models.CASCADE, related_name='deposits', null=True, blank=True)
+    
+    # Security fields added by migration 0004_add_payment_security_fields
+    gateway_response = models.JSONField(default=dict, blank=True, help_text='Full gateway response stored as JSON (for audit and debugging)')
+    gateway_transaction_id = models.CharField(max_length=255, blank=True, null=True, help_text='Additional gateway transaction identifier (e.g., flw_ref for Flutterwave)')
+    payment_provider = models.CharField(max_length=20, blank=True, null=True, choices=[('PAYSTACK', 'Paystack'), ('FLUTTERWAVE', 'Flutterwave')], help_text='Payment gateway provider used')
+    payment_reference = models.CharField(max_length=255, blank=True, null=True, unique=True, db_index=True, help_text='Unique payment reference (prevents duplicate payments)')
+    ip_address = models.GenericIPAddressField(blank=True, null=True, help_text='IP address of the user when deposit was initiated (for fraud detection)')
+    user_agent = models.CharField(max_length=500, blank=True, null=True, help_text='User agent string (for security tracking)')
+    completed_at = models.DateTimeField(blank=True, null=True, help_text='Timestamp when payment was completed')
+    failure_reason = models.TextField(blank=True, null=True, help_text='Reason for payment failure (if applicable)')
+    retry_count = models.PositiveIntegerField(default=0, help_text='Number of retry attempts (prevents infinite retries)')
+    verification_hash = models.CharField(max_length=64, blank=True, null=True, help_text='SHA256 hash of payment data to prevent tampering')
+    webhook_signature = models.CharField(max_length=255, blank=True, null=True, help_text='Webhook signature for verification')
+    webhook_verified = models.BooleanField(default=False, help_text='Whether webhook signature was verified')
+    last_webhook_at = models.DateTimeField(blank=True, null=True, help_text='Timestamp of last webhook received')
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -256,6 +272,35 @@ class Deposit(models.Model):
             # Security: Cannot change user after creation
             if self.user_id != old_instance.user_id:
                 raise ValidationError({'user': 'Cannot change deposit user after creation'})
+    
+    def generate_verification_hash(self):
+        """
+        Generate SHA256 hash of payment data to prevent tampering.
+        
+        Security: Creates a hash from critical deposit fields to ensure integrity.
+        """
+        import hashlib
+        
+        # Create hash from critical fields (handle case where id might be None for new deposits)
+        deposit_id = self.id if self.id else 0
+        transaction_id = self.transaction_id or ''
+        hash_data = f"{deposit_id}_{self.user_id}_{self.amount}_{self.status}_{transaction_id}_{self.payment_method}"
+        return hashlib.sha256(hash_data.encode()).hexdigest()
+    
+    def verify_hash(self):
+        """
+        Verify that the current deposit data matches the stored verification hash.
+        
+        Security: Detects if deposit data has been tampered with.
+        
+        Returns:
+            bool: True if hash matches, False otherwise
+        """
+        if not self.verification_hash:
+            return False
+        
+        current_hash = self.generate_verification_hash()
+        return current_hash == self.verification_hash
     
     def save(self, *args, **kwargs):
         """Security: Run validation and auto-link wallet"""
