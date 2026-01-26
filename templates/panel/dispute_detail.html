@@ -95,6 +95,141 @@
         </div>
     </div>
 
+    <!-- Evidence Overview -->
+    <div class="panel-section">
+        <h4 class="panel-section-title">Match Evidence</h4>
+
+        {% if evidence_list %}
+        <div class="evidence-grid">
+            <!-- Creator Evidence -->
+            <div class="evidence-column">
+                <h5 class="evidence-column-title">Evidence from {{ match.creator.username }}</h5>
+                {% if creator_evidence %}
+                <ul class="evidence-list">
+                    {% for evidence in creator_evidence %}
+                    <li class="evidence-item">
+                        <div class="evidence-meta">
+                            <span class="evidence-type badge badge-pill badge-info">
+                                {{ evidence.get_file_type_display }}
+                            </span>
+                            <span class="evidence-date">
+                                {{ evidence.uploaded_at|date:"M d, Y h:i A" }}
+                            </span>
+                            <span class="evidence-size">
+                                {{ evidence.file_size_mb|floatformat:2 }} MB
+                            </span>
+                            {% if evidence.is_verified %}
+                            <span class="evidence-verified badge badge-pill badge-success">
+                                Verified
+                            </span>
+                            {% endif %}
+                        </div>
+                        <div class="evidence-preview">
+                            {% if evidence.is_image %}
+                            <a href="{% url 'get_evidence' evidence.id %}" target="_blank" rel="noopener noreferrer">
+                                <img src="{{ evidence.file.url }}" alt="Evidence image"
+                                     class="evidence-thumbnail" loading="lazy">
+                            </a>
+                            {% else %}
+                            <video src="{{ evidence.file.url }}" controls class="evidence-video" preload="metadata">
+                                Your browser does not support the video tag.
+                            </video>
+                            {% endif %}
+                        </div>
+                        <div class="evidence-actions">
+                            <a href="{% url 'get_evidence' evidence.id %}" target="_blank"
+                               class="panel-btn panel-btn-secondary">
+                                View
+                            </a>
+                            <a href="{% url 'download_evidence' evidence.id %}"
+                               class="panel-btn panel-btn-secondary">
+                                Download
+                            </a>
+                        </div>
+                        {% if evidence.description %}
+                        <div class="evidence-description">
+                            {{ evidence.description }}
+                        </div>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <div class="panel-empty">
+                    <p>No evidence submitted by {{ match.creator.username }}.</p>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Joiner Evidence -->
+            {% if match.joiner %}
+            <div class="evidence-column">
+                <h5 class="evidence-column-title">Evidence from {{ match.joiner.username }}</h5>
+                {% if joiner_evidence %}
+                <ul class="evidence-list">
+                    {% for evidence in joiner_evidence %}
+                    <li class="evidence-item">
+                        <div class="evidence-meta">
+                            <span class="evidence-type badge badge-pill badge-info">
+                                {{ evidence.get_file_type_display }}
+                            </span>
+                            <span class="evidence-date">
+                                {{ evidence.uploaded_at|date:"M d, Y h:i A" }}
+                            </span>
+                            <span class="evidence-size">
+                                {{ evidence.file_size_mb|floatformat:2 }} MB
+                            </span>
+                            {% if evidence.is_verified %}
+                            <span class="evidence-verified badge badge-pill badge-success">
+                                Verified
+                            </span>
+                            {% endif %}
+                        </div>
+                        <div class="evidence-preview">
+                            {% if evidence.is_image %}
+                            <a href="{% url 'get_evidence' evidence.id %}" target="_blank" rel="noopener noreferrer">
+                                <img src="{{ evidence.file.url }}" alt="Evidence image"
+                                     class="evidence-thumbnail" loading="lazy">
+                            </a>
+                            {% else %}
+                            <video src="{{ evidence.file.url }}" controls class="evidence-video" preload="metadata">
+                                Your browser does not support the video tag.
+                            </video>
+                            {% endif %}
+                        </div>
+                        <div class="evidence-actions">
+                            <a href="{% url 'get_evidence' evidence.id %}" target="_blank"
+                               class="panel-btn panel-btn-secondary">
+                                View
+                            </a>
+                            <a href="{% url 'download_evidence' evidence.id %}"
+                               class="panel-btn panel-btn-secondary">
+                                Download
+                            </a>
+                        </div>
+                        {% if evidence.description %}
+                        <div class="evidence-description">
+                            {{ evidence.description }}
+                        </div>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <div class="panel-empty">
+                    <p>No evidence submitted by {{ match.joiner.username }}.</p>
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+        {% else %}
+        <div class="panel-empty">
+            <p>No evidence has been submitted for this match yet.</p>
+        </div>
+        {% endif %}
+    </div>
+
     <!-- Resolution Form (if not resolved) -->
     {% if dispute.status != "RESOLVED" %}
     <div class="panel-section">

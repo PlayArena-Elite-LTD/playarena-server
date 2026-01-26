@@ -4,7 +4,7 @@ from django.utils import timezone
 from django.db import transaction
 from django.contrib.auth import get_user_model
 
-from matches.models import Match
+from matches.models import Match, Evidence
 from panel.models import Dispute
 from wallet.models import Wallet, Transaction
 from alert.models import Notification
@@ -50,13 +50,24 @@ def dispute_detail(request, dispute_id):
     """Show details for a dispute, options to message users, suspend, or resolve."""
     dispute = get_object_or_404(Dispute, id=dispute_id)
     match = dispute.match
+
+    # Participants for quick access in template
     participants = [match.creator]
     if match.joiner:
         participants.append(match.joiner)
+
+    # Evidence for this match (for dispute investigation)
+    evidence_queryset = Evidence.objects.filter(match=match).select_related('user')
+    creator_evidence = evidence_queryset.filter(user=match.creator)
+    joiner_evidence = evidence_queryset.filter(user=match.joiner) if match.joiner else Evidence.objects.none()
+
     context = {
         'dispute': dispute,
         'match': match,
         'participants': participants,
+        'evidence_list': evidence_queryset,
+        'creator_evidence': creator_evidence,
+        'joiner_evidence': joiner_evidence,
     }
     return render(request, 'panel/dispute_detail.html', context)
 
