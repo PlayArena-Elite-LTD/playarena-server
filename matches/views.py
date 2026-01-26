@@ -475,9 +475,13 @@ def match_detail(request, match_id):
             messages.error(request, "You don't have permission to view this match.")
             return redirect('dashboard')
         
+        # Get all evidence for this match
+        evidence_list = Evidence.objects.filter(match=match).order_by('-uploaded_at')
+        
         context = {
             'match': match,
-            'username': request.user.username
+            'username': request.user.username,
+            'evidence_list': evidence_list,
         }
         
         return render(request, 'matches/match_detail.html', context)

@@ -209,6 +209,73 @@
       </div>
       {% endif %}
       
+      <!-- Evidence Display Section -->
+      {% if evidence_list %}
+      <div class="match-detail-card">
+        <div class="match-detail-card-header">
+          <h3 class="match-detail-card-title">Evidence Gallery</h3>
+          <span class="evidence-count-badge">{{ evidence_list|length }} file{{ evidence_list|length|pluralize }}</span>
+        </div>
+        <div class="evidence-gallery">
+          {% for evidence in evidence_list %}
+          <div class="evidence-item">
+            <div class="evidence-item-header">
+              <div class="evidence-uploader-info">
+                <i class="fas fa-user"></i>
+                <span class="evidence-uploader">{{ evidence.user.username }}</span>
+                {% if request.user == evidence.user %}
+                <span class="evidence-you-badge">You</span>
+                {% endif %}
+              </div>
+              <div class="evidence-meta">
+                <span class="evidence-type-badge evidence-type-{{ evidence.file_type|lower }}">
+                  {% if evidence.file_type == 'IMAGE' %}
+                  <i class="fas fa-image"></i>
+                  {% else %}
+                  <i class="fas fa-video"></i>
+                  {% endif %}
+                  {{ evidence.get_file_type_display }}
+                </span>
+                <span class="evidence-timestamp">{{ evidence.uploaded_at|date:"M d, Y H:i" }}</span>
+              </div>
+            </div>
+            
+            <div class="evidence-item-content">
+              {% if evidence.file_type == 'IMAGE' %}
+              <div class="evidence-image-container">
+                <img src="{{ evidence.file.url }}" alt="Evidence image" class="evidence-image" 
+                     onclick="openLightbox('{{ evidence.file.url }}', '{{ evidence.user.username }}')">
+              </div>
+              {% elif evidence.file_type == 'VIDEO' %}
+              <div class="evidence-video-container">
+                <video controls class="evidence-video">
+                  <source src="{{ evidence.file.url }}" type="video/mp4">
+                  <source src="{{ evidence.file.url }}" type="video/quicktime">
+                  Your browser does not support the video tag.
+                </video>
+              </div>
+              {% endif %}
+              
+              {% if evidence.description %}
+              <div class="evidence-description">
+                <i class="fas fa-comment"></i>
+                <p>{{ evidence.description }}</p>
+              </div>
+              {% endif %}
+              
+              <div class="evidence-file-info">
+                <span class="evidence-file-name">
+                  <i class="fas fa-file"></i> {{ evidence.file.name|slice:"evidence/" }}
+                </span>
+                <span class="evidence-file-size">{{ evidence.get_file_size_display }}</span>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      
       <!-- Match Actions -->
       <div class="match-actions">
       	{% if match.status == 'OPEN' or match.status == 'JOINED' and request.user == match.creator %}
@@ -492,6 +559,35 @@
         `;
       }
     }
+    
+    // Lightbox functionality for evidence images
+    window.openLightbox = function(imageUrl, uploader) {
+      const lightbox = document.createElement('div');
+      lightbox.className = 'evidence-lightbox';
+      lightbox.innerHTML = `
+        <div class="lightbox-overlay"></div>
+        <div class="lightbox-content">
+          <button class="lightbox-close" onclick="this.closest('.evidence-lightbox').remove()">
+            <i class="fas fa-times"></i>
+          </button>
+          <img src="${imageUrl}" alt="Evidence" class="lightbox-image">
+          <div class="lightbox-caption">Uploaded by: ${uploader}</div>
+        </div>
+      `;
+      document.body.appendChild(lightbox);
+      
+      // Close on overlay click
+      lightbox.querySelector('.lightbox-overlay').addEventListener('click', function() {
+        lightbox.remove();
+      });
+      
+      // Close on Escape key
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+          lightbox.remove();
+        }
+      });
+    };
   });
 </script>
 {% endblock %}
