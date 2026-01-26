@@ -175,7 +175,12 @@ class WithdrawalAdmin(admin.ModelAdmin):
             messages.error(request, 'You do not have permission to process withdrawals.')
             return redirect('admin:wallet_withdrawal_changelist')
         
-        withdrawal = get_object_or_404(Withdrawal, id=withdrawal_id)
+        # Security: Lock withdrawal to prevent concurrent processing
+        try:
+            withdrawal = Withdrawal.objects.select_for_update().get(id=withdrawal_id)
+        except Withdrawal.DoesNotExist:
+            messages.error(request, f'Withdrawal {withdrawal_id} not found.')
+            return redirect('admin:wallet_withdrawal_changelist')
         
         # Security: Validate withdrawal state
         if withdrawal.is_final:
@@ -500,6 +505,13 @@ class WithdrawalAdmin(admin.ModelAdmin):
         skipped_count = 0
         
         for withdrawal in queryset:
+            # Security: Lock withdrawal to prevent concurrent processing
+            try:
+                withdrawal = Withdrawal.objects.select_for_update().get(id=withdrawal.id)
+            except Withdrawal.DoesNotExist:
+                skipped_count += 1
+                continue
+            
             # Skip if already in final state
             if withdrawal.is_final:
                 skipped_count += 1
