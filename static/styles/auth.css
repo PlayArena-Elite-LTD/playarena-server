@@ -3081,6 +3081,127 @@ textarea.form-control {
   padding: 0.5rem;
 }
 
+/* Enhanced Animations and Transitions */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.evidence-preview-container {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.evidence-item {
+  animation: slideIn 0.3s ease-out;
+}
+
+.evidence-upload-button:active {
+  transform: scale(0.98);
+  transition: transform 0.1s ease;
+}
+
+.evidence-file-button:active {
+  transform: scale(0.98);
+  transition: transform 0.1s ease;
+}
+
+/* Focus States for Accessibility */
+.evidence-file-button:focus,
+.evidence-upload-button:focus,
+.evidence-remove-btn:focus {
+  outline: 2px solid var(--color-primary, #007bff);
+  outline-offset: 2px;
+}
+
+.evidence-textarea:focus {
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+.evidence-drop-zone:focus-within {
+  border-color: var(--color-primary, #007bff);
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+/* Loading States */
+.evidence-upload-button.loading {
+  position: relative;
+  color: transparent;
+  pointer-events: none;
+}
+
+.evidence-upload-button.loading::after {
+  content: "";
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  top: 50%;
+  left: 50%;
+  margin-left: -8px;
+  margin-top: -8px;
+  border: 2px solid var(--color-white);
+  border-radius: 50%;
+  border-top-color: transparent;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Enhanced Hover Effects */
+.evidence-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+}
+
+.evidence-gallery-item:hover {
+  transform: scale(1.02);
+  transition: transform 0.3s ease;
+}
+
+.evidence-gallery-item:hover .evidence-overlay {
+  opacity: 1;
+}
+
+/* Smooth Transitions for All Interactive Elements */
+.evidence-drop-zone,
+.evidence-file-button,
+.evidence-upload-button,
+.evidence-remove-btn,
+.evidence-item,
+.evidence-gallery-item {
+  transition: all 0.3s ease;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .evidence-drop-zone {
@@ -3113,6 +3234,46 @@ textarea.form-control {
   
   .lightbox-content {
     max-width: 95%;
+  }
+  
+  .evidence-file-button,
+  .evidence-upload-button {
+    width: 100%;
+    justify-content: center;
+  }
+  
+  .evidence-preview-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+  
+  .evidence-remove-btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .evidence-drop-zone {
+    padding: 1rem;
+  }
+  
+  .drop-zone-icon {
+    font-size: 1.5rem;
+  }
+  
+  .drop-zone-text {
+    font-size: var(--small-font-size);
+  }
+  
+  .evidence-preview-image,
+  .evidence-preview-video {
+    max-height: 200px;
+  }
+  
+  .evidence-image,
+  .evidence-video {
+    max-height: 200px;
   }
 }
 
