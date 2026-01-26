@@ -130,6 +130,156 @@
     {% endif %}
   </div>
 </div>
+
+      <!-- Evidence Upload Section -->
+      {% if match.status == 'JOINED' and (request.user == match.creator or request.user == match.joiner) %}
+      <div class="match-detail-card">
+        <div class="match-detail-card-header">
+          <h3 class="match-detail-card-title">Upload Evidence</h3>
+        </div>
+        <div class="evidence-upload-section">
+          <p class="evidence-upload-help">
+            <i class="fas fa-info-circle"></i>
+            Upload screenshots or videos as evidence for this match (optional). 
+            Images: max 10MB, Videos: max 50MB. Supported formats: JPG, PNG, MP4, MOV.
+          </p>
+          
+          <!-- Evidence Upload Form -->
+          <form id="evidence-upload-form" class="evidence-upload-form" enctype="multipart/form-data">
+            {% csrf_token %}
+            
+            <!-- Drag and Drop Area -->
+            <div class="evidence-drop-zone" id="evidence-drop-zone">
+              <div class="drop-zone-content">
+                <i class="fas fa-cloud-upload-alt drop-zone-icon"></i>
+                <p class="drop-zone-text">Drag and drop your evidence file here</p>
+                <p class="drop-zone-text-secondary">or</p>
+                <label for="evidence-file-input" class="evidence-file-label">
+                  <span class="evidence-file-button">
+                    <i class="fas fa-file-upload"></i> Choose File
+                  </span>
+                </label>
+                <input type="file" id="evidence-file-input" name="evidence_file" 
+                       accept="image/jpeg,image/png,video/mp4,video/quicktime" 
+                       class="evidence-file-input" required>
+                <p class="drop-zone-hint">Select a screenshot or video file</p>
+              </div>
+            </div>
+            
+            <!-- File Preview Area -->
+            <div class="evidence-preview-container" id="evidence-preview-container" style="display: none;">
+              <div class="evidence-preview-header">
+                <h4>Selected File</h4>
+                <button type="button" class="evidence-remove-btn" id="evidence-remove-btn">
+                  <i class="fas fa-times"></i> Remove
+                </button>
+              </div>
+              <div class="evidence-preview-content">
+                <div class="evidence-preview-media" id="evidence-preview-media"></div>
+                <div class="evidence-file-info" id="evidence-file-info"></div>
+              </div>
+            </div>
+            
+            <!-- Description Field -->
+            <div class="evidence-description-field">
+              <label for="evidence-description" class="evidence-label">Description (Optional)</label>
+              <textarea id="evidence-description" name="description" 
+                        class="evidence-textarea" 
+                        rows="3" 
+                        placeholder="e.g., Screenshot showing final score, Video of match ending..."></textarea>
+            </div>
+            
+            <!-- Upload Progress Bar -->
+            <div class="evidence-progress-container" id="evidence-progress-container" style="display: none;">
+              <div class="evidence-progress-bar">
+                <div class="evidence-progress-fill" id="evidence-progress-fill"></div>
+              </div>
+              <p class="evidence-progress-text" id="evidence-progress-text">Uploading... 0%</p>
+            </div>
+            
+            <!-- Upload Button -->
+            <button type="submit" class="evidence-upload-button" id="evidence-upload-button" disabled>
+              <i class="fas fa-upload"></i> Upload Evidence
+            </button>
+            
+            <!-- Error/Success Messages -->
+            <div class="evidence-messages" id="evidence-messages"></div>
+          </form>
+        </div>
+      </div>
+      {% endif %}
+      
+      <!-- Evidence Display Section -->
+      {% if evidence_list %}
+      <div class="match-detail-card">
+        <div class="match-detail-card-header">
+          <h3 class="match-detail-card-title">Evidence Gallery</h3>
+          <div class="evidence-header-actions">
+            <span class="evidence-count-badge">{{ evidence_list|length }} file{{ evidence_list|length|pluralize }}</span>
+            <a href="{% url 'evidence_gallery' match_id=match.id %}" class="evidence-gallery-link">
+              <i class="fas fa-th"></i> View Gallery
+            </a>
+          </div>
+        </div>
+        <div class="evidence-gallery">
+          {% for evidence in evidence_list %}
+          <div class="evidence-item">
+            <div class="evidence-item-header">
+              <div class="evidence-uploader-info">
+                <i class="fas fa-user"></i>
+                <span class="evidence-uploader">{{ evidence.user.username }}</span>
+                {% if request.user == evidence.user %}
+                <span class="evidence-you-badge">You</span>
+                {% endif %}
+              </div>
+              <div class="evidence-meta">
+                <span class="evidence-type-badge evidence-type-{{ evidence.file_type|lower }}">
+                  {% if evidence.file_type == 'IMAGE' %}
+                  <i class="fas fa-image"></i>
+                  {% else %}
+                  <i class="fas fa-video"></i>
+                  {% endif %}
+                  {{ evidence.get_file_type_display }}
+                </span>
+                <span class="evidence-timestamp">{{ evidence.uploaded_at|date:"M d, Y H:i" }}</span>
+              </div>
+            </div>
+            
+            <div class="evidence-item-content">
+              {% if evidence.file_type == 'IMAGE' %}
+              <div class="evidence-image-container">
+                <img src="{{ evidence.file.url }}" alt="Evidence image" class="evidence-image" 
+                     onclick="openLightbox('{{ evidence.file.url }}', '{{ evidence.user.username }}')">
+              </div>
+              {% elif evidence.file_type == 'VIDEO' %}
+              <div class="evidence-video-container">
+                <video controls class="evidence-video">
+                  <source src="{{ evidence.file.url }}" type="video/mp4">
+                  <source src="{{ evidence.file.url }}" type="video/quicktime">
+                  Your browser does not support the video tag.
+                </video>
+              </div>
+              {% endif %}
+              
+              {% if evidence.description %}
+              <div class="evidence-description">
+                <i class="fas fa-comment"></i>
+                <p>{{ evidence.description }}</p>
+              </div>
+              {% endif %}
+              
+              <div class="evidence-file-info">
+                <span class="evidence-file-name">
+                  <i class="fas fa-file"></i> {{ evidence.file.name|slice:"evidence/" }}
+                </span>
+                <span class="evidence-file-size">{{ evidence.get_file_size_display }}</span>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
       
       <!-- Match Actions -->
       <div class="match-actions">
@@ -214,6 +364,342 @@
         });
       });
     }
+    
+    // Evidence Upload Functionality
+    const evidenceForm = document.getElementById('evidence-upload-form');
+    if (evidenceForm) {
+      const fileInput = document.getElementById('evidence-file-input');
+      const dropZone = document.getElementById('evidence-drop-zone');
+      const previewContainer = document.getElementById('evidence-preview-container');
+      const previewMedia = document.getElementById('evidence-preview-media');
+      const fileInfo = document.getElementById('evidence-file-info');
+      const removeBtn = document.getElementById('evidence-remove-btn');
+      const uploadBtn = document.getElementById('evidence-upload-button');
+      const progressContainer = document.getElementById('evidence-progress-container');
+      const progressFill = document.getElementById('evidence-progress-fill');
+      const progressText = document.getElementById('evidence-progress-text');
+      const messagesDiv = document.getElementById('evidence-messages');
+      
+      let selectedFile = null;
+      
+      // File validation constants
+      const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
+      const MAX_VIDEO_SIZE = 50 * 1024 * 1024; // 50MB
+      const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png'];
+      const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/x-quicktime'];
+      
+      // Format file size
+      function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+      }
+      
+      // Validate file
+      function validateFile(file) {
+        const errors = [];
+        
+        // Check file type
+        const isImage = file.type.startsWith('image/');
+        const isVideo = file.type.startsWith('video/');
+        
+        if (!isImage && !isVideo) {
+          errors.push('File type not supported. Please upload an image (JPG, PNG) or video (MP4, MOV).');
+          return { valid: false, errors };
+        }
+        
+        // Check specific MIME types
+        if (isImage && !ALLOWED_IMAGE_TYPES.includes(file.type.toLowerCase())) {
+          errors.push('Image format not supported. Please use JPG or PNG.');
+          return { valid: false, errors };
+        }
+        
+        if (isVideo && !ALLOWED_VIDEO_TYPES.includes(file.type.toLowerCase())) {
+          errors.push('Video format not supported. Please use MP4 or MOV.');
+          return { valid: false, errors };
+        }
+        
+        // Check file size
+        if (isImage && file.size > MAX_IMAGE_SIZE) {
+          errors.push(`Image file is too large. Maximum size is ${formatFileSize(MAX_IMAGE_SIZE)}.`);
+          return { valid: false, errors };
+        }
+        
+        if (isVideo && file.size > MAX_VIDEO_SIZE) {
+          errors.push(`Video file is too large. Maximum size is ${formatFileSize(MAX_VIDEO_SIZE)}.`);
+          return { valid: false, errors };
+        }
+        
+        return { valid: true, errors: [] };
+      }
+      
+      // Show preview
+      function showPreview(file) {
+        // Validate file first
+        const validation = validateFile(file);
+        if (!validation.valid) {
+          showMessage(validation.errors.join(' '), 'error');
+          return;
+        }
+        
+        selectedFile = file;
+        previewContainer.style.display = 'block';
+        dropZone.style.display = 'none';
+        uploadBtn.disabled = false;
+        messagesDiv.innerHTML = ''; // Clear any previous errors
+        
+        // Display file info
+        fileInfo.innerHTML = `
+          <div class="file-info-item">
+            <strong>Name:</strong> ${file.name}
+          </div>
+          <div class="file-info-item">
+            <strong>Size:</strong> ${formatFileSize(file.size)}
+          </div>
+          <div class="file-info-item">
+            <strong>Type:</strong> ${file.type || 'Unknown'}
+          </div>
+        `;
+        
+        // Show preview based on file type
+        const reader = new FileReader();
+        if (file.type.startsWith('image/')) {
+          reader.onload = function(e) {
+            previewMedia.innerHTML = `
+              <img src="${e.target.result}" alt="Preview" class="evidence-preview-image">
+            `;
+          };
+          reader.readAsDataURL(file);
+        } else if (file.type.startsWith('video/')) {
+          const videoUrl = URL.createObjectURL(file);
+          previewMedia.innerHTML = `
+            <video src="${videoUrl}" controls class="evidence-preview-video">
+              Your browser does not support the video tag.
+            </video>
+          `;
+        } else {
+          previewMedia.innerHTML = `
+            <div class="evidence-preview-placeholder">
+              <i class="fas fa-file"></i>
+              <p>Preview not available</p>
+            </div>
+          `;
+        }
+      }
+      
+      // Clear preview
+      function clearPreview() {
+        selectedFile = null;
+        fileInput.value = '';
+        previewContainer.style.display = 'none';
+        dropZone.style.display = 'block';
+        uploadBtn.disabled = true;
+        progressContainer.style.display = 'none';
+        messagesDiv.innerHTML = '';
+      }
+      
+      // File input change
+      fileInput.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (file) {
+          // Validate and show preview (validation is done inside showPreview)
+          showPreview(file);
+        }
+      });
+      
+      // Remove button
+      removeBtn.addEventListener('click', function() {
+        clearPreview();
+      });
+      
+      // Drag and drop - Enhanced with better validation and feedback
+      let dragCounter = 0; // Track drag enter/leave to handle nested elements
+      
+      dropZone.addEventListener('dragenter', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounter++;
+        if (e.dataTransfer.types && e.dataTransfer.types.includes('Files')) {
+          dropZone.classList.add('drag-over');
+        }
+      });
+      
+      dropZone.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        // Set drop effect based on file type
+        if (e.dataTransfer.types && e.dataTransfer.types.includes('Files')) {
+          e.dataTransfer.dropEffect = 'copy';
+          dropZone.classList.add('drag-over');
+        } else {
+          e.dataTransfer.dropEffect = 'none';
+        }
+      });
+      
+      dropZone.addEventListener('dragleave', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounter--;
+        // Only remove drag-over class when leaving the drop zone completely
+        if (dragCounter === 0) {
+          dropZone.classList.remove('drag-over');
+        }
+      });
+      
+      dropZone.addEventListener('drop', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove('drag-over');
+        dragCounter = 0;
+        
+        const files = e.dataTransfer.files;
+        
+        if (files.length === 0) {
+          showMessage('No files were dropped.', 'error');
+          return;
+        }
+        
+        if (files.length > 1) {
+          showMessage('Please drop only one file at a time.', 'error');
+          return;
+        }
+        
+        const file = files[0];
+        
+        // Validate file before processing
+        const validation = validateFile(file);
+        if (!validation.valid) {
+          showMessage(validation.errors.join(' '), 'error');
+          return;
+        }
+        
+        // Process the file (same as file input)
+        fileInput.files = files;
+        showPreview(file);
+        showMessage('File ready for upload!', 'success');
+      });
+      
+      // Prevent default drag behavior on the entire page
+      document.addEventListener('dragover', function(e) {
+        e.preventDefault();
+      });
+      
+      document.addEventListener('drop', function(e) {
+        // Only prevent default if not dropping on our drop zone
+        if (!dropZone.contains(e.target)) {
+          e.preventDefault();
+        }
+      });
+      
+      // Form submission
+      evidenceForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        if (!selectedFile) {
+          showMessage('Please select a file first.', 'error');
+          return;
+        }
+        
+        const formData = new FormData();
+        formData.append('evidence_file', selectedFile);
+        formData.append('description', document.getElementById('evidence-description').value);
+        formData.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
+        
+        // Show progress
+        progressContainer.style.display = 'block';
+        progressFill.style.width = '0%';
+        progressText.textContent = 'Uploading... 0%';
+        uploadBtn.disabled = true;
+        messagesDiv.innerHTML = '';
+        
+        // Upload using XMLHttpRequest for progress tracking
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '{% url "upload_evidence" match_id=match.id %}');
+        
+        // Progress tracking
+        xhr.upload.addEventListener('progress', function(e) {
+          if (e.lengthComputable) {
+            const percentComplete = (e.loaded / e.total) * 100;
+            progressFill.style.width = percentComplete + '%';
+            progressText.textContent = `Uploading... ${Math.round(percentComplete)}%`;
+          }
+        });
+        
+        // Handle response
+        xhr.onload = function() {
+          progressContainer.style.display = 'none';
+          uploadBtn.disabled = false;
+          
+          if (xhr.status === 201) {
+            const response = JSON.parse(xhr.responseText);
+            showMessage('Evidence uploaded successfully!', 'success');
+            clearPreview();
+            // Optionally reload page or update evidence display
+            setTimeout(function() {
+              window.location.reload();
+            }, 1500);
+          } else {
+            const response = JSON.parse(xhr.responseText);
+            let errorMsg = 'Upload failed. ';
+            if (response.error) {
+              errorMsg += response.error;
+            } else if (response.errors) {
+              errorMsg += Object.values(response.errors).flat().join(', ');
+            }
+            showMessage(errorMsg, 'error');
+          }
+        };
+        
+        xhr.onerror = function() {
+          progressContainer.style.display = 'none';
+          uploadBtn.disabled = false;
+          showMessage('Network error. Please try again.', 'error');
+        };
+        
+        xhr.send(formData);
+      });
+      
+      // Show message
+      function showMessage(message, type) {
+        messagesDiv.innerHTML = `
+          <div class="evidence-message evidence-message-${type}">
+            <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
+            <span>${message}</span>
+          </div>
+        `;
+      }
+    }
+    
+    // Lightbox functionality for evidence images
+    window.openLightbox = function(imageUrl, uploader) {
+      const lightbox = document.createElement('div');
+      lightbox.className = 'evidence-lightbox';
+      lightbox.innerHTML = `
+        <div class="lightbox-overlay"></div>
+        <div class="lightbox-content">
+          <button class="lightbox-close" onclick="this.closest('.evidence-lightbox').remove()">
+            <i class="fas fa-times"></i>
+          </button>
+          <img src="${imageUrl}" alt="Evidence" class="lightbox-image">
+          <div class="lightbox-caption">Uploaded by: ${uploader}</div>
+        </div>
+      `;
+      document.body.appendChild(lightbox);
+      
+      // Close on overlay click
+      lightbox.querySelector('.lightbox-overlay').addEventListener('click', function() {
+        lightbox.remove();
+      });
+      
+      // Close on Escape key
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+          lightbox.remove();
+        }
+      });
+    };
   });
 </script>
 {% endblock %}

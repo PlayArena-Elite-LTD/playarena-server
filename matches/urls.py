@@ -14,4 +14,5 @@ urlpatterns = [
     path('evidence/<int:evidence_id>/', views.get_evidence, name='get_evidence'),
     path('evidence/<int:evidence_id>/download/', views.download_evidence, name='download_evidence'),
     path('evidence/match/<int:match_id>/', views.list_evidence, name='list_evidence'),
+    path('<int:match_id>/evidence-gallery/', views.evidence_gallery, name='evidence_gallery'),
 ]

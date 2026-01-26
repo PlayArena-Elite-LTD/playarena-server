@@ -19,7 +19,7 @@ from alert.models import Notification
 logger = logging.getLogger('django_ratelimit')
 
 
-def _get_client_ip(request):
+def get_client_ip(request):
     """Get client IP address from request"""
     x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
     if x_forwarded_for:
@@ -251,6 +251,33 @@ def submit_match_result(request, match_id):
     # Get or create match result
     match_result, created = MatchResult.objects.get_or_create(match=match)
     
+    # Handle evidence upload if provided (optional)
+    evidence_uploaded = False
+    if 'evidence_file' in request.FILES:
+        evidence_form = EvidenceUploadForm(request.POST, request.FILES)
+        if evidence_form.is_valid():
+            try:
+                evidence_file = evidence_form.cleaned_data['evidence_file']
+                description = evidence_form.cleaned_data.get('description', '').strip()
+                file_type = evidence_form.get_file_type()
+                
+                # Create Evidence instance
+                Evidence.objects.create(
+                    match=match,
+                    user=request.user,
+                    file=evidence_file,
+                    file_type=file_type,
+                    description=description if description else None
+                )
+                evidence_uploaded = True
+            except Exception as e:
+                logger.error(f"Error uploading evidence for match {match_id} by user {request.user.id}: {str(e)}")
+                # Don't fail the result submission if evidence upload fails
+                messages.warning(request, "Your result was submitted, but there was an error uploading evidence. You can upload evidence separately if needed.")
+        else:
+            # Evidence validation failed, but don't block result submission
+            messages.warning(request, "Your result was submitted, but the evidence file could not be processed. You can upload evidence separately if needed.")
+    
     # Determine if user is creator or joiner and check if they've already submitted
     is_creator = (request.user == match.creator)
     
@@ -271,7 +298,10 @@ def submit_match_result(request, match_id):
                 user=match.joiner,
                 message=f"Your opponent {match.creator.username} has submitted their result for the {match.get_game_display()} match (${match.amount}). Please submit your result as soon as possible."
             )
-            messages.success(request, "Your result has been submitted. Waiting for your opponent to submit their result.")
+            success_msg = "Your result has been submitted. Waiting for your opponent to submit their result."
+            if evidence_uploaded:
+                success_msg += " Evidence has been uploaded."
+            messages.success(request, success_msg)
             return redirect('match_detail', match_id=match_id)
     else:  # User is joiner
         if match_result.joiner_submission:
@@ -290,7 +320,10 @@ def submit_match_result(request, match_id):
                 user=match.creator,
                 message=f"Your opponent {match.joiner.username} has submitted their result for the {match.get_game_display()} match (${match.amount}). Please submit your result as soon as possible."
             )
-            messages.success(request, "Your result has been submitted. Waiting for your opponent to submit their result.")
+            success_msg = "Your result has been submitted. Waiting for your opponent to submit their result."
+            if evidence_uploaded:
+                success_msg += " Evidence has been uploaded."
+            messages.success(request, success_msg)
             return redirect('match_detail', match_id=match_id)
     
     # If we reach here, both users have submitted
@@ -486,22 +519,29 @@ def upload_evidence(request, match_id):
     
     if form.is_valid():
         try:
-            file = form.cleaned_data['file']
-            file_type = form.cleaned_data['file_type']
+            evidence_file = form.cleaned_data['evidence_file']
             description = form.cleaned_data.get('description', '')
             
+            # Determine file type from the file
+            file_type = form.get_file_type()
+            if not file_type:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'Unable to determine file type. Please ensure the file is a valid image or video.'
+                }, status=400)
+            
             # Security: Capture IP address and user agent
-            ip_address = _get_client_ip(request)
+            ip_address = get_client_ip(request)
             user_agent = request.META.get('HTTP_USER_AGENT', '')[:500]  # Limit length
             
             # Create Evidence instance
             evidence = Evidence(
                 match=match,
                 user=request.user,
-                file=file,
+                file=evidence_file,
                 file_type=file_type,
                 description=description,
-                file_size=file.size,
+                file_size=evidence_file.size,
                 ip_address=ip_address,
                 user_agent=user_agent
             )
@@ -526,7 +566,7 @@ def upload_evidence(request, match_id):
             logger.info(
                 f"Evidence uploaded successfully: match_id={match_id}, "
                 f"user={request.user.username}, file_type={file_type}, "
-                f"file_size={file.size}"
+                f"file_size={evidence_file.size}"
             )
             
             return JsonResponse({
@@ -570,12 +610,50 @@ def match_detail(request, match_id):
             messages.error(request, "You don't have permission to view this match.")
             return redirect('dashboard')
         
+        # Get all evidence for this match
+        evidence_list = Evidence.objects.filter(match=match).order_by('-uploaded_at')
+        
         context = {
             'match': match,
-            'username': request.user.username
+            'username': request.user.username,
+            'evidence_list': evidence_list,
         }
         
         return render(request, 'matches/match_detail.html', context)
+        
+    except Match.DoesNotExist:
+        messages.error(request, "The requested match is not available.")
+        return redirect('my_matches')
+
+
+@login_required
+def evidence_gallery(request, match_id):
+    """Display evidence gallery for a match"""
+    try:
+        match = Match.objects.get(id=match_id)
+        
+        # Check if user is allowed to view this match
+        if match.privacy == 'PRIVATE' and request.user != match.creator and request.user != match.joiner:
+            messages.error(request, "You don't have permission to view this match.")
+            return redirect('dashboard')
+        
+        # Get all evidence for this match
+        evidence_list = Evidence.objects.filter(match=match).order_by('-uploaded_at')
+        
+        # Separate images and videos for better organization
+        images = [e for e in evidence_list if e.file_type == 'IMAGE']
+        videos = [e for e in evidence_list if e.file_type == 'VIDEO']
+        
+        context = {
+            'match': match,
+            'username': request.user.username,
+            'evidence_list': evidence_list,
+            'images': images,
+            'videos': videos,
+            'total_count': evidence_list.count(),
+        }
+        
+        return render(request, 'matches/evidence_gallery.html', context)
         
     except Match.DoesNotExist:
         messages.error(request, "The requested match is not available.")
@@ -636,7 +714,7 @@ def get_evidence(request, evidence_id):
     if not (is_participant or is_support_staff):
         logger.warning(
             f"Unauthorized evidence access attempt: evidence_id={evidence_id}, "
-            f"user={request.user.username}, ip={_get_client_ip(request)}"
+            f"user={request.user.username}, ip={get_client_ip(request)}"
         )
         return JsonResponse({
             'success': False,
@@ -651,7 +729,7 @@ def get_evidence(request, evidence_id):
     # Log access
     logger.info(
         f"Evidence accessed: evidence_id={evidence_id}, user={request.user.username}, "
-        f"match_id={match.id}, ip={_get_client_ip(request)}"
+        f"match_id={match.id}, ip={get_client_ip(request)}"
     )
     
     # Serve file with appropriate headers
@@ -693,7 +771,7 @@ def download_evidence(request, evidence_id):
     if not (is_participant or is_support_staff):
         logger.warning(
             f"Unauthorized evidence download attempt: evidence_id={evidence_id}, "
-            f"user={request.user.username}, ip={_get_client_ip(request)}"
+            f"user={request.user.username}, ip={get_client_ip(request)}"
         )
         return JsonResponse({
             'success': False,
@@ -708,7 +786,7 @@ def download_evidence(request, evidence_id):
     # Log access
     logger.info(
         f"Evidence downloaded: evidence_id={evidence_id}, user={request.user.username}, "
-        f"match_id={match.id}, ip={_get_client_ip(request)}"
+        f"match_id={match.id}, ip={get_client_ip(request)}"
     )
     
     # Serve file with download headers
@@ -753,7 +831,7 @@ def list_evidence(request, match_id):
     if not (is_participant or is_support_staff):
         logger.warning(
             f"Unauthorized evidence list attempt: match_id={match_id}, "
-            f"user={request.user.username}, ip={_get_client_ip(request)}"
+            f"user={request.user.username}, ip={get_client_ip(request)}"
         )
         return JsonResponse({
             'success': False,
@@ -813,7 +891,7 @@ def list_evidence(request, match_id):
     # Log access
     logger.info(
         f"Evidence list accessed: match_id={match_id}, user={request.user.username}, "
-        f"count={len(evidence_list)}, ip={_get_client_ip(request)}"
+        f"count={len(evidence_list)}, ip={get_client_ip(request)}"
     )
     
     return JsonResponse({

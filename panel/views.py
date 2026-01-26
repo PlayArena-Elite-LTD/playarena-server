@@ -55,17 +55,18 @@ def dispute_detail(request, dispute_id):
     participants = [match.creator]
     if match.joiner:
         participants.append(match.joiner)
-
+    
     # Evidence for this match (for dispute investigation)
-    evidence_queryset = Evidence.objects.filter(match=match).select_related('user')
+    evidence_queryset = Evidence.objects.filter(match=match).select_related('user').order_by('-uploaded_at')
+    evidence_list = evidence_queryset
     creator_evidence = evidence_queryset.filter(user=match.creator)
     joiner_evidence = evidence_queryset.filter(user=match.joiner) if match.joiner else Evidence.objects.none()
-
+    
     context = {
         'dispute': dispute,
         'match': match,
         'participants': participants,
-        'evidence_list': evidence_queryset,
+        'evidence_list': evidence_list,
         'creator_evidence': creator_evidence,
         'joiner_evidence': joiner_evidence,
     }

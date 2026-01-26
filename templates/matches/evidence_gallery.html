@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="section">
+  <div class="container">
+    {% if messages %}
+    <div class="messages">
+      {% for message in messages %}
+      <p class="message {{ message.tags }}">
+        <i class="fas fa-info-circle"></i>
+        <span>{{ message }}</span>
+      </p>
+      {% endfor %}
+    </div>
+    {% endif %}
+    
+    <div class="evidence-gallery-header">
+      <div class="gallery-header-content">
+        <h2 class="section-title">Evidence Gallery</h2>
+        <div class="gallery-header-info">
+          <span class="gallery-match-info">
+            <i class="fas fa-gamepad"></i> {{ match.get_game_display }} - ${{ match.amount }}
+          </span>
+          <span class="gallery-count-badge">{{ total_count }} file{{ total_count|pluralize }}</span>
+        </div>
+      </div>
+      <a href="{% url 'match_detail' match_id=match.id %}" class="gallery-back-button">
+        <i class="fas fa-arrow-left"></i> Back to Match
+      </a>
+    </div>
+    
+    {% if evidence_list %}
+    <div class="evidence-gallery-container">
+      <!-- Images Section -->
+      {% if images %}
+      <div class="evidence-section">
+        <h3 class="evidence-section-title">
+          <i class="fas fa-image"></i> Images ({{ images|length }})
+        </h3>
+        <div class="evidence-grid evidence-grid-images">
+          {% for evidence in images %}
+          <div class="evidence-grid-item evidence-grid-image">
+            <div class="evidence-grid-item-header">
+              <div class="evidence-grid-uploader">
+                <i class="fas fa-user"></i> {{ evidence.user.username }}
+                {% if request.user == evidence.user %}
+                <span class="evidence-you-badge">You</span>
+                {% endif %}
+              </div>
+              <span class="evidence-grid-timestamp">{{ evidence.uploaded_at|date:"M d, H:i" }}</span>
+            </div>
+            <div class="evidence-grid-item-content" onclick="openLightbox('{{ evidence.file.url }}', '{{ evidence.user.username }}', '{{ evidence.description|default:"" }}')">
+              <img src="{{ evidence.file.url }}" alt="Evidence" class="evidence-grid-image-thumb">
+              <div class="evidence-grid-overlay">
+                <i class="fas fa-search-plus"></i>
+                <span>Click to view full size</span>
+              </div>
+            </div>
+            {% if evidence.description %}
+            <div class="evidence-grid-description">
+              <i class="fas fa-comment"></i> {{ evidence.description|truncatewords:15 }}
+            </div>
+            {% endif %}
+            <div class="evidence-grid-footer">
+              <span class="evidence-grid-file-size">{{ evidence.get_file_size_display }}</span>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      
+      <!-- Videos Section -->
+      {% if videos %}
+      <div class="evidence-section">
+        <h3 class="evidence-section-title">
+          <i class="fas fa-video"></i> Videos ({{ videos|length }})
+        </h3>
+        <div class="evidence-grid evidence-grid-videos">
+          {% for evidence in videos %}
+          <div class="evidence-grid-item evidence-grid-video">
+            <div class="evidence-grid-item-header">
+              <div class="evidence-grid-uploader">
+                <i class="fas fa-user"></i> {{ evidence.user.username }}
+                {% if request.user == evidence.user %}
+                <span class="evidence-you-badge">You</span>
+                {% endif %}
+              </div>
+              <span class="evidence-grid-timestamp">{{ evidence.uploaded_at|date:"M d, H:i" }}</span>
+            </div>
+            <div class="evidence-grid-item-content">
+              <video controls class="evidence-grid-video-player">
+                <source src="{{ evidence.file.url }}" type="video/mp4">
+                <source src="{{ evidence.file.url }}" type="video/quicktime">
+                Your browser does not support the video tag.
+              </video>
+            </div>
+            {% if evidence.description %}
+            <div class="evidence-grid-description">
+              <i class="fas fa-comment"></i> {{ evidence.description|truncatewords:15 }}
+            </div>
+            {% endif %}
+            <div class="evidence-grid-footer">
+              <span class="evidence-grid-file-size">{{ evidence.get_file_size_display }}</span>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="evidence-empty-state">
+      <i class="fas fa-folder-open evidence-empty-icon"></i>
+      <h3>No Evidence Yet</h3>
+      <p>No evidence has been uploaded for this match.</p>
+      <a href="{% url 'match_detail' match_id=match.id %}" class="evidence-empty-link">
+        <i class="fas fa-arrow-left"></i> Back to Match
+      </a>
+    </div>
+    {% endif %}
+  </div>
+</section>
+
+<!-- Lightbox -->
+<div id="evidence-lightbox" class="evidence-lightbox" style="display: none;">
+  <div class="lightbox-overlay" onclick="closeLightbox()"></div>
+  <div class="lightbox-content">
+    <button class="lightbox-close" onclick="closeLightbox()">
+      <i class="fas fa-times"></i>
+    </button>
+    <img id="lightbox-image" src="" alt="Evidence" class="lightbox-image">
+    <div class="lightbox-caption">
+      <div class="lightbox-uploader" id="lightbox-uploader"></div>
+      <div class="lightbox-description" id="lightbox-description"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function openLightbox(imageUrl, uploader, description) {
+    const lightbox = document.getElementById('evidence-lightbox');
+    const lightboxImage = document.getElementById('lightbox-image');
+    const lightboxUploader = document.getElementById('lightbox-uploader');
+    const lightboxDescription = document.getElementById('lightbox-description');
+    
+    lightboxImage.src = imageUrl;
+    lightboxUploader.textContent = 'Uploaded by: ' + uploader;
+    lightboxDescription.textContent = description || '';
+    
+    lightbox.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+  }
+  
+  function closeLightbox() {
+    const lightbox = document.getElementById('evidence-lightbox');
+    lightbox.style.display = 'none';
+    document.body.style.overflow = '';
+  }
+  
+  // Close on Escape key
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      closeLightbox();
+    }
+  });
+</script>
+{% endblock %}
+

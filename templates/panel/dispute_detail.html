@@ -55,6 +55,159 @@
         </div>
     </div>
 
+    <!-- Evidence Section -->
+    {% if evidence_list %}
+    <div class="panel-section">
+        <h4 class="panel-section-title">
+            <i class="fas fa-images"></i> Evidence ({{ evidence_list|length }} file{{ evidence_list|length|pluralize }})
+        </h4>
+        
+        <!-- Evidence Comparison View (Side-by-Side) -->
+        {% if match.joiner and creator_evidence and joiner_evidence %}
+        <div class="evidence-comparison-section">
+            <h5 class="evidence-comparison-title">Evidence Comparison</h5>
+            <div class="evidence-comparison-container">
+                <div class="evidence-comparison-column">
+                    <div class="evidence-comparison-header">
+                        <h6>{{ match.creator.username }}'s Evidence</h6>
+                        <span class="evidence-count">{{ creator_evidence|length }} file{{ creator_evidence|length|pluralize }}</span>
+                    </div>
+                    <div class="evidence-comparison-content">
+                        {% for evidence in creator_evidence %}
+                        <div class="evidence-comparison-item">
+                            {% if evidence.file_type == 'IMAGE' %}
+                            <div class="evidence-comparison-image" onclick="openLightbox('{{ evidence.file.url }}', '{{ evidence.user.username }}', '{{ evidence.description|default:"" }}')">
+                                <img src="{{ evidence.file.url }}" alt="Evidence" class="evidence-thumb">
+                                <div class="evidence-thumb-overlay">
+                                    <i class="fas fa-search-plus"></i>
+                                </div>
+                            </div>
+                            {% elif evidence.file_type == 'VIDEO' %}
+                            <div class="evidence-comparison-video">
+                                <video controls class="evidence-video-thumb">
+                                    <source src="{{ evidence.file.url }}" type="video/mp4">
+                                    <source src="{{ evidence.file.url }}" type="video/quicktime">
+                                </video>
+                            </div>
+                            {% endif %}
+                            <div class="evidence-comparison-meta">
+                                <span class="evidence-comparison-time">{{ evidence.uploaded_at|date:"M d, H:i" }}</span>
+                                <a href="{{ evidence.file.url }}" download class="evidence-download-link" title="Download">
+                                    <i class="fas fa-download"></i>
+                                </a>
+                            </div>
+                            {% if evidence.description %}
+                            <div class="evidence-comparison-desc">{{ evidence.description|truncatewords:10 }}</div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                
+                <div class="evidence-comparison-column">
+                    <div class="evidence-comparison-header">
+                        <h6>{{ match.joiner.username }}'s Evidence</h6>
+                        <span class="evidence-count">{{ joiner_evidence|length }} file{{ joiner_evidence|length|pluralize }}</span>
+                    </div>
+                    <div class="evidence-comparison-content">
+                        {% for evidence in joiner_evidence %}
+                        <div class="evidence-comparison-item">
+                            {% if evidence.file_type == 'IMAGE' %}
+                            <div class="evidence-comparison-image" onclick="openLightbox('{{ evidence.file.url }}', '{{ evidence.user.username }}', '{{ evidence.description|default:"" }}')">
+                                <img src="{{ evidence.file.url }}" alt="Evidence" class="evidence-thumb">
+                                <div class="evidence-thumb-overlay">
+                                    <i class="fas fa-search-plus"></i>
+                                </div>
+                            </div>
+                            {% elif evidence.file_type == 'VIDEO' %}
+                            <div class="evidence-comparison-video">
+                                <video controls class="evidence-video-thumb">
+                                    <source src="{{ evidence.file.url }}" type="video/mp4">
+                                    <source src="{{ evidence.file.url }}" type="video/quicktime">
+                                </video>
+                            </div>
+                            {% endif %}
+                            <div class="evidence-comparison-meta">
+                                <span class="evidence-comparison-time">{{ evidence.uploaded_at|date:"M d, H:i" }}</span>
+                                <a href="{{ evidence.file.url }}" download class="evidence-download-link" title="Download">
+                                    <i class="fas fa-download"></i>
+                                </a>
+                            </div>
+                            {% if evidence.description %}
+                            <div class="evidence-comparison-desc">{{ evidence.description|truncatewords:10 }}</div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        
+        <!-- All Evidence List -->
+        <div class="evidence-list-section">
+            <h5 class="evidence-list-title">All Evidence</h5>
+            <div class="evidence-list-grid">
+                {% for evidence in evidence_list %}
+                <div class="evidence-list-item">
+                    <div class="evidence-list-header">
+                        <div class="evidence-list-uploader">
+                            <i class="fas fa-user"></i> {{ evidence.user.username }}
+                        </div>
+                        <span class="evidence-list-type evidence-type-{{ evidence.file_type|lower }}">
+                            {% if evidence.file_type == 'IMAGE' %}
+                            <i class="fas fa-image"></i>
+                            {% else %}
+                            <i class="fas fa-video"></i>
+                            {% endif %}
+                            {{ evidence.get_file_type_display }}
+                        </span>
+                    </div>
+                    <div class="evidence-list-content">
+                        {% if evidence.file_type == 'IMAGE' %}
+                        <div class="evidence-list-image" onclick="openLightbox('{{ evidence.file.url }}', '{{ evidence.user.username }}', '{{ evidence.description|default:"" }}')">
+                            <img src="{{ evidence.file.url }}" alt="Evidence" class="evidence-list-thumb">
+                            <div class="evidence-list-overlay">
+                                <i class="fas fa-search-plus"></i>
+                            </div>
+                        </div>
+                        {% elif evidence.file_type == 'VIDEO' %}
+                        <div class="evidence-list-video">
+                            <video controls class="evidence-list-video-player">
+                                <source src="{{ evidence.file.url }}" type="video/mp4">
+                                <source src="{{ evidence.file.url }}" type="video/quicktime">
+                            </video>
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% if evidence.description %}
+                    <div class="evidence-list-description">
+                        <i class="fas fa-comment"></i> {{ evidence.description|truncatewords:15 }}
+                    </div>
+                    {% endif %}
+                    <div class="evidence-list-footer">
+                        <span class="evidence-list-time">{{ evidence.uploaded_at|date:"M d, Y H:i" }}</span>
+                        <a href="{{ evidence.file.url }}" download class="evidence-download-btn" title="Download Evidence">
+                            <i class="fas fa-download"></i> Download
+                        </a>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="panel-section">
+        <h4 class="panel-section-title">
+            <i class="fas fa-images"></i> Evidence
+        </h4>
+        <div class="panel-empty">
+            <i class="fas fa-folder-open"></i>
+            <p>No evidence has been uploaded for this match.</p>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Participants -->
     <div class="panel-section">
         <h4 class="panel-section-title">Participants</h4>
@@ -278,4 +431,48 @@
     {% endif %}
     
 </div>
+
+<!-- Lightbox for Evidence -->
+<div id="dispute-lightbox" class="evidence-lightbox" style="display: none;">
+  <div class="lightbox-overlay" onclick="closeDisputeLightbox()"></div>
+  <div class="lightbox-content">
+    <button class="lightbox-close" onclick="closeDisputeLightbox()">
+      <i class="fas fa-times"></i>
+    </button>
+    <img id="dispute-lightbox-image" src="" alt="Evidence" class="lightbox-image">
+    <div class="lightbox-caption">
+      <div class="lightbox-uploader" id="dispute-lightbox-uploader"></div>
+      <div class="lightbox-description" id="dispute-lightbox-description"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function openLightbox(imageUrl, uploader, description) {
+    const lightbox = document.getElementById('dispute-lightbox');
+    const lightboxImage = document.getElementById('dispute-lightbox-image');
+    const lightboxUploader = document.getElementById('dispute-lightbox-uploader');
+    const lightboxDescription = document.getElementById('dispute-lightbox-description');
+    
+    lightboxImage.src = imageUrl;
+    lightboxUploader.textContent = 'Uploaded by: ' + uploader;
+    lightboxDescription.textContent = description || '';
+    
+    lightbox.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+  }
+  
+  function closeDisputeLightbox() {
+    const lightbox = document.getElementById('dispute-lightbox');
+    lightbox.style.display = 'none';
+    document.body.style.overflow = '';
+  }
+  
+  // Close on Escape key
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      closeDisputeLightbox();
+    }
+  });
+</script>
 {% endblock %}

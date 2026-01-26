@@ -3,6 +3,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from .models import Match, Evidence
 from .utils import validate_evidence_file, validate_file_size, validate_file_type
+import os
 
 class MatchCreationForm(forms.ModelForm):
     class Meta:
@@ -97,20 +98,27 @@ class EvidenceUploadForm(forms.Form):
     - MIME type validation
     """
     
-    file = forms.FileField(
+    evidence_file = forms.FileField(
+        required=True,
         label="Evidence File",
-        help_text="Upload a screenshot or video (Max 10MB for images, 50MB for videos)"
+        help_text="Upload a screenshot or video (Images: max 10MB, Videos: max 50MB)",
+        widget=forms.FileInput(attrs={
+            'class': 'form-control',
+            'accept': 'image/jpeg,image/png,video/mp4,video/quicktime',
+            'id': 'evidence-file-input'
+        })
     )
-    file_type = forms.ChoiceField(
-        choices=Evidence.FILE_TYPE_CHOICES,
-        label="File Type",
-        help_text="Select whether this is an image or video"
-    )
+    
     description = forms.CharField(
         required=False,
-        widget=forms.Textarea(attrs={'rows': 3, 'class': 'form-control'}),
+        max_length=500,
         label="Description (Optional)",
-        help_text="Optional description of the evidence"
+        help_text="Add a brief description of the evidence",
+        widget=forms.Textarea(attrs={
+            'class': 'form-control',
+            'rows': 3,
+            'placeholder': 'e.g., Screenshot showing final score, Video of match ending...'
+        })
     )
     
     def __init__(self, *args, **kwargs):
@@ -118,18 +126,26 @@ class EvidenceUploadForm(forms.Form):
         self.user = kwargs.pop('user', None)
         super().__init__(*args, **kwargs)
     
-    def clean_file(self):
+    def clean_evidence_file(self):
         """Security: Validate file type and size using utility functions"""
-        file = self.cleaned_data.get('file')
+        file = self.cleaned_data.get('evidence_file')
         
         if not file:
             raise ValidationError("Please select a file to upload.")
         
-        # Get file type from form data (may not be cleaned yet, so get from initial data)
-        file_type = self.cleaned_data.get('file_type') or self.data.get('file_type')
+        # Auto-detect file type from extension
+        file_name = file.name.lower()
+        ext = os.path.splitext(file_name)[1].lower()
         
-        if not file_type:
-            raise ValidationError("Please select a file type.")
+        # Determine file type
+        if ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']:
+            file_type = 'IMAGE'
+        elif ext in ['.mp4', '.mov', '.avi']:
+            file_type = 'VIDEO'
+        else:
+            raise ValidationError(
+                f"Unsupported file type. Allowed types: images (.jpg, .jpeg, .png, .gif, .webp) or videos (.mp4, .mov, .avi)"
+            )
         
         # Use utility functions for validation
         try:
@@ -141,14 +157,18 @@ class EvidenceUploadForm(forms.Form):
         
         return file
     
-    def clean(self):
-        """Additional validation"""
-        cleaned_data = super().clean()
-        file = cleaned_data.get('file')
-        file_type = cleaned_data.get('file_type')
+    def get_file_type(self):
+        """Determine file type from uploaded file"""
+        if not self.is_valid():
+            return None
         
-        # Ensure file and file_type are both provided
-        if file and not file_type:
-            raise ValidationError("Please select a file type.")
+        file = self.cleaned_data.get('evidence_file')
+        if not file:
+            return None
         
-        return cleaned_data
+        ext = os.path.splitext(file.name)[1].lower()
+        if ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']:
+            return 'IMAGE'
+        elif ext in ['.mp4', '.mov', '.avi']:
+            return 'VIDEO'
+        return None
