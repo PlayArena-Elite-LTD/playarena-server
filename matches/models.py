@@ -209,6 +209,11 @@ class Evidence(models.Model):
         if not self.file:
             return  # File validation happens in form/view
         
+        # Only validate if file is an UploadedFile (during upload), not FieldFile (after save)
+        # FieldFile objects don't have content_type attribute
+        if not hasattr(self.file, 'content_type'):
+            return  # File already saved, validation was done during upload
+        
         # Get file size
         if hasattr(self.file, 'size'):
             file_size = self.file.size
