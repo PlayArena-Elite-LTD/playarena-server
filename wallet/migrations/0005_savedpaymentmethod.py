@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('wallet', '0004_withdrawal_failure_reason_and_more'),
+        ('wallet', '0006_merge_0004_add_payment_security_fields_0004_withdrawal_failure_reason_and_more'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
