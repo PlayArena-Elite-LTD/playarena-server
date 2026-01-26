@@ -95,6 +95,12 @@ class Match(models.Model):
         
         
 class MatchResult(models.Model):
+    """
+    Model to track match result submissions from both players.
+    
+    Evidence is linked through the Match model via Evidence model (ForeignKey to Match).
+    Access evidence via: match.evidence.all() or use the evidence property below.
+    """
     # Submission choices
     SUBMISSION_CHOICES = [
         ('WON', 'Won'),
@@ -111,6 +117,34 @@ class MatchResult(models.Model):
     
     def __str__(self):
         return f"Result for {self.match}"
+    
+    @property
+    def evidence(self):
+        """
+        Get all evidence for this match result.
+        
+        Returns queryset of Evidence objects linked to the match.
+        Evidence is stored via Evidence model (ForeignKey to Match), not directly on MatchResult.
+        This allows multiple evidence files per match.
+        """
+        return self.match.evidence.all()
+    
+    @property
+    def creator_evidence(self):
+        """Get evidence submitted by the match creator"""
+        return self.match.evidence.filter(user=self.match.creator)
+    
+    @property
+    def joiner_evidence(self):
+        """Get evidence submitted by the match joiner"""
+        if self.match.joiner:
+            return self.match.evidence.filter(user=self.match.joiner)
+        return self.match.evidence.none()
+    
+    @property
+    def has_evidence(self):
+        """Check if any evidence has been submitted for this match"""
+        return self.match.evidence.exists()
 
 
 class Evidence(models.Model):
