@@ -8,8 +8,8 @@ from decimal import Decimal
 from django_ratelimit.decorators import ratelimit
 import logging
 
-from .forms import MatchCreationForm, JoinMatchForm
-from .models import Match, MatchResult
+from .forms import MatchCreationForm, JoinMatchForm, EvidenceUploadForm
+from .models import Match, MatchResult, Evidence
 from wallet.models import Wallet, Transaction
 from alert.models import Notification
 
@@ -481,3 +481,76 @@ def available_matches(request):
     }
     
     return render(request, 'matches/available_matches.html', context)
+
+
+@login_required
+@transaction.atomic
+@ratelimit(key='user', rate='10/h', method='POST', block=True)
+def upload_evidence(request, match_id):
+    """Upload evidence file (screenshot/video) for a match - 10 per hour per user"""
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Only POST method allowed'}, status=405)
+    
+    # Get match and validate it exists
+    match = get_object_or_404(Match, id=match_id)
+    
+    # Validate user is a match participant
+    if request.user != match.creator and request.user != match.joiner:
+        return JsonResponse({
+            'error': 'You are not a participant in this match.'
+        }, status=403)
+    
+    # Validate match status - evidence can only be uploaded for JOINED matches
+    if match.status != 'JOINED':
+        return JsonResponse({
+            'error': f'Cannot upload evidence for a match with status "{match.get_status_display()}". Evidence can only be uploaded for active matches.'
+        }, status=400)
+    
+    # Process form
+    form = EvidenceUploadForm(request.POST, request.FILES)
+    
+    if not form.is_valid():
+        # Return form errors
+        errors = {}
+        for field, field_errors in form.errors.items():
+            errors[field] = field_errors
+        return JsonResponse({
+            'error': 'Validation failed',
+            'errors': errors
+        }, status=400)
+    
+    try:
+        # Get file and description
+        evidence_file = form.cleaned_data['evidence_file']
+        description = form.cleaned_data.get('description', '').strip()
+        
+        # Determine file type
+        file_type = form.get_file_type()
+        
+        # Create Evidence instance
+        evidence = Evidence.objects.create(
+            match=match,
+            user=request.user,
+            file=evidence_file,
+            file_type=file_type,
+            description=description if description else None
+        )
+        
+        # Return success response
+        return JsonResponse({
+            'success': True,
+            'message': 'Evidence uploaded successfully',
+            'evidence': {
+                'id': evidence.id,
+                'file_url': evidence.file.url,
+                'file_type': evidence.get_file_type_display(),
+                'uploaded_at': evidence.uploaded_at.isoformat(),
+                'description': evidence.description or ''
+            }
+        }, status=201)
+        
+    except Exception as e:
+        logger.error(f"Error uploading evidence for match {match_id} by user {request.user.id}: {str(e)}")
+        return JsonResponse({
+            'error': 'An error occurred while uploading evidence. Please try again.'
+        }, status=500)
