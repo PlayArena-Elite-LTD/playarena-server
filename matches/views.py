@@ -238,6 +238,33 @@ def submit_match_result(request, match_id):
     # Get or create match result
     match_result, created = MatchResult.objects.get_or_create(match=match)
     
+    # Handle evidence upload if provided (optional)
+    evidence_uploaded = False
+    if 'evidence_file' in request.FILES:
+        evidence_form = EvidenceUploadForm(request.POST, request.FILES)
+        if evidence_form.is_valid():
+            try:
+                evidence_file = evidence_form.cleaned_data['evidence_file']
+                description = evidence_form.cleaned_data.get('description', '').strip()
+                file_type = evidence_form.get_file_type()
+                
+                # Create Evidence instance
+                Evidence.objects.create(
+                    match=match,
+                    user=request.user,
+                    file=evidence_file,
+                    file_type=file_type,
+                    description=description if description else None
+                )
+                evidence_uploaded = True
+            except Exception as e:
+                logger.error(f"Error uploading evidence for match {match_id} by user {request.user.id}: {str(e)}")
+                # Don't fail the result submission if evidence upload fails
+                messages.warning(request, "Your result was submitted, but there was an error uploading evidence. You can upload evidence separately if needed.")
+        else:
+            # Evidence validation failed, but don't block result submission
+            messages.warning(request, "Your result was submitted, but the evidence file could not be processed. You can upload evidence separately if needed.")
+    
     # Determine if user is creator or joiner and check if they've already submitted
     is_creator = (request.user == match.creator)
     
@@ -258,7 +285,10 @@ def submit_match_result(request, match_id):
                 user=match.joiner,
                 message=f"Your opponent {match.creator.username} has submitted their result for the {match.get_game_display()} match (${match.amount}). Please submit your result as soon as possible."
             )
-            messages.success(request, "Your result has been submitted. Waiting for your opponent to submit their result.")
+            success_msg = "Your result has been submitted. Waiting for your opponent to submit their result."
+            if evidence_uploaded:
+                success_msg += " Evidence has been uploaded."
+            messages.success(request, success_msg)
             return redirect('match_detail', match_id=match_id)
     else:  # User is joiner
         if match_result.joiner_submission:
@@ -277,7 +307,10 @@ def submit_match_result(request, match_id):
                 user=match.creator,
                 message=f"Your opponent {match.joiner.username} has submitted their result for the {match.get_game_display()} match (${match.amount}). Please submit your result as soon as possible."
             )
-            messages.success(request, "Your result has been submitted. Waiting for your opponent to submit their result.")
+            success_msg = "Your result has been submitted. Waiting for your opponent to submit their result."
+            if evidence_uploaded:
+                success_msg += " Evidence has been uploaded."
+            messages.success(request, success_msg)
             return redirect('match_detail', match_id=match_id)
     
     # If we reach here, both users have submitted
