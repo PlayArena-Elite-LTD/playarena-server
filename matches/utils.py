@@ -4,6 +4,7 @@ Utility functions for evidence file validation and processing.
 from django.conf import settings
 from django.core.exceptions import ValidationError
 import os
+import hashlib
 
 
 def validate_evidence_file(file, file_type):
@@ -240,3 +241,44 @@ def validate_file_type(file, file_type):
             )
     else:
         raise ValidationError(f'Invalid file type: {file_type}')
+
+
+def generate_file_hash(file):
+    """
+    Generate SHA256 hash of file content for integrity checking.
+    
+    Security: Creates a hash to detect file tampering.
+    
+    Args:
+        file: Django UploadedFile or file-like object
+    
+    Returns:
+        str: SHA256 hash in hexadecimal format, or None if file is invalid
+    """
+    if not file:
+        return None
+    
+    try:
+        # Handle Django UploadedFile
+        if hasattr(file, 'read'):
+            # Save current position
+            current_position = file.tell() if hasattr(file, 'tell') else 0
+            # Reset to beginning
+            file.seek(0)
+            # Read file content
+            file_content = file.read()
+            # Restore position
+            if hasattr(file, 'seek'):
+                file.seek(current_position)
+        # Handle file path
+        elif isinstance(file, str) and os.path.exists(file):
+            with open(file, 'rb') as f:
+                file_content = f.read()
+        else:
+            return None
+        
+        # Generate SHA256 hash
+        file_hash = hashlib.sha256(file_content).hexdigest()
+        return file_hash
+    except Exception:
+        return None
