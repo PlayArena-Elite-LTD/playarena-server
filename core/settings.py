@@ -94,38 +94,13 @@ DATABASES = {
 }
 
 # Cache configuration for django-ratelimit
-# Option 1: Database cache (no extra dependencies, good for small to medium sites)
+# Using Redis cache (supports atomic increment and is a shared cache - required by django-ratelimit)
 CACHES = {
     'default': {
-        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
-        'LOCATION': 'django_cache_table',
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': 'redis://127.0.0.1:6379/1',
     }
 }
-
-# Option 2: Local memory cache (for development only - not suitable for production)
-# CACHES = {
-#     'default': {
-#         'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-#         'LOCATION': 'unique-snowflake',
-#     }
-# }
-
-# Option 3: Redis cache (best for production - requires redis-py package)
-# Install with: pip install redis
-# CACHES = {
-#     'default': {
-#         'BACKEND': 'django.core.cache.backends.redis.RedisCache',
-#         'LOCATION': 'redis://127.0.0.1:6379/1',
-#     }
-# }
-
-# Option 4: Memcached (good for production - requires python-memcached or pylibmc)
-# CACHES = {
-#     'default': {
-#         'BACKEND': 'django.core.cache.backends.memcached.PyMemcacheCache',
-#         'LOCATION': '127.0.0.1:11211',
-#     }
-# }
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators

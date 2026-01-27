@@ -7,7 +7,6 @@ from django.http import HttpResponseNotAllowed, JsonResponse
 from decimal import Decimal
 from django_ratelimit.decorators import ratelimit
 import logging
-from core.ratelimit_helpers import rate_limit_response
 
 from .forms import MatchCreationForm, JoinMatchForm
 from .models import Match, MatchResult
@@ -18,7 +17,7 @@ logger = logging.getLogger('django_ratelimit')
 
 @login_required
 @transaction.atomic
-@ratelimit(key='user', rate='10/h', method='POST', block=True, fn=rate_limit_response)
+@ratelimit(key='user', rate='10/h', method='POST', block=True)
 def create_match(request):
     """Create a new match and deduct the amount from user's wallet - 10 per hour per user"""
     if request.method == 'POST':
@@ -212,7 +211,7 @@ def cancel_match(request, match_id):
 
 @login_required
 @transaction.atomic
-@ratelimit(key='user', rate='20/h', method='POST', block=True, fn=rate_limit_response)
+@ratelimit(key='user', rate='20/h', method='POST', block=True)
 def submit_match_result(request, match_id):
     """Submit match result (win, loss, or draw) and handle verification - 20 per hour per user"""
     if request.method != 'POST':

@@ -13,7 +13,6 @@ from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 from django_ratelimit.decorators import ratelimit
 from django.http import HttpResponse, JsonResponse
-from core.ratelimit_helpers import rate_limit_response
 
 from .models import Profile
 from .forms import PreSignupForm, CustomUserCreationForm, UserForm, ProfileForm
@@ -22,7 +21,7 @@ from .login_form import EmailOrUsernameAuthenticationForm
 User = get_user_model()
 
 
-@ratelimit(key='ip', rate='3/h', method='POST', block=True, fn=rate_limit_response)
+@ratelimit(key='ip', rate='3/h', method='POST', block=True)
 def pre_signup(request):
     if request.method == 'POST':
         form = PreSignupForm(request.POST)
@@ -68,7 +67,7 @@ def pre_signup_done(request):
     return render(request, 'registration/pre_signup_done.html')
 
 
-@ratelimit(key='ip', rate='3/h', method='POST', block=True, fn=rate_limit_response)
+@ratelimit(key='ip', rate='3/h', method='POST', block=True)
 def signup(request):
     initial = {}
     if 'token' in request.GET:
@@ -100,7 +99,7 @@ class CustomLoginView(LoginView):
     authentication_form = EmailOrUsernameAuthenticationForm
     template_name = 'registration/login.html'
     
-    @ratelimit(key='ip', rate='5/15m', method='POST', block=True, fn=rate_limit_response)
+    @ratelimit(key='ip', rate='5/15m', method='POST', block=True)
     def post(self, request, *args, **kwargs):
         """Apply rate limiting to login POST requests"""
         return super().post(request, *args, **kwargs)
@@ -144,7 +143,7 @@ class RateLimitedPasswordResetView(BasePasswordResetView):
     html_email_template_name = 'registration/password_reset_email.html'
     email_template_name = 'registration/password_reset_email.html'
     
-    @ratelimit(key=get_email_from_form, rate='3/h', method='POST', block=True, fn=rate_limit_response)
+    @ratelimit(key=get_email_from_form, rate='3/h', method='POST', block=True)
     def post(self, request, *args, **kwargs):
         """Apply rate limiting based on email"""
         return super().post(request, *args, **kwargs)

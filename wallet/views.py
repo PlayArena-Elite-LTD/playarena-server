@@ -7,7 +7,6 @@ from django.views.decorators.http import require_http_methods
 from django_ratelimit.decorators import ratelimit
 from decimal import Decimal, InvalidOperation
 import logging
-from core.ratelimit_helpers import rate_limit_response
 
 from .models import Wallet, Transaction
 from .forms import DepositForm, WithdrawalForm
@@ -16,7 +15,7 @@ logger = logging.getLogger('django_ratelimit')
 
 
 @login_required
-@ratelimit(key='user', rate='30/m', method='GET', block=True, fn=rate_limit_response)
+@ratelimit(key='user', rate='30/m', method='GET', block=True)
 def check_balance(request):
     """Check wallet balance - 30 per minute per user"""
     try:
@@ -38,7 +37,7 @@ def check_balance(request):
 
 
 @login_required
-@ratelimit(key='user', rate='10/m', method='POST', block=True, fn=rate_limit_response)
+@ratelimit(key='user', rate='10/m', method='POST', block=True)
 def deposit(request):
     """Deposit funds - 10 per minute per user"""
     if request.method == 'POST':
@@ -95,7 +94,7 @@ def deposit(request):
 
 
 @login_required
-@ratelimit(key='user', rate='5/h', method='POST', block=True, fn=rate_limit_response)
+@ratelimit(key='user', rate='5/h', method='POST', block=True)
 def withdraw(request):
     """Withdraw funds - 5 per hour per user"""
     wallet = request.user.wallet
