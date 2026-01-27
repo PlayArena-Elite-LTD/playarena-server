@@ -46,18 +46,33 @@
   --color-silver: #cccccc;
   --color-smoke: #eeeeee;
 
-  /*========== Bank-Style Professional Colors ==========*/
-  /* Primary Navy & Blue Colors */
+  /*========== Cyber Neon Theme - 4 Color Functional System ==========*/
+  /* Base Color - Navy (Trust, Foundation, Background) */
   --color-primary-navy: #003366;
   --color-primary-blue: #004080;
   --color-primary-dark: #002244;
   --color-primary-light: #0059B3;
   
-  /* Accent Colors */
-  --color-accent-green: #27AE60;
-  --color-accent-green-light: #2ECC71;
-  --color-accent-gold: #F39C12;
-  --color-accent-gold-light: #F5B041;
+  /* Primary Accent - Cyan #00D9FF (Main CTAs, Primary Actions, Key Highlights) */
+  --color-accent-primary: #00D9FF;
+  --color-accent-primary-light: #33E1FF;
+  --color-accent-primary-dark: #00B8CC;
+  
+  /* Secondary Accent - Purple #B026FF (Secondary Actions, Gaming Energy, Highlights) */
+  --color-accent-secondary: #B026FF;
+  --color-accent-secondary-light: #C04DFF;
+  --color-accent-secondary-dark: #8A1ECC;
+  
+  /* Interactive Accent - Electric Blue #0066FF (Hover States, Links, Interactive Elements) */
+  --color-accent-interactive: #0066FF;
+  --color-accent-interactive-light: #3385FF;
+  --color-accent-interactive-dark: #004DCC;
+  
+  /* Legacy support (mapped to new colors) */
+  --color-accent-green: #00D9FF; /* Cyan for primary */
+  --color-accent-green-light: #33E1FF;
+  --color-accent-gold: #B026FF; /* Purple for secondary */
+  --color-accent-gold-light: #C04DFF;
   
   /* Text Colors */
   --color-text-primary: #2C3E50;
@@ -84,12 +99,25 @@
   --color-info: #3498DB;
   --color-info-light: #D6EAF8;
 
-  /*========== Professional Gradients ==========*/
-  --gradient-primary: linear-gradient(135deg, #003366 0%, #004080 100%);
+  /*========== Cyber Neon Gradients ==========*/
+  /* Primary Gradient - Navy to Cyan (Main CTAs, Hero sections) */
+  --gradient-primary: linear-gradient(135deg, #003366 0%, #00D9FF 100%);
   --gradient-primary-dark: linear-gradient(135deg, #002244 0%, #003366 100%);
-  --gradient-accent: linear-gradient(135deg, #27AE60 0%, #2ECC71 100%);
-  --gradient-gold: linear-gradient(135deg, #F39C12 0%, #F5B041 100%);
+  
+  /* Accent Gradient - Cyan to Purple (Secondary CTAs, Highlights) */
+  --gradient-accent: linear-gradient(135deg, #00D9FF 0%, #B026FF 100%);
+  
+  /* Gaming Gradient - Purple to Electric Blue (Gaming sections, Energy) */
+  --gradient-gold: linear-gradient(135deg, #B026FF 0%, #0066FF 100%);
+  
+  /* Interactive Gradient - Electric Blue to Cyan (Hover states, Interactive) */
+  --gradient-interactive: linear-gradient(135deg, #0066FF 0%, #00D9FF 100%);
+  
+  /* Subtle Background Gradient */
   --gradient-subtle: linear-gradient(180deg, #FFFFFF 0%, #F5F7FA 100%);
+  
+  /* Cyber Neon Full Gradient (Hero backgrounds, Special sections) */
+  --gradient-cyber-neon: linear-gradient(135deg, #003366 0%, #00D9FF 50%, #B026FF 100%);
 
   /*========== Font and typography ==========*/
   --body-font: "Inter", sans-serif;
@@ -141,16 +169,32 @@
   --color-silver: #444444;
   --color-smoke: #222222;
 
-  /* Bank-Style Dark Mode Colors */
+  /* Cyber Neon Dark Mode Colors */
   --color-primary-navy: #1A4D7A;
   --color-primary-blue: #2E6BA0;
   --color-primary-dark: #0F2A44;
   --color-primary-light: #4A8FC7;
   
-  --color-accent-green: #2ECC71;
-  --color-accent-green-light: #58D68D;
-  --color-accent-gold: #F5B041;
-  --color-accent-gold-light: #F7C96B;
+  /* Primary Accent - Cyan (brighter in dark mode) */
+  --color-accent-primary: #00E5FF;
+  --color-accent-primary-light: #33EBFF;
+  --color-accent-primary-dark: #00B8CC;
+  
+  /* Secondary Accent - Purple (brighter in dark mode) */
+  --color-accent-secondary: #C04DFF;
+  --color-accent-secondary-light: #D373FF;
+  --color-accent-secondary-dark: #A01ECC;
+  
+  /* Interactive Accent - Electric Blue (brighter in dark mode) */
+  --color-accent-interactive: #3385FF;
+  --color-accent-interactive-light: #5CA3FF;
+  --color-accent-interactive-dark: #004DCC;
+  
+  /* Legacy support for dark mode */
+  --color-accent-green: #00E5FF; /* Cyan for primary */
+  --color-accent-green-light: #33EBFF;
+  --color-accent-gold: #C04DFF; /* Purple for secondary */
+  --color-accent-gold-light: #D373FF;
   
   --color-text-primary: #E8E8E8;
   --color-text-secondary: #B8B8B8;
@@ -164,12 +208,24 @@
   --color-border-medium: #444444;
   --color-border-dark: #555555;
   
+  /* Dark Mode Status Colors */
+  --color-success: #00E5FF; /* Cyan */
+  --color-success-light: #0A1A1F;
+  --color-warning: #C04DFF; /* Purple */
+  --color-warning-light: #1A0F1F;
+  --color-error: #E74C3C;
+  --color-error-light: #1F0A0A;
+  --color-info: #3385FF; /* Electric Blue */
+  --color-info-light: #0F1A2F;
+  
   /* Dark Mode Gradients */
-  --gradient-primary: linear-gradient(135deg, #1A4D7A 0%, #2E6BA0 100%);
+  --gradient-primary: linear-gradient(135deg, #1A4D7A 0%, #00E5FF 100%);
   --gradient-primary-dark: linear-gradient(135deg, #0F2A44 0%, #1A4D7A 100%);
-  --gradient-accent: linear-gradient(135deg, #2ECC71 0%, #58D68D 100%);
-  --gradient-gold: linear-gradient(135deg, #F5B041 0%, #F7C96B 100%);
+  --gradient-accent: linear-gradient(135deg, #00E5FF 0%, #C04DFF 100%);
+  --gradient-gold: linear-gradient(135deg, #C04DFF 0%, #3385FF 100%);
+  --gradient-interactive: linear-gradient(135deg, #3385FF 0%, #00E5FF 100%);
   --gradient-subtle: linear-gradient(180deg, #0F0F0F 0%, #1A1A1A 100%);
+  --gradient-cyber-neon: linear-gradient(135deg, #1A4D7A 0%, #00E5FF 50%, #C04DFF 100%);
 }
 
 /*========== Responsive typography ==========*/
