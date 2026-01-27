@@ -8,10 +8,13 @@ from django_ratelimit.decorators import ratelimit
 from django.db import transaction
 from decimal import Decimal
 import json
+import logging
 
 from .models import Wallet, Transaction, Deposit, Withdrawal, SavedPaymentMethod
 from .forms import DepositForm, WithdrawalForm
 from .payment_method_forms import SavedPaymentMethodForm, DeletePaymentMethodForm
+
+logger = logging.getLogger(__name__)
 
 @login_required
 def wallet_view(request):
@@ -106,7 +109,7 @@ def deposit_view(request):
                         f'Failed to initialize payment: {payment_result.get("failure_reason", "Unknown error")}'
                     )
                     return redirect('wallet')
-                    
+                        
             except Exception as e:
                 # Handle validation errors from Deposit model
                 error_message = str(e)
@@ -135,6 +138,12 @@ def withdraw_view(request):
     """
     Handle withdrawal requests using Withdrawal model with status tracking.
     
+    Security features:
+    - IP address tracking
+    - User agent tracking
+    - Fraud detection
+    - Comprehensive logging
+    
     GET: Display withdrawal form
     POST: Process withdrawal form submission
     Creates a Withdrawal record with PENDING status. Wallet balance is only
@@ -154,6 +163,33 @@ def withdraw_view(request):
                 payment_method = form.cleaned_data['payment_method']
                 account_details = form.cleaned_data['account_details']
                 
+                # Security: Capture IP address and user agent
+                from wallet.error_handlers import _get_client_ip
+                ip_address = _get_client_ip(request)
+                user_agent = request.META.get('HTTP_USER_AGENT', '')[:500]  # Limit length
+                
+                # Security: Detect suspicious withdrawal activity
+                from wallet.error_handlers import detect_suspicious_withdrawal_activity, log_security_event
+                suspicious, reasons = detect_suspicious_withdrawal_activity(request, amount, payment_method)
+                
+                if suspicious:
+                    # Log suspicious activity but don't block (flag for review)
+                    log_security_event(
+                        'suspicious_withdrawal_activity',
+                        {
+                            'reasons': reasons,
+                            'amount': float(amount),
+                            'payment_method': payment_method,
+                            'user_id': request.user.id,
+                            'username': request.user.username,
+                        },
+                        request=request,
+                        severity='WARNING'
+                    )
+                    logger.warning(
+                        f"Suspicious withdrawal activity detected for user {request.user.username}: {reasons}"
+                    )
+                
                 # Create Withdrawal instance (validation happens in clean())
                 withdrawal = Withdrawal(
                     user=request.user,
@@ -161,16 +197,24 @@ def withdraw_view(request):
                     payment_method=payment_method,
                     account_details=account_details,
                     status='PENDING',  # Start as PENDING
-                    wallet=wallet
+                    wallet=wallet,
+                    ip_address=ip_address,  # Security: Track IP address
+                    user_agent=user_agent  # Security: Track user agent
                 )
                 
                 # Run validation (checks amount limits, balance, etc.)
                 withdrawal.full_clean()
                 withdrawal.save()
-                
+                    
                 # Send notification for withdrawal creation
                 from wallet.notifications import notify_withdrawal_created
                 notify_withdrawal_created(withdrawal)
+                
+                logger.info(
+                    f"Withdrawal {withdrawal.id} created - "
+                    f"User: {request.user.username}, Amount: ${amount}, "
+                    f"IP: {ip_address}, Suspicious: {suspicious}"
+                )
                 
                 messages.success(request, f'Withdrawal request of ${amount:.2f} created successfully. Processing...')
                 return redirect('wallet')

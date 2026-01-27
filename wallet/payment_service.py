@@ -325,11 +325,14 @@ class PaymentManager:
         """
         Process withdrawal through payment gateway (Paystack or Flutterwave)
         
+        Security: Uses select_for_update() to prevent concurrent processing
+        
         This method handles the complete withdrawal flow:
-        1. Parse account details from withdrawal
-        2. Create transfer recipient/beneficiary
-        3. Initiate transfer to recipient
-        4. Update withdrawal with gateway transaction IDs
+        1. Lock withdrawal to prevent concurrent processing
+        2. Parse account details from withdrawal
+        3. Create transfer recipient/beneficiary
+        4. Initiate transfer to recipient
+        5. Update withdrawal with gateway transaction IDs
         
         Args:
             withdrawal: Withdrawal model instance
@@ -337,45 +340,60 @@ class PaymentManager:
         Returns:
             dict: {
                 'success': bool,
+                'transaction_id': str,
                 'recipient_code': str (Paystack) or beneficiary_id (Flutterwave),
                 'transfer_code': str,
                 'reference': str,
                 'status': str,
                 'message': str,
-                'gateway': str
+                'gateway': str,
+                'gateway_response': dict,
+                'failure_reason': str (if failed)
             }
         """
-        payment_method = withdrawal.payment_method
-        amount = withdrawal.amount
-        user = withdrawal.user
+        from django.db import transaction
         
-        try:
-            if payment_method == 'FLUTTERWAVE':
-                return self._process_flutterwave_withdrawal(withdrawal, amount, user)
-            elif payment_method == 'PAYSTACK':
-                return self._process_paystack_withdrawal(withdrawal, amount, user)
-            else:
-                # For other payment methods, return manual processing
+        # Security: Lock withdrawal to prevent concurrent processing
+        with transaction.atomic():
+            withdrawal = withdrawal.__class__.objects.select_for_update().get(id=withdrawal.id)
+            
+            payment_method = withdrawal.payment_method
+            amount = withdrawal.amount
+            user = withdrawal.user
+            
+            try:
+                if payment_method == 'FLUTTERWAVE':
+                    return self._process_flutterwave_withdrawal(withdrawal, amount, user)
+                elif payment_method == 'PAYSTACK':
+                    return self._process_paystack_withdrawal(withdrawal, amount, user)
+                else:
+                    # For other payment methods, return manual processing
+                    return {
+                        'success': False,
+                        'transaction_id': None,
+                        'recipient_code': None,
+                        'transfer_code': None,
+                        'reference': None,
+                        'status': None,
+                        'message': 'Manual processing required for this payment method',
+                        'gateway': payment_method,
+                        'gateway_response': {},
+                        'failure_reason': 'Manual processing required'
+                    }
+            except Exception as e:
+                logger.error(f"Error processing withdrawal {withdrawal.id}: {str(e)}")
                 return {
                     'success': False,
+                    'transaction_id': None,
                     'recipient_code': None,
                     'transfer_code': None,
                     'reference': None,
                     'status': None,
-                    'message': 'Manual processing required for this payment method',
-                    'gateway': payment_method
+                    'message': f'Withdrawal processing failed: {str(e)}',
+                    'gateway': payment_method,
+                    'gateway_response': {},
+                    'failure_reason': str(e)
                 }
-        except Exception as e:
-            logger.error(f"Error processing withdrawal {withdrawal.id}: {str(e)}")
-            return {
-                'success': False,
-                'recipient_code': None,
-                'transfer_code': None,
-                'reference': None,
-                'status': None,
-                'message': f'Withdrawal processing failed: {str(e)}',
-                'gateway': payment_method
-            }
     
     def _parse_account_details(self, account_details):
         """

@@ -20,7 +20,7 @@ from django.db import DatabaseError, IntegrityError
 from django.utils import timezone
 from decimal import Decimal, InvalidOperation
 
-from .models import Deposit
+from .models import Deposit, Withdrawal
 
 logger = logging.getLogger(__name__)
 security_logger = logging.getLogger('security')  # Separate logger for security events
@@ -455,5 +455,103 @@ def detect_suspicious_activity(request, deposit=None):
             request=request,
             severity='WARNING'
         )
+    
+    return suspicious, reasons
+
+
+def detect_suspicious_withdrawal_activity(request, amount, payment_method):
+    """
+    Detect suspicious withdrawal activity patterns
+    
+    Security: Flags potential fraud attempts for withdrawals
+    
+    Args:
+        request: Django HttpRequest object
+        amount: Withdrawal amount (Decimal)
+        payment_method: Payment method string
+    
+    Returns:
+        tuple: (suspicious: bool, reasons: list)
+    """
+    suspicious = False
+    reasons = []
+    
+    if not request:
+        return suspicious, reasons
+    
+    ip_address = _get_client_ip(request)
+    user = request.user if hasattr(request, 'user') and request.user.is_authenticated else None
+    
+    if not user:
+        return suspicious, reasons
+    
+    # Check for rapid successive withdrawals from same IP
+    recent_withdrawals = Withdrawal.objects.filter(
+        ip_address=ip_address,
+        created_at__gte=timezone.now() - timedelta(minutes=10)
+    ).count()
+    
+    if recent_withdrawals > 3:
+        suspicious = True
+        reasons.append(f"Too many withdrawals from same IP ({recent_withdrawals} in 10 minutes)")
+    
+    # Check for rapid successive withdrawals from same user
+    user_recent_withdrawals = Withdrawal.objects.filter(
+        user=user,
+        created_at__gte=timezone.now() - timedelta(minutes=5)
+    ).count()
+    
+    if user_recent_withdrawals > 2:
+        suspicious = True
+        reasons.append(f"Too many withdrawals by user ({user_recent_withdrawals} in 5 minutes)")
+    
+    # Check for unusual withdrawal amounts (very large amounts)
+    if amount > Decimal('10000.00'):
+        suspicious = True
+        reasons.append(f"Unusually large withdrawal amount: ${amount}")
+    
+    # Check for multiple withdrawals to different payment methods in short time
+    if user:
+        recent_methods = Withdrawal.objects.filter(
+            user=user,
+            created_at__gte=timezone.now() - timedelta(hours=1)
+        ).values_list('payment_method', flat=True).distinct().count()
+        
+        if recent_methods > 3:
+            suspicious = True
+            reasons.append(f"Multiple payment methods used in short time ({recent_methods} different methods)")
+    
+    # Check for unusual user agent
+    user_agent = request.META.get('HTTP_USER_AGENT', '')
+    if not user_agent or len(user_agent) < 10:
+        suspicious = True
+        reasons.append("Missing or suspicious user agent")
+    
+    # Check for withdrawals from multiple IPs for same user in short time (potential account compromise)
+    if user:
+        recent_ips = Withdrawal.objects.filter(
+            user=user,
+            created_at__gte=timezone.now() - timedelta(hours=1)
+        ).exclude(ip_address__isnull=True).values_list('ip_address', flat=True).distinct().count()
+        
+        if recent_ips > 2:
+            suspicious = True
+            reasons.append(f"Withdrawals from multiple IPs in short time ({recent_ips} different IPs)")
+    
+    # Check for pattern: multiple small withdrawals followed by large one (testing limits)
+    if user:
+        recent_withdrawals_list = Withdrawal.objects.filter(
+            user=user,
+            created_at__gte=timezone.now() - timedelta(hours=24)
+        ).order_by('-created_at')[:5]
+        
+        if len(recent_withdrawals_list) >= 3:
+            # Check if there are multiple small withdrawals followed by a large one
+            small_count = sum(1 for w in recent_withdrawals_list if w.amount < Decimal('100.00'))
+            large_count = sum(1 for w in recent_withdrawals_list if w.amount > Decimal('1000.00'))
+            
+            if small_count >= 2 and large_count >= 1:
+                suspicious = True
+                reasons.append("Pattern detected: Multiple small withdrawals followed by large withdrawal (possible limit testing)")
     
     return suspicious, reasons

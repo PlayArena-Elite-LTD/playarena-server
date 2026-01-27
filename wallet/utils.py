@@ -88,7 +88,14 @@ def complete_deposit_and_credit_wallet(deposit):
         if not deposit.completed_at:
             deposit.completed_at = timezone.now()
         if not deposit.verification_hash:
-            deposit.verification_hash = deposit.generate_verification_hash()
+            # Generate verification hash if method exists (security feature)
+            if hasattr(deposit, 'generate_verification_hash'):
+                deposit.verification_hash = deposit.generate_verification_hash()
+            else:
+                # Fallback: generate simple hash if method doesn't exist
+                import hashlib
+                hash_data = f"{deposit.id}_{deposit.user_id}_{deposit.amount}_{deposit.status}_{deposit.transaction_id}"
+                deposit.verification_hash = hashlib.sha256(hash_data.encode()).hexdigest()
         
         # Credit wallet balance
         wallet.balance += deposit.amount

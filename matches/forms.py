@@ -1,7 +1,8 @@
 from django import forms
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from .models import Match, Evidence
-import os
+from .utils import validate_evidence_file, validate_file_size, validate_file_type
 
 class MatchCreationForm(forms.ModelForm):
     class Meta:
@@ -87,87 +88,67 @@ class JoinMatchForm(forms.Form):
 
 
 class EvidenceUploadForm(forms.Form):
-    """Form for uploading evidence files (screenshots/videos) for matches"""
+    """
+    Form for uploading evidence files (screenshots/videos) for match results.
     
-    # File size limits (in bytes)
-    MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB
-    MAX_VIDEO_SIZE = 50 * 1024 * 1024  # 50MB
+    Security features:
+    - File type validation (images/videos only)
+    - File size limits (10MB images, 50MB videos)
+    - MIME type validation
+    """
     
-    # Allowed file extensions
-    ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png']
-    ALLOWED_VIDEO_EXTENSIONS = ['.mp4', '.mov']
-    
-    evidence_file = forms.FileField(
-        required=True,
+    file = forms.FileField(
         label="Evidence File",
-        help_text="Upload a screenshot or video (Images: max 10MB, Videos: max 50MB)",
-        widget=forms.FileInput(attrs={
-            'class': 'form-control',
-            'accept': 'image/jpeg,image/png,video/mp4,video/quicktime',
-            'id': 'evidence-file-input'
-        })
+        help_text="Upload a screenshot or video (Max 10MB for images, 50MB for videos)"
     )
-    
+    file_type = forms.ChoiceField(
+        choices=Evidence.FILE_TYPE_CHOICES,
+        label="File Type",
+        help_text="Select whether this is an image or video"
+    )
     description = forms.CharField(
         required=False,
-        max_length=500,
+        widget=forms.Textarea(attrs={'rows': 3, 'class': 'form-control'}),
         label="Description (Optional)",
-        help_text="Add a brief description of the evidence",
-        widget=forms.Textarea(attrs={
-            'class': 'form-control',
-            'rows': 3,
-            'placeholder': 'e.g., Screenshot showing final score, Video of match ending...'
-        })
+        help_text="Optional description of the evidence"
     )
     
-    def clean_evidence_file(self):
-        """Validate file size and type"""
-        file = self.cleaned_data.get('evidence_file')
+    def __init__(self, *args, **kwargs):
+        self.match = kwargs.pop('match', None)
+        self.user = kwargs.pop('user', None)
+        super().__init__(*args, **kwargs)
+    
+    def clean_file(self):
+        """Security: Validate file type and size using utility functions"""
+        file = self.cleaned_data.get('file')
         
         if not file:
             raise ValidationError("Please select a file to upload.")
         
-        # Get file extension
-        file_name = file.name
-        ext = os.path.splitext(file_name)[1].lower()
+        # Get file type from form data (may not be cleaned yet, so get from initial data)
+        file_type = self.cleaned_data.get('file_type') or self.data.get('file_type')
         
-        # Check file extension
-        if ext not in self.ALLOWED_IMAGE_EXTENSIONS + self.ALLOWED_VIDEO_EXTENSIONS:
-            allowed = ', '.join(self.ALLOWED_IMAGE_EXTENSIONS + self.ALLOWED_VIDEO_EXTENSIONS)
-            raise ValidationError(
-                f"Unsupported file type. Allowed types: {allowed}"
-            )
+        if not file_type:
+            raise ValidationError("Please select a file type.")
         
-        # Check file size based on type
-        if ext in self.ALLOWED_IMAGE_EXTENSIONS:
-            max_size = self.MAX_IMAGE_SIZE
-            file_type = "image"
-        else:  # Video
-            max_size = self.MAX_VIDEO_SIZE
-            file_type = "video"
-        
-        # Check file size
-        if file.size > max_size:
-            max_size_mb = max_size / (1024 * 1024)
-            raise ValidationError(
-                f"File size exceeds maximum allowed size of {max_size_mb}MB for {file_type}s. "
-                f"Your file is {file.size / (1024 * 1024):.2f}MB."
-            )
+        # Use utility functions for validation
+        try:
+            validate_file_size(file, file_type)
+            validate_file_type(file, file_type)
+        except ValidationError as e:
+            # Re-raise validation errors
+            raise e
         
         return file
     
-    def get_file_type(self):
-        """Determine file type from uploaded file"""
-        if not self.is_valid():
-            return None
+    def clean(self):
+        """Additional validation"""
+        cleaned_data = super().clean()
+        file = cleaned_data.get('file')
+        file_type = cleaned_data.get('file_type')
         
-        file = self.cleaned_data.get('evidence_file')
-        if not file:
-            return None
+        # Ensure file and file_type are both provided
+        if file and not file_type:
+            raise ValidationError("Please select a file type.")
         
-        ext = os.path.splitext(file.name)[1].lower()
-        if ext in self.ALLOWED_IMAGE_EXTENSIONS:
-            return 'IMAGE'
-        elif ext in self.ALLOWED_VIDEO_EXTENSIONS:
-            return 'VIDEO'
-        return None
+        return cleaned_data

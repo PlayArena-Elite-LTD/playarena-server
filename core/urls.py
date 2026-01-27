@@ -17,7 +17,7 @@ urlpatterns = [
     path('', TemplateView.as_view(template_name='index.html'), name='index'),
 ]
 
-# Serve media files in development
-# In production, serve media files through your web server (nginx, Apache, etc.)
+# Serve media files in development only
+# Security: Never use this in production - use proper storage service (S3, Cloudinary, etc.)
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -105,8 +105,8 @@ class Command(BaseCommand):
         # Process each withdrawal
         for withdrawal in withdrawals:
             try:
-                # Security: Validate withdrawal before processing
-                withdrawal.refresh_from_db()
+                # Security: Lock withdrawal to prevent concurrent processing
+                withdrawal = Withdrawal.objects.select_for_update().get(id=withdrawal.id)
                 
                 # Skip if already in final state (race condition protection)
                 if withdrawal.is_final:
