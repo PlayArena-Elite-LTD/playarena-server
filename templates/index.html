@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block nav %}
 
@@ -481,54 +482,54 @@
               <div class="games-slider">
                 <div class="games-slider-content">
                   <div class="games-logo">
-                    <img src="/static/images/landing/game1.jpg" alt="Game Logo" />
+                    <img src="{% static 'images/landing/game1.jpg' %}" alt="Game Logo" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="/static/images/landing/game2.jpg" alt="Game Logo" />
+                    <img src="{% static 'images/landing/game2.jpg' %}" alt="Game Logo" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="/static/images/landing/game3.png" alt="Game Logo" />
+                    <img src="{% static 'images/landing/game3.png' %}" alt="Game Logo" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="/static/images/landing/game4.png" alt="Game Logo" />
+                    <img src="{% static 'images/landing/game4.png' %}" alt="Game Logo" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="/static/images/landing/game5.png" alt="Game Logo" />
+                    <img src="{% static 'images/landing/game5.png' %}" alt="Game Logo" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="/static/images/landing/fifa.webp" alt="Game Logo" />
+                    <img src="{% static 'images/landing/fifa.webp' %}" alt="Game Logo" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="/static/images/landing/game1.jpg" alt="Game Logo" />
+                    <img src="{% static 'images/landing/game1.jpg' %}" alt="Game Logo" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="/static/images/landing/speed.jpg" alt="Game Logo" />
+                    <img src="{% static 'images/landing/speed.jpg' %}" alt="Game Logo" loading="lazy" />
                   </div>
                 </div>
                 <div class="games-slider-content" aria-hidden="true" role="presentation">
                   <div class="games-logo">
-                    <img src="/static/images/landing/fif.png" alt="Game Logo" />
+                    <img src="{% static 'images/landing/fif.png' %}" alt="Game Logo" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="/static/images/landing/game2.jpg" alt="Game Logo" />
+                    <img src="{% static 'images/landing/game2.jpg' %}" alt="Game Logo" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="/static/images/landing/game3.png" alt="Game Logo" />
+                    <img src="{% static 'images/landing/game3.png' %}" alt="Game Logo" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="/static/images/landing/game4.png" alt="Game Logo" />
+                    <img src="{% static 'images/landing/game4.png' %}" alt="Game Logo" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="/static/images/landing/game5.png" alt="Game Logo" />
+                    <img src="{% static 'images/landing/game5.png' %}" alt="Game Logo" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="/static/images/landing/fifa.webp" alt="Game Logo" />
+                    <img src="{% static 'images/landing/fifa.webp' %}" alt="Game Logo" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="/static/images/landing/game2.jpg" alt="Game Logo" />
+                    <img src="{% static 'images/landing/game2.jpg' %}" alt="Game Logo" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="/static/images/landing/speed.jpg" alt="Game Logo" />
+                    <img src="{% static 'images/landing/speed.jpg' %}" alt="Game Logo" loading="lazy" />
                   </div>
                 </div>
               </div>
@@ -554,7 +555,7 @@
           <div class="reviews-container grid">
             <div class="reviews-card">
               <div class="reviews-profile">
-                <img src="/static/images/landing/male.jpg" alt="Thomas Banda - Verified Player" class="reviews-avatar" />
+                <img src="{% static 'images/landing/male.jpg' %}" alt="Thomas Banda - Verified Player" class="reviews-avatar" loading="lazy" />
                 <div>
                   <div class="reviews-name-container">
                     <h3 class="reviews-name">Thomas Banda</h3>
@@ -582,7 +583,7 @@
 
             <div class="reviews-card">
               <div class="reviews-profile">
-                <img src="/static/images/landing/female.jpg" alt="Sarah Mwansa - Verified Member" class="reviews-avatar" />
+                <img src="{% static 'images/landing/female.jpg' %}" alt="Sarah Mwansa - Verified Member" class="reviews-avatar" loading="lazy" />
                 <div>
                   <div class="reviews-name-container">
                     <h3 class="reviews-name">Anika Dlamini</h3>
@@ -934,13 +935,13 @@
                 </div>
                 <h3 class="contact-card-title">Email Us</h3>
                 <a
-                  href="mailto:hello@betplayarena.com"
+                  href="mailto:hello@playarena.com"
                   class="contact-card-link"
                 >
                   hello@playarena.com
                 </a>
                 <a
-                  href="mailto:support@betplayarena.com"
+                  href="mailto:support@playarena.com"
                   class="contact-card-link"
                 >
                   support@playarena.com
@@ -952,8 +953,8 @@
                   <i class="fas fa-phone-alt"></i>
                 </div>
                 <h3 class="contact-card-title">Call Us</h3>
-                <a href="tel:+14155550123" class="contact-card-link">
-                  +27 (415) 555-0123
+                <a href="tel:+27215550123" class="contact-card-link">
+                  +27 (21) 555-0123
                 </a>
                 <div class="contact-card-hours">
                   <i class="fas fa-clock"></i>

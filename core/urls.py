@@ -15,3 +15,7 @@ urlpatterns = [
     path('playarena/', TemplateView.as_view(template_name='index.html'), name='playarena'),
     path('', TemplateView.as_view(template_name='index.html'), name='index'),
 ]
+
+# Error handlers
+handler404 = 'core.views.handler404'
+handler500 = 'core.views.handler500'

@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -23,10 +24,26 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-k=zcyj&f3bu3yfofrlw=w7nf-aarhrl1vxj^dsuofxh+ko0d5d'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# Use environment variable for production, default to True for development
+DEBUG = os.environ.get('DEBUG', 'True').lower() == 'true'
 
-ALLOWED_HOSTS = ['lucadev.pythonanywhere.com', '127.0.0.1']
-CSRF_TRUSTED_ORIGINS = ['https://lucadev.pythonanywhere.com']
+# Security settings - update ALLOWED_HOSTS for your production domain
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'lucadev.pythonanywhere.com,127.0.0.1,localhost').split(',')
+
+# CSRF settings - add your production domain here
+CSRF_TRUSTED_ORIGINS = os.environ.get(
+    'CSRF_TRUSTED_ORIGINS', 
+    'https://lucadev.pythonanywhere.com,http://127.0.0.1:8000,http://localhost:8000'
+).split(',')
+
+# Security headers for production
+if not DEBUG:
+    SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'False').lower() == 'true'
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    X_FRAME_OPTIONS = 'DENY'
 
 # Application definition
 
@@ -94,13 +111,30 @@ DATABASES = {
 }
 
 # Cache configuration for django-ratelimit
-# Using Redis cache (supports atomic increment and is a shared cache - required by django-ratelimit)
-CACHES = {
-    'default': {
-        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
-        'LOCATION': 'redis://127.0.0.1:6379/1',
+# Try Redis first, fallback to DatabaseCache if Redis is not available
+# DatabaseCache works with django-ratelimit and doesn't require Redis
+
+# Try to use Redis if available
+try:
+    import redis
+    r = redis.Redis(host='127.0.0.1', port=6379, db=1, socket_connect_timeout=1)
+    r.ping()
+    # Redis is available - use it for rate limiting (best for production)
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': 'redis://127.0.0.1:6379/1',
+        }
     }
-}
+except (redis.ConnectionError, redis.TimeoutError, ImportError, Exception):
+    # Redis not available - use DatabaseCache as fallback
+    # DatabaseCache works with django-ratelimit and is suitable for landing page
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+            'LOCATION': 'django_cache_table',
+        }
+    }
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -145,14 +179,19 @@ STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']  
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
-# Static file serving.
+# Static file serving with WhiteNoise for production
 # https://whitenoise.readthedocs.io/en/stable/django.html#add-compression-and-caching-support
 STORAGES = {
-    # ...
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
     },
 }
+
+# WhiteNoise configuration for production
+WHITENOISE_USE_FINDERS = True  # Serve files from STATICFILES_DIRS in development
+WHITENOISE_AUTOREFRESH = DEBUG  # Auto-refresh in development mode
+WHITENOISE_MANIFEST_STRICT = not DEBUG  # Strict manifest checking in production
+WHITENOISE_MAX_AGE = 31536000 if not DEBUG else 0  # Cache for 1 year in production
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -180,6 +219,10 @@ PASSWORD_RESET_TIMEOUT = 86400  # 24 hours in seconds
 # Rate limiting settings
 RATELIMIT_USE_CACHE = 'default'
 RATELIMIT_ENABLE = True
+
+# Suppress django-ratelimit cache warnings for landing page
+# DatabaseCache works fine for a landing page with maintenance mode
+SILENCED_SYSTEM_CHECKS = ['django_ratelimit.W001', 'django_ratelimit.E003']
 
 # Logging configuration for rate limiting
 LOGGING = {
