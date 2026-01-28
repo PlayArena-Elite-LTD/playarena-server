@@ -15,11 +15,16 @@ class Match(models.Model):
         ('DREAM_LEAGUE_SOCCER', 'Dream League Soccer'),
         ('LI_CHESS', 'Li Chess'),
         ('CHESS.COM', 'Chess.com'),
+        ('NBA_2K', 'NBA 2K'),
+        ('MORTAL_KOMBAT', 'Mortal Kombat'),
     ]
     
     # Device choices
     DEVICE_CHOICES = [
         ('MOBILE', 'Mobile'),
+        ('PLAYSTATION', 'PlayStation'),
+        ('XBOX', 'Xbox'),
+        ('PC', 'PC'),
     ]
     
     # Privacy choices
