@@ -57,7 +57,7 @@ class Match(models.Model):
     creator = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='created_matches')
     joiner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='joined_matches', null=True, blank=True)
     game = models.CharField(max_length=20, choices=GAME_CHOICES)
-    device = models.CharField(max_length=10, choices=DEVICE_CHOICES)
+    device = models.CharField(max_length=15, choices=DEVICE_CHOICES)
     privacy = models.CharField(max_length=10, choices=PRIVACY_CHOICES)
     joining_code = models.CharField(max_length=10, unique=True, editable=False)
     amount = models.IntegerField(choices=AMOUNT_CHOICES)
