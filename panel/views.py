@@ -45,6 +45,69 @@ def my_disputes(request):
     }
     return render(request, 'panel/my_disputes.html', context)
 
+
+@support_staff_required
+def dispute_stats(request):
+    """
+    Show dispute pattern statistics per user (how many disputes they are involved in).
+    
+    This helps support staff detect users who frequently appear in disputes.
+    """
+    from django.db.models import Count, Q
+    from matches.models import Match
+
+    # Base queryset of all disputes
+    disputes = Dispute.objects.select_related('match', 'match__creator', 'match__joiner')
+
+    # Build per-user stats by looking at match.creator and match.joiner
+    # We aggregate on the User model so that each row is a user with counts.
+    User = get_user_model()
+
+    user_stats = (
+        User.objects.filter(
+            Q(created_matches__dispute__isnull=False) |
+            Q(joined_matches__dispute__isnull=False)
+        )
+        .distinct()
+        .annotate(
+            total_disputes=Count('created_matches__dispute', distinct=True) +
+                           Count('joined_matches__dispute', distinct=True),
+            open_disputes=Count(
+                'created_matches__dispute',
+                filter=Q(created_matches__dispute__status='OPEN'),
+                distinct=True
+            ) + Count(
+                'joined_matches__dispute',
+                filter=Q(joined_matches__dispute__status='OPEN'),
+                distinct=True
+            ),
+            pending_disputes=Count(
+                'created_matches__dispute',
+                filter=Q(created_matches__dispute__status='PENDING'),
+                distinct=True
+            ) + Count(
+                'joined_matches__dispute',
+                filter=Q(joined_matches__dispute__status='PENDING'),
+                distinct=True
+            ),
+            resolved_disputes=Count(
+                'created_matches__dispute',
+                filter=Q(created_matches__dispute__status='RESOLVED'),
+                distinct=True
+            ) + Count(
+                'joined_matches__dispute',
+                filter=Q(joined_matches__dispute__status='RESOLVED'),
+                distinct=True
+            ),
+        )
+        .order_by('-total_disputes', 'username')
+    )
+
+    context = {
+        'user_stats': user_stats,
+    }
+    return render(request, 'panel/dispute_stats.html', context)
+
 @support_staff_required
 def dispute_detail(request, dispute_id):
     """Show details for a dispute, options to message users, suspend, or resolve."""

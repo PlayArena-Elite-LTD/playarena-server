@@ -1,0 +1,48 @@
+{% extends "panel/panel_base.html" %}
+
+{% block panel_content %}
+<div class="panel-card">
+  <div class="panel-card-header">
+    <h3 class="panel-card-title">Dispute Pattern Detection</h3>
+    <p class="panel-card-subtitle">
+      Users ordered by how many disputes they are involved in (as creator or joiner).
+    </p>
+  </div>
+
+  {% if user_stats %}
+  <div class="panel-section">
+    <table class="panel-table">
+      <thead>
+        <tr>
+          <th>User</th>
+          <th>Total Disputes</th>
+          <th>Open</th>
+          <th>Pending</th>
+          <th>Resolved</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in user_stats %}
+        <tr>
+          <td>{{ u.username }}</td>
+          <td>{{ u.total_disputes }}</td>
+          <td>{{ u.open_disputes }}</td>
+          <td>{{ u.pending_disputes }}</td>
+          <td>{{ u.resolved_disputes }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="panel-section">
+    <div class="panel-empty">
+      <i class="fas fa-check-circle"></i>
+      <p>No disputes have been recorded yet.</p>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+
