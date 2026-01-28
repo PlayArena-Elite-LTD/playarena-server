@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'alert',
     'messenger',
     'panel',
+    'audit',
 ]
 
 AUTH_USER_MODEL = 'accounts.CustomUser'
