@@ -4,6 +4,7 @@ from django.utils import timezone
 from django.db import transaction
 from django.contrib.auth import get_user_model
 from django.http import HttpResponseNotAllowed
+from django_ratelimit.decorators import ratelimit
 
 from matches.models import Match, Evidence
 from panel.models import Dispute
@@ -15,6 +16,7 @@ from accounts.decorators import support_staff_required
 User = get_user_model()
 
 @support_staff_required
+@ratelimit(key='user', rate='60/h', method='GET', block=True)
 def open_disputes(request):
     """Show all open disputes with attend buttons."""
     disputes = Dispute.objects.filter(status='OPEN').order_by('created_at')
@@ -25,6 +27,7 @@ def open_disputes(request):
 
 @support_staff_required
 @transaction.atomic
+@ratelimit(key='user', rate='30/h', method='POST', block=True)
 def attend_dispute(request, dispute_id):
     """Assign the current staff to the dispute and mark as pending."""
     dispute = get_object_or_404(Dispute, id=dispute_id)
@@ -38,6 +41,7 @@ def attend_dispute(request, dispute_id):
     return redirect('my_disputes')
 
 @support_staff_required
+@ratelimit(key='user', rate='60/h', method='GET', block=True)
 def my_disputes(request):
     """Show disputes assigned to the current support staff."""
     # Show only active (non-resolved) disputes assigned to this staff member,
@@ -52,6 +56,7 @@ def my_disputes(request):
 
 
 @support_staff_required
+@ratelimit(key='user', rate='60/h', method='GET', block=True)
 def dispute_stats(request):
     """
     Show dispute pattern statistics per user (how many disputes they are involved in).
@@ -114,6 +119,7 @@ def dispute_stats(request):
     return render(request, 'panel/dispute_stats.html', context)
 
 @support_staff_required
+@ratelimit(key='user', rate='60/h', method='GET', block=True)
 def dispute_detail(request, dispute_id):
     """Show details for a dispute, options to message users, suspend, or resolve."""
     dispute = get_object_or_404(Dispute, id=dispute_id)
@@ -140,6 +146,7 @@ def dispute_detail(request, dispute_id):
 
 @support_staff_required
 @transaction.atomic
+@ratelimit(key='user', rate='30/h', method='POST', block=True)
 def suspend_user(request, user_id, dispute_id):
     """Suspend a user (set is_active=False) from dispute detail view."""
     user = get_object_or_404(User, id=user_id)
@@ -153,6 +160,7 @@ def suspend_user(request, user_id, dispute_id):
 
 @support_staff_required
 @transaction.atomic
+@ratelimit(key='user', rate='30/h', method='POST', block=True)
 def resolve_dispute(request, dispute_id):
     """Resolve a dispute, select winner, update wallet, notify participants, and mark as resolved."""
     dispute = get_object_or_404(Dispute, id=dispute_id)
@@ -220,6 +228,7 @@ def resolve_dispute(request, dispute_id):
 
 @support_staff_required
 @transaction.atomic
+@ratelimit(key='user', rate='30/h', method='POST', block=True)
 def escalate_dispute(request, dispute_id):
     """
     Escalate a dispute for further review.
@@ -271,6 +280,7 @@ def escalate_dispute(request, dispute_id):
 
 @support_staff_required
 @transaction.atomic
+@ratelimit(key='user', rate='60/h', method='POST', block=True)
 def update_evidence_notes(request, evidence_id):
     """
     Allow support staff to add or update internal notes on an evidence item.
