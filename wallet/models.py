@@ -3,6 +3,8 @@ from django.conf import settings
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from decimal import Decimal
+import logging
+
 
 class Wallet(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='wallet')
@@ -670,8 +672,64 @@ class SavedPaymentMethod(models.Model):
         return f"{self.label} ({masked})"
 
 
+
 # Create a wallet when a user is created
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
 def create_wallet(sender, instance, created, **kwargs):
     if created:
         Wallet.objects.create(user=instance)
+
+
+@receiver(post_save, sender=Transaction)
+def audit_wallet_balance_change(sender, instance, created, **kwargs):
+    """
+    Audit log for all wallet balance changes driven by Transaction records.
+
+    This runs whenever a new Transaction is created and records:
+    - old_balance (derived as new_balance - amount)
+    - new_balance (current wallet.balance)
+    - delta (the transaction amount)
+
+    It uses audit.utils.log_action and never raises, to avoid breaking main flow.
+    """
+    if not created:
+        return
+
+    wallet = instance.wallet
+    logger = logging.getLogger(__name__)
+
+    try:
+        # Current balance after applying this transaction
+        new_balance = wallet.balance
+
+        # Derive old balance assuming Transaction.amount matches the balance change
+        old_balance = None
+        if new_balance is not None and instance.amount is not None:
+            try:
+                old_balance = new_balance - instance.amount
+            except Exception:
+                old_balance = None
+
+        # Import here to avoid circular imports at module load time
+        from audit.utils import log_action
+
+        log_action(
+            action='wallet_balance_changed',
+            user=wallet.user if hasattr(wallet, 'user') else None,
+            details={
+                'wallet_id': wallet.id,
+                'user_id': wallet.user.id if hasattr(wallet, 'user') and wallet.user else None,
+                'transaction_id': instance.id,
+                'transaction_type': instance.transaction_type,
+                'amount': str(instance.amount),
+                'old_balance': str(old_balance) if old_balance is not None else None,
+                'new_balance': str(new_balance) if new_balance is not None else None,
+                'delta': str(instance.amount),
+                'description': instance.description,
+            },
+        )
+    except Exception as e:
+        logger.error(
+            f"Failed to create wallet balance audit log for transaction {instance.id}: {e}",
+            exc_info=True,
+        )
