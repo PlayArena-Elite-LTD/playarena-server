@@ -407,27 +407,59 @@ LOGGING = {
     },
 }
 
-# Set log level based on DEBUG setting
+# Log Level Configuration
+# Configure log levels based on environment (DEBUG mode)
+# This ensures appropriate verbosity for development vs production
+
+# Loggers that should maintain their specific levels regardless of environment
+# These are security and error-critical loggers that should not be overridden
+PROTECTED_LOGGER_LEVELS = {
+    'django.request': 'ERROR',      # Only log request errors
+    'django.security': 'WARNING',   # Security warnings are important
+}
+
+# Application loggers that can be adjusted based on environment
+APPLICATION_LOGGERS = ['accounts', 'wallet', 'matches', 'panel', 'messenger', 'alert']
+
 if DEBUG:
+    # Development environment: More verbose logging
     LOGGING['root']['level'] = 'DEBUG'
-    # Add debug file handler and console handler in development
     LOGGING['root']['handlers'].append('file_debug')
     LOGGING['root']['handlers'].append('console')
-    # In development, loggers will use DEBUG level and include debug handler and console
+    
+    # Set application loggers to DEBUG for detailed development logging
+    # Preserve protected logger levels (django.request, django.security)
     for logger_name, logger_config in LOGGING['loggers'].items():
-        logger_config['level'] = 'DEBUG'
+        # Only adjust application loggers, preserve Django framework logger levels
+        if logger_name in APPLICATION_LOGGERS:
+            logger_config['level'] = 'DEBUG'
+        # Protected loggers keep their configured levels
+        elif logger_name in PROTECTED_LOGGER_LEVELS:
+            logger_config['level'] = PROTECTED_LOGGER_LEVELS[logger_name]
+        # Django logger can be DEBUG in development
+        elif logger_name == 'django':
+            logger_config['level'] = 'DEBUG'
+        
+        # Add debug and console handlers in development
         if 'file_debug' not in logger_config['handlers']:
             logger_config['handlers'].append('file_debug')
         if 'console' not in logger_config['handlers']:
             logger_config['handlers'].append('console')
 else:
+    # Production environment: Less verbose, security-focused logging
     LOGGING['root']['level'] = 'INFO'
-    # In production, use INFO level for application loggers
-    # Console handler can be optionally added in production for monitoring
-    # For now, we'll keep it out of production to reduce console noise
-    for logger_config in LOGGING['loggers'].values():
-        if logger_config['level'] == 'DEBUG':
-            logger_config['level'] = 'INFO'
+    
+    # Application loggers use INFO level in production
+    # Preserve protected logger levels
+    for logger_name, logger_config in LOGGING['loggers'].items():
+        # Set application loggers to INFO
+        if logger_name in APPLICATION_LOGGERS:
+            if logger_config['level'] == 'DEBUG':
+                logger_config['level'] = 'INFO'
+        # Protected loggers keep their configured levels
+        elif logger_name in PROTECTED_LOGGER_LEVELS:
+            logger_config['level'] = PROTECTED_LOGGER_LEVELS[logger_name]
+        
         # Remove debug handler in production
         if 'file_debug' in logger_config['handlers']:
             logger_config['handlers'].remove('file_debug')
