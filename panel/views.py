@@ -39,7 +39,11 @@ def attend_dispute(request, dispute_id):
 @support_staff_required
 def my_disputes(request):
     """Show disputes assigned to the current support staff."""
-    disputes = Dispute.objects.filter(assigned_to=request.user).order_by('status', 'created_at')
+    # Show only active (non-resolved) disputes assigned to this staff member,
+    # ordered by status so OPEN/PENDING appear before anything else.
+    disputes = Dispute.objects.filter(
+        assigned_to=request.user
+    ).exclude(status='RESOLVED').order_by('status', 'created_at')
     context = {
         'disputes': disputes
     }
@@ -152,6 +156,11 @@ def resolve_dispute(request, dispute_id):
     """Resolve a dispute, select winner, update wallet, notify participants, and mark as resolved."""
     dispute = get_object_or_404(Dispute, id=dispute_id)
     match = dispute.match
+
+    # Only the assigned support staff can resolve, and only when dispute is PENDING
+    if dispute.status != 'PENDING' or dispute.assigned_to != request.user:
+        messages.error(request, "You are not allowed to resolve this dispute.")
+        return redirect('dispute_detail', dispute_id=dispute_id)
 
     if request.method == 'POST':
         winner_id = request.POST.get('winner_id')
