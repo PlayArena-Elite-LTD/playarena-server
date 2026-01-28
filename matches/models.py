@@ -182,6 +182,13 @@ class Evidence(models.Model):
     file_hash = models.CharField(max_length=64, blank=True, null=True, help_text='SHA256 hash for integrity checking')
     ip_address = models.GenericIPAddressField(blank=True, null=True, help_text='IP address of upload request')
     user_agent = models.CharField(max_length=500, blank=True, null=True, help_text='User agent of upload request')
+
+    # Internal support staff notes (not visible to regular users)
+    staff_notes = models.TextField(
+        blank=True,
+        null=True,
+        help_text='Internal notes/comments added by support staff during dispute review'
+    )
     
     # Support staff verification
     is_verified = models.BooleanField(default=False, help_text='Verified by support staff')

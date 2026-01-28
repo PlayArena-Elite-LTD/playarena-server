@@ -185,6 +185,25 @@
                         <i class="fas fa-comment"></i> {{ evidence.description|truncatewords:15 }}
                     </div>
                     {% endif %}
+
+                    <!-- Staff-only internal notes -->
+                    <div class="evidence-list-staff-notes">
+                        <form action="{% url 'update_evidence_notes' evidence.id %}" method="post">
+                            {% csrf_token %}
+                            <label for="staff-notes-{{ evidence.id }}" class="staff-notes-label">
+                                <i class="fas fa-sticky-note"></i> Staff Notes
+                            </label>
+                            <textarea id="staff-notes-{{ evidence.id }}"
+                                      name="staff_notes"
+                                      class="form-control staff-notes-textarea"
+                                      rows="2"
+                                      placeholder="Add internal notes for this evidence (visible only to support staff)...">{% if evidence.staff_notes %}{{ evidence.staff_notes }}{% endif %}</textarea>
+                            <button type="submit" class="panel-btn panel-btn-secondary staff-notes-save-btn">
+                                Save Notes
+                            </button>
+                        </form>
+                    </div>
+
                     <div class="evidence-list-footer">
                         <span class="evidence-list-time">{{ evidence.uploaded_at|date:"M d, Y H:i" }}</span>
                         <a href="{{ evidence.file.url }}" download class="evidence-download-btn" title="Download Evidence">

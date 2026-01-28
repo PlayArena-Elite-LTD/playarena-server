@@ -3,6 +3,7 @@ from django.contrib import messages
 from django.utils import timezone
 from django.db import transaction
 from django.contrib.auth import get_user_model
+from django.http import HttpResponseNotAllowed
 
 from matches.models import Match, Evidence
 from panel.models import Dispute
@@ -205,3 +206,32 @@ def resolve_dispute(request, dispute_id):
         return redirect('my_disputes')
     # On GET, redirect to dispute detail
     return redirect('dispute_detail', dispute_id=dispute_id)
+
+
+@support_staff_required
+@transaction.atomic
+def update_evidence_notes(request, evidence_id):
+    """
+    Allow support staff to add or update internal notes on an evidence item.
+
+    Security:
+    - Staff-only access via decorator
+    - POST-only endpoint
+    - Notes are stored on Evidence.staff_notes and never shown to regular users
+    """
+    if request.method != 'POST':
+        return HttpResponseNotAllowed(['POST'])
+
+    evidence = get_object_or_404(Evidence, id=evidence_id)
+    dispute = getattr(evidence.match, 'dispute', None)
+
+    if not dispute:
+        messages.error(request, "This evidence is not linked to a dispute.")
+        return redirect('open_disputes')
+
+    staff_notes = request.POST.get('staff_notes', '').strip()
+    evidence.staff_notes = staff_notes or None
+    evidence.save(update_fields=['staff_notes'])
+
+    messages.success(request, "Evidence notes updated.")
+    return redirect('dispute_detail', dispute_id=dispute.id)

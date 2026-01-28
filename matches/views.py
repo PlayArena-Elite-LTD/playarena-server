@@ -907,11 +907,18 @@ def list_evidence(request, match_id):
 
 @login_required
 @transaction.atomic
+@ratelimit(key='user', rate='10/h', method='POST', block=True)
 def delete_evidence(request, evidence_id):
     """
     Allow a user to delete their own evidence while the match is still active
     (JOINED or DISPUTED). This supports Day 9: evidence deletion before/around
     result submission.
+    
+    Security features:
+    - Rate limiting (10 deletions per hour per user)
+    - Ownership verification (only uploader can delete)
+    - Status validation (only before match completion)
+    - Atomic transactions
     """
     if request.method != 'POST':
         return HttpResponseNotAllowed(['POST'])
@@ -919,19 +926,36 @@ def delete_evidence(request, evidence_id):
     evidence = get_object_or_404(Evidence, id=evidence_id)
     match = evidence.match
 
-    # Only the uploader can delete their own evidence
+    # Security: Only the uploader can delete their own evidence
     if request.user != evidence.user:
+        logger.warning(
+            f"Unauthorized evidence deletion attempt: evidence_id={evidence_id}, "
+            f"user={request.user.username}, owner={evidence.user.username}, "
+            f"ip={_get_client_ip(request)}"
+        )
         messages.error(request, "You don't have permission to delete this evidence.")
         return redirect('match_detail', match_id=match.id)
 
-    # Only allow deletion while match is still under review/play
+    # Security: Only allow deletion while match is still under review/play
     if match.status not in ['JOINED', 'DISPUTED']:
+        logger.warning(
+            f"Evidence deletion attempted for completed match: evidence_id={evidence_id}, "
+            f"match_id={match.id}, match_status={match.status}, "
+            f"user={request.user.username}, ip={_get_client_ip(request)}"
+        )
         messages.error(
             request,
             f"Cannot delete evidence for a match with status '{match.get_status_display()}'."
         )
         return redirect('match_detail', match_id=match.id)
 
+    # Log deletion for audit trail
+    logger.info(
+        f"Evidence deleted: evidence_id={evidence_id}, match_id={match.id}, "
+        f"user={request.user.username}, file_type={evidence.file_type}, "
+        f"ip={_get_client_ip(request)}"
+    )
+    
     evidence.delete()
     messages.success(request, "Evidence deleted successfully.")
     return redirect('match_detail', match_id=match.id)
