@@ -69,6 +69,20 @@ def deposit_view(request):
                 deposit.full_clean()
                 deposit.save()
                 
+                # Audit log: Deposit created
+                from audit.utils import log_action
+                log_action(
+                    action='deposit_created',
+                    user=request.user,
+                    details={
+                        'deposit_id': deposit.id,
+                        'amount': str(deposit.amount),
+                        'payment_method': deposit.payment_method,
+                        'status': deposit.status,
+                    },
+                    request=request
+                )
+                
                 # Initialize payment gateway transaction
                 from wallet.payment_manager import get_payment_manager
                 
@@ -104,6 +118,21 @@ def deposit_view(request):
                     # Payment initialization failed
                     deposit.status = 'FAILED'
                     deposit.save()
+                    
+                    # Audit log: Deposit failed
+                    from audit.utils import log_action
+                    log_action(
+                        action='deposit_failed',
+                        user=request.user,
+                        details={
+                            'deposit_id': deposit.id,
+                            'amount': str(deposit.amount),
+                            'payment_method': deposit.payment_method,
+                            'failure_reason': payment_result.get('failure_reason', 'Unknown error'),
+                        },
+                        request=request
+                    )
+                    
                     messages.error(
                         request,
                         f'Failed to initialize payment: {payment_result.get("failure_reason", "Unknown error")}'

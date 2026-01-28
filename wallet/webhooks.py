@@ -229,6 +229,21 @@ def handle_paystack_deposit_success(data):
         # Send notification
         notify_deposit_completed(deposit)
         
+        # Audit log: Deposit completed via webhook
+        from audit.utils import log_action
+        log_action(
+            action='deposit_completed',
+            user=deposit.user,
+            details={
+                'deposit_id': deposit.id,
+                'amount': str(deposit.amount),
+                'payment_method': deposit.payment_method,
+                'transaction_id': deposit.transaction_id,
+                'completed_via': 'paystack_webhook',
+                'new_balance': str(wallet.balance),
+            }
+        )
+        
         logger.info(f'Deposit {deposit.id} completed via Paystack webhook')
         return JsonResponse({'status': 'ok'})
     
@@ -442,6 +457,21 @@ def handle_flutterwave_deposit_success(data):
         
         # Send notification
         notify_deposit_completed(deposit)
+        
+        # Audit log: Deposit completed via webhook
+        from audit.utils import log_action
+        log_action(
+            action='deposit_completed',
+            user=deposit.user,
+            details={
+                'deposit_id': deposit.id,
+                'amount': str(deposit.amount),
+                'payment_method': deposit.payment_method,
+                'transaction_id': deposit.transaction_id,
+                'completed_via': 'flutterwave_webhook',
+                'new_balance': str(wallet.balance),
+            }
+        )
         
         logger.info(f'Deposit {deposit.id} completed via Flutterwave webhook')
         return JsonResponse({'status': 'ok'})

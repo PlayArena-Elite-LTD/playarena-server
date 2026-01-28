@@ -112,6 +112,21 @@ def complete_deposit_and_credit_wallet(deposit):
         deposit.save(update_fields=['status', 'completed_at', 'verification_hash'])
         wallet.save(update_fields=['balance'])
         
+        # Audit log: Deposit completed
+        from audit.utils import log_action
+        log_action(
+            action='deposit_completed',
+            user=deposit.user,
+            details={
+                'deposit_id': deposit.id,
+                'amount': str(deposit.amount),
+                'payment_method': deposit.payment_method,
+                'transaction_id': deposit.transaction_id,
+                'new_balance': str(wallet.balance),
+                'transaction_record_id': transaction_record.id,
+            }
+        )
+        
         logger.info(
             f"Deposit {deposit.id} completed and wallet credited - "
             f"User: {deposit.user.username}, Amount: ${deposit.amount}, "

@@ -94,6 +94,22 @@ class DepositAdmin(admin.ModelAdmin):
             
             # Update deposit status (use update() to bypass clean() validation)
             Deposit.objects.filter(id=deposit.id).update(status='COMPLETED', updated_at=timezone.now())
+            
+            # Audit log: Deposit completed via admin
+            from audit.utils import log_action
+            log_action(
+                action='deposit_completed',
+                user=request.user,
+                details={
+                    'deposit_id': deposit.id,
+                    'amount': str(deposit.amount),
+                    'payment_method': deposit.payment_method,
+                    'completed_by': 'admin',
+                    'new_balance': str(wallet.balance),
+                },
+                request=request
+            )
+            
             count += 1
         
         self.message_user(request, f'{count} deposit(s) marked as completed.')
@@ -101,19 +117,53 @@ class DepositAdmin(admin.ModelAdmin):
     @admin.action(description='Mark selected deposits as FAILED')
     def mark_as_failed(self, request, queryset):
         """Mark deposits as FAILED"""
-        count = Deposit.objects.filter(
+        deposits_to_fail = Deposit.objects.filter(
             id__in=queryset.values_list('id', flat=True),
             status__in=['PENDING', 'PROCESSING']
-        ).update(status='FAILED', updated_at=timezone.now())
+        )
+        count = deposits_to_fail.update(status='FAILED', updated_at=timezone.now())
+        
+        # Audit log: Deposits failed via admin
+        from audit.utils import log_action
+        for deposit in deposits_to_fail:
+            log_action(
+                action='deposit_failed',
+                user=request.user,
+                details={
+                    'deposit_id': deposit.id,
+                    'amount': str(deposit.amount),
+                    'payment_method': deposit.payment_method,
+                    'failed_by': 'admin',
+                },
+                request=request
+            )
+        
         self.message_user(request, f'{count} deposit(s) marked as failed.')
     
     @admin.action(description='Mark selected deposits as CANCELLED')
     def mark_as_cancelled(self, request, queryset):
         """Mark deposits as CANCELLED"""
-        count = Deposit.objects.filter(
+        deposits_to_cancel = Deposit.objects.filter(
             id__in=queryset.values_list('id', flat=True),
             status__in=['PENDING', 'PROCESSING']
-        ).update(status='CANCELLED', updated_at=timezone.now())
+        )
+        count = deposits_to_cancel.update(status='CANCELLED', updated_at=timezone.now())
+        
+        # Audit log: Deposits cancelled via admin
+        from audit.utils import log_action
+        for deposit in deposits_to_cancel:
+            log_action(
+                action='deposit_cancelled',
+                user=request.user,
+                details={
+                    'deposit_id': deposit.id,
+                    'amount': str(deposit.amount),
+                    'payment_method': deposit.payment_method,
+                    'cancelled_by': 'admin',
+                },
+                request=request
+            )
+        
         self.message_user(request, f'{count} deposit(s) marked as cancelled.')
 
 @admin.register(Withdrawal)
