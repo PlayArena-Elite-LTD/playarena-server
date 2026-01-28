@@ -88,11 +88,11 @@ def dispute_stats(request):
             ),
             pending_disputes=Count(
                 'created_matches__dispute',
-                filter=Q(created_matches__dispute__status='PENDING'),
+                filter=Q(created_matches__dispute__status__in=['PENDING', 'ESCALATED']),
                 distinct=True
             ) + Count(
                 'joined_matches__dispute',
-                filter=Q(joined_matches__dispute__status='PENDING'),
+                filter=Q(joined_matches__dispute__status__in=['PENDING', 'ESCALATED']),
                 distinct=True
             ),
             resolved_disputes=Count(
@@ -158,8 +158,8 @@ def resolve_dispute(request, dispute_id):
     dispute = get_object_or_404(Dispute, id=dispute_id)
     match = dispute.match
 
-    # Only the assigned support staff can resolve, and only when dispute is PENDING
-    if dispute.status != 'PENDING' or dispute.assigned_to != request.user:
+    # Only the assigned support staff can resolve, and only when dispute is PENDING or ESCALATED
+    if dispute.status not in ['PENDING', 'ESCALATED'] or dispute.assigned_to != request.user:
         messages.error(request, "You are not allowed to resolve this dispute.")
         return redirect('dispute_detail', dispute_id=dispute_id)
 
@@ -206,6 +206,38 @@ def resolve_dispute(request, dispute_id):
         return redirect('my_disputes')
     # On GET, redirect to dispute detail
     return redirect('dispute_detail', dispute_id=dispute_id)
+
+
+@support_staff_required
+@transaction.atomic
+def escalate_dispute(request, dispute_id):
+    """
+    Escalate a dispute for further review.
+
+    Workflow:
+    - Only the assigned support staff can escalate.
+    - Only disputes in PENDING state can be escalated.
+    - Escalation sets status to ESCALATED and records metadata.
+    """
+    if request.method != 'POST':
+        return HttpResponseNotAllowed(['POST'])
+
+    dispute = get_object_or_404(Dispute, id=dispute_id)
+
+    if dispute.status != 'PENDING' or dispute.assigned_to != request.user:
+        messages.error(request, "You are not allowed to escalate this dispute.")
+        return redirect('dispute_detail', dispute_id=dispute_id)
+
+    escalation_reason = request.POST.get('escalation_reason', '').strip()
+
+    dispute.status = 'ESCALATED'
+    dispute.escalated_at = timezone.now()
+    dispute.escalated_by = request.user
+    dispute.escalation_reason = escalation_reason or None
+    dispute.save(update_fields=['status', 'escalated_at', 'escalated_by', 'escalation_reason'])
+
+    messages.success(request, "Dispute has been escalated for further review.")
+    return redirect('dispute_detail', dispute_id=dispute.id)
 
 
 @support_staff_required

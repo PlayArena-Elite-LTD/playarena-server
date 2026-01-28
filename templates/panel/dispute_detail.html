@@ -402,6 +402,49 @@
         {% endif %}
     </div>
 
+    <!-- Escalation Controls & Info -->
+    <div class="panel-section">
+        <h4 class="panel-section-title">Escalation</h4>
+
+        {% if dispute.status == "PENDING" and dispute.assigned_to == request.user %}
+        <form action="{% url 'escalate_dispute' dispute.id %}" method="post"
+              class="escalation-form"
+              data-confirm="Are you sure you want to escalate this dispute for further review?"
+              data-confirm-title="Escalate Dispute"
+              data-confirm-button="Escalate">
+            {% csrf_token %}
+            <div class="form-group">
+                <label for="escalation_reason">Escalation Reason (optional):</label>
+                <textarea name="escalation_reason"
+                          id="escalation_reason"
+                          class="form-control"
+                          rows="2"
+                          placeholder="Describe why this dispute needs to be escalated..."></textarea>
+            </div>
+            <div class="panel-actions">
+                <button type="submit" class="panel-btn panel-btn-warning">
+                    Escalate Dispute
+                </button>
+            </div>
+        </form>
+        {% endif %}
+
+        {% if dispute.status == "ESCALATED" %}
+        <div class="escalation-info">
+            <p><strong>Status:</strong> Escalated</p>
+            {% if dispute.escalated_by %}
+            <p><strong>Escalated By:</strong> {{ dispute.escalated_by.username }}</p>
+            {% endif %}
+            {% if dispute.escalated_at %}
+            <p><strong>Escalated At:</strong> {{ dispute.escalated_at|date:"M d, Y h:i A" }}</p>
+            {% endif %}
+            {% if dispute.escalation_reason %}
+            <p><strong>Escalation Reason:</strong> {{ dispute.escalation_reason }}</p>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+
     <!-- Resolution Form (only for assigned staff and if not resolved) -->
     {% if dispute.status != "RESOLVED" and dispute.assigned_to == request.user %}
     <div class="panel-section">

@@ -9,5 +9,6 @@ urlpatterns = [
     path('dispute/<int:dispute_id>/', views.dispute_detail, name='dispute_detail'),
     path('dispute/<int:dispute_id>/resolve/', views.resolve_dispute, name='resolve_dispute'),
     path('dispute/<int:dispute_id>/suspend/<int:user_id>/', views.suspend_user, name='suspend_user'),
+    path('dispute/<int:dispute_id>/escalate/', views.escalate_dispute, name='escalate_dispute'),
     path('evidence/<int:evidence_id>/notes/', views.update_evidence_notes, name='update_evidence_notes'),
 ]
