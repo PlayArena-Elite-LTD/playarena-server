@@ -169,7 +169,7 @@
 }
 
 /* Navigation for mobile devices */
-@media screen and (max-width: 767px) {
+@media screen and (max-width: 768px) {
   .nav-menu {
     position: fixed;
     background-color: var(--color-white);
@@ -617,7 +617,7 @@ a:focus-visible {
   }
 }
 
-@media screen and (max-width: 767px) {
+@media screen and (max-width: 768px) {
   .hero {
     padding-top: calc(var(--header-height) + 2rem);
     text-align: center;
@@ -952,7 +952,7 @@ a:focus-visible {
   }
 }
 
-@media screen and (max-width: 767px) {
+@media screen and (max-width: 768px) {
   .trust {
     padding-top: 3rem;
   }
@@ -1136,7 +1136,7 @@ a:focus-visible {
 }
 
 /* Media queries for About Section */
-@media screen and (max-width: 767px) {
+@media screen and (max-width: 768px) {
   .about-cards {
     grid-template-columns: 1fr;
   }
@@ -1332,7 +1332,7 @@ a:focus-visible {
 }
 
 /* Media queries for Pricing Section */
-@media screen and (max-width: 767px) {
+@media screen and (max-width: 768px) {
   .pricing-trust-badges {
     flex-direction: column;
     gap: 1rem;
@@ -1560,7 +1560,7 @@ a:focus-visible {
 }
 
 /* Media queries for Games Section */
-@media screen and (max-width: 767px) {
+@media screen and (max-width: 768px) {
   .games-categories {
     grid-template-columns: 1fr;
     gap: 1.5rem;
@@ -1819,7 +1819,7 @@ a:focus-visible {
 }
 
 /* Media queries for Reviews Section */
-@media screen and (max-width: 767px) {
+@media screen and (max-width: 768px) {
   .reviews-container {
     grid-template-columns: 1fr;
     gap: 1.5rem;
@@ -1969,7 +1969,7 @@ a:focus-visible {
 }
 
 /* Media queries for FAQ Section */
-@media screen and (max-width: 767px) {
+@media screen and (max-width: 768px) {
   .faq-question {
     font-size: var(--small-font-size);
   }
@@ -2562,7 +2562,7 @@ a:focus-visible {
 
 /*=============== COMPREHENSIVE MOBILE OPTIMIZATIONS ===============*/
 /* Mobile Typography Adjustments */
-@media screen and (max-width: 767px) {
+@media screen and (max-width: 768px) {
   :root {
     --biggest-font-size: 2rem; /* Reduced from 3.5rem */
     --h1-font-size: 1.75rem; /* Reduced from 2.75rem */

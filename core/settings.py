@@ -111,30 +111,15 @@ DATABASES = {
 }
 
 # Cache configuration for django-ratelimit
-# Try Redis first, fallback to DatabaseCache if Redis is not available
-# DatabaseCache works with django-ratelimit and doesn't require Redis
-
-# Try to use Redis if available
-try:
-    import redis
-    r = redis.Redis(host='127.0.0.1', port=6379, db=1, socket_connect_timeout=1)
-    r.ping()
-    # Redis is available - use it for rate limiting (best for production)
-    CACHES = {
-        'default': {
-            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
-            'LOCATION': 'redis://127.0.0.1:6379/1',
-        }
+# Use Redis cache backend so rate limiting can use atomic increments.
+# Requires a running Redis server and the redis Python package:
+#   pip install redis
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': 'redis://127.0.0.1:6379/1',
     }
-except (redis.ConnectionError, redis.TimeoutError, ImportError, Exception):
-    # Redis not available - use DatabaseCache as fallback
-    # DatabaseCache works with django-ratelimit and is suitable for landing page
-    CACHES = {
-        'default': {
-            'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
-            'LOCATION': 'django_cache_table',
-        }
-    }
+}
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -202,6 +187,10 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'dashboard'
 LOGOUT_REDIRECT_URL = 'login'
+
+# Admin authentication settings
+# Admin login will redirect staff users to admin dashboard
+# Non-staff users will be redirected to regular dashboard
 
 # Email settings
 #EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend" 

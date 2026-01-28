@@ -241,12 +241,20 @@ def submit_match_result(request, match_id):
     # Determine if user is creator or joiner and check if they've already submitted
     is_creator = (request.user == match.creator)
     
+    # Lock check: Prevent resubmission if user has already submitted in current round
     if is_creator:
-        if match_result.creator_submission:
-            messages.error(request, "You have already submitted your result for this match.")
+        # Check if creator has already submitted in the current round
+        if match_result.creator_submission and match_result.creator_submission_time:
+            # Additional check: if submission was made in round 2, it's locked
+            if match_result.submission_round == 2:
+                messages.error(request, "You have already submitted your result for this match. Results cannot be changed once submitted.")
+                return redirect('match_detail', match_id=match_id)
+            # For round 1, only allow resubmission if explicitly reset for round 2
+            # But if submission_time exists, it means they've submitted and it's locked
+            messages.error(request, "You have already submitted your result for this match. Results cannot be changed once submitted.")
             return redirect('match_detail', match_id=match_id)
         
-        # Save creator's submission
+        # Save creator's submission - LOCK IT
         match_result.creator_submission = submission
         match_result.creator_submission_time = timezone.now()
         match_result.save()
@@ -261,11 +269,18 @@ def submit_match_result(request, match_id):
             messages.success(request, "Your result has been submitted. Waiting for your opponent to submit their result.")
             return redirect('match_detail', match_id=match_id)
     else:  # User is joiner
-        if match_result.joiner_submission:
-            messages.error(request, "You have already submitted your result for this match.")
+        # Check if joiner has already submitted in the current round
+        if match_result.joiner_submission and match_result.joiner_submission_time:
+            # Additional check: if submission was made in round 2, it's locked
+            if match_result.submission_round == 2:
+                messages.error(request, "You have already submitted your result for this match. Results cannot be changed once submitted.")
+                return redirect('match_detail', match_id=match_id)
+            # For round 1, only allow resubmission if explicitly reset for round 2
+            # But if submission_time exists, it means they've submitted and it's locked
+            messages.error(request, "You have already submitted your result for this match. Results cannot be changed once submitted.")
             return redirect('match_detail', match_id=match_id)
         
-        # Save joiner's submission
+        # Save joiner's submission - LOCK IT
         match_result.joiner_submission = submission
         match_result.joiner_submission_time = timezone.now()
         match_result.save()
@@ -377,7 +392,9 @@ def submit_match_result(request, match_id):
     # Inconsistent submissions
     else:
         if match_result.submission_round == 1:
-            # Reset submissions for round 2
+            # Reset submissions for round 2 - but mark that round 1 submissions were locked
+            # Only reset if both users submitted (which they have at this point)
+            # This allows one more chance, but once submitted in round 2, it's permanently locked
             match_result.creator_submission = None
             match_result.creator_submission_time = None
             match_result.joiner_submission = None
@@ -442,8 +459,27 @@ def match_detail(request, match_id):
             messages.error(request, "You don't have permission to view this match.")
             return redirect('dashboard')
         
+        # Get match result to check submission status
+        try:
+            match_result = MatchResult.objects.get(match=match)
+            # Check if current user has already submitted
+            is_creator = (request.user == match.creator)
+            if is_creator:
+                user_has_submitted = bool(match_result.creator_submission and match_result.creator_submission_time)
+                user_submission = match_result.creator_submission
+            else:
+                user_has_submitted = bool(match_result.joiner_submission and match_result.joiner_submission_time)
+                user_submission = match_result.joiner_submission
+        except MatchResult.DoesNotExist:
+            match_result = None
+            user_has_submitted = False
+            user_submission = None
+        
         context = {
             'match': match,
+            'match_result': match_result,
+            'user_has_submitted': user_has_submitted,
+            'user_submission': user_submission,
             'username': request.user.username
         }
         

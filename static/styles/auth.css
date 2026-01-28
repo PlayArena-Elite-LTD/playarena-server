@@ -1300,6 +1300,44 @@ select.form-control {
   font-size: var(--normal-font-size);
 }
 
+/* Locked submission message */
+.match-result-submitted {
+  text-align: center;
+  padding: 1.5rem 1rem;
+  background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
+  border-radius: 0.5rem;
+  border: 2px solid #e2e8f0;
+  margin: 1rem 0;
+}
+
+.match-result-submitted .match-result-message {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  font-size: var(--h3-font-size);
+  font-weight: var(--font-semi-bold);
+  color: var(--color-text-primary);
+  margin-bottom: 0.75rem;
+}
+
+.match-result-submitted .match-result-message i {
+  color: #667eea;
+  font-size: 1.5rem;
+}
+
+.match-result-submitted .match-result-message strong {
+  color: #667eea;
+  text-transform: uppercase;
+}
+
+.match-result-submitted .match-result-note {
+  font-size: var(--small-font-size);
+  color: var(--color-text-secondary);
+  margin: 0;
+  font-style: italic;
+}
+
 /* Responsive adjustments */
 @media (min-width: 768px) {
   .match-result-buttons {

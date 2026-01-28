@@ -1,7 +1,10 @@
 from django.db import models
 from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.utils import timezone
 import random
 import string
+import hashlib
 
 class Match(models.Model):
     # Game choices
@@ -10,11 +13,16 @@ class Match(models.Model):
         ('DREAM_LEAGUE_SOCCER', 'Dream League Soccer'),
         ('LI_CHESS', 'Li Chess'),
         ('CHESS.COM', 'Chess.com'),
+        ('NBA_2K', 'NBA 2K'),
+        ('MORTAL_KOMBAT', 'Mortal Kombat'),
     ]
     
     # Device choices
     DEVICE_CHOICES = [
         ('MOBILE', 'Mobile'),
+        ('PLAYSTATION', 'PlayStation'),
+        ('XBOX', 'Xbox'),
+        ('PC', 'PC'),
     ]
     
     # Privacy choices
@@ -47,7 +55,9 @@ class Match(models.Model):
     creator = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='created_matches')
     joiner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='joined_matches', null=True, blank=True)
     game = models.CharField(max_length=20, choices=GAME_CHOICES)
-    device = models.CharField(max_length=10, choices=DEVICE_CHOICES)
+    # Longest value in DEVICE_CHOICES is "PLAYSTATION" (11 characters),
+    # so set max_length to at least 11 to satisfy Django's system check.
+    device = models.CharField(max_length=20, choices=DEVICE_CHOICES)
     privacy = models.CharField(max_length=10, choices=PRIVACY_CHOICES)
     joining_code = models.CharField(max_length=10, unique=True, editable=False)
     amount = models.IntegerField(choices=AMOUNT_CHOICES)
@@ -107,3 +117,64 @@ class MatchResult(models.Model):
     
     def __str__(self):
         return f"Result for {self.match}"
+
+
+class Evidence(models.Model):
+    """
+    Model to store evidence files (screenshots/videos) for match results.
+    """
+    
+    FILE_TYPE_CHOICES = [
+        ('IMAGE', 'Image'),
+        ('VIDEO', 'Video'),
+    ]
+    
+    match = models.ForeignKey(Match, on_delete=models.CASCADE, related_name='evidence')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='evidence_submissions')
+    file = models.FileField(upload_to='evidence/%Y/%m/%d/')
+    file_type = models.CharField(max_length=10, choices=FILE_TYPE_CHOICES)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    description = models.TextField(blank=True, null=True, help_text='Optional description of the evidence')
+    
+    # Security fields
+    file_size = models.PositiveIntegerField(help_text='File size in bytes', null=True, blank=True)
+    file_hash = models.CharField(max_length=64, blank=True, null=True, help_text='SHA256 hash for integrity checking')
+    ip_address = models.GenericIPAddressField(blank=True, null=True, help_text='IP address of upload request')
+    user_agent = models.CharField(max_length=500, blank=True, null=True, help_text='User agent of upload request')
+    
+    # Support staff verification
+    is_verified = models.BooleanField(default=False, help_text='Verified by support staff')
+    verified_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='verified_evidence',
+        help_text='Support staff who verified this evidence'
+    )
+    verified_at = models.DateTimeField(null=True, blank=True, help_text='Timestamp when evidence was verified')
+    
+    class Meta:
+        ordering = ['-uploaded_at']
+        verbose_name = 'Evidence'
+        verbose_name_plural = 'Evidence'
+    
+    def __str__(self):
+        return f"Evidence for {self.match} by {self.user.username} ({self.get_file_type_display()})"
+    
+    @property
+    def file_size_mb(self):
+        """Return file size in megabytes (human-readable)"""
+        if self.file_size:
+            return round(self.file_size / (1024 * 1024), 2)
+        return 0
+    
+    @property
+    def is_image(self):
+        """Check if file is an image"""
+        return self.file_type == 'IMAGE'
+    
+    @property
+    def is_video(self):
+        """Check if file is a video"""
+        return self.file_type == 'VIDEO'
