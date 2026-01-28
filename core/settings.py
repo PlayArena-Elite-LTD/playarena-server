@@ -308,73 +308,116 @@ LOGGING = {
         },
     },
     'handlers': {
+        # File handlers for different log levels
+        'file_info': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(LOGS_DIR / 'info.log'),
+            'maxBytes': 10 * 1024 * 1024,  # 10MB (will be fine-tuned in task 22)
+            'backupCount': 5,  # Keep 5 backup files (will be fine-tuned in task 23)
+            'level': 'INFO',
+            'formatter': 'verbose',
+            'encoding': 'utf-8',
+        },
+        'file_error': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(LOGS_DIR / 'error.log'),
+            'maxBytes': 10 * 1024 * 1024,  # 10MB
+            'backupCount': 5,  # Keep 5 backup files
+            'level': 'ERROR',
+            'formatter': 'detailed',
+            'encoding': 'utf-8',
+        },
+        'file_debug': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(LOGS_DIR / 'debug.log'),
+            'maxBytes': 10 * 1024 * 1024,  # 10MB
+            'backupCount': 3,  # Keep fewer debug backups
+            'level': 'DEBUG',
+            'formatter': 'detailed',
+            'encoding': 'utf-8',
+        },
+        'file_django': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(LOGS_DIR / 'django.log'),
+            'maxBytes': 10 * 1024 * 1024,  # 10MB
+            'backupCount': 5,  # Keep 5 backup files
+            'level': 'INFO',
+            'formatter': 'verbose',
+            'encoding': 'utf-8',
+        },
         # Console handler will be added in task 3
-        # File handlers will be added in task 2
     },
     'loggers': {
         # Django framework loggers
         'django': {
-            'handlers': [],
+            'handlers': ['file_django', 'file_error'],
             'level': 'INFO',
             'propagate': False,
         },
         'django.request': {
-            'handlers': [],
+            'handlers': ['file_django', 'file_error'],
             'level': 'ERROR',
             'propagate': False,
         },
         'django.security': {
-            'handlers': [],
+            'handlers': ['file_django', 'file_error'],
             'level': 'WARNING',
             'propagate': False,
         },
         # Application loggers
         'accounts': {
-            'handlers': [],
+            'handlers': ['file_info', 'file_error'],
             'level': 'INFO',
             'propagate': False,
         },
         'wallet': {
-            'handlers': [],
+            'handlers': ['file_info', 'file_error'],
             'level': 'INFO',
             'propagate': False,
         },
         'matches': {
-            'handlers': [],
+            'handlers': ['file_info', 'file_error'],
             'level': 'INFO',
             'propagate': False,
         },
         'panel': {
-            'handlers': [],
+            'handlers': ['file_info', 'file_error'],
             'level': 'INFO',
             'propagate': False,
         },
         'messenger': {
-            'handlers': [],
+            'handlers': ['file_info', 'file_error'],
             'level': 'INFO',
             'propagate': False,
         },
         'alert': {
-            'handlers': [],
+            'handlers': ['file_info', 'file_error'],
             'level': 'INFO',
             'propagate': False,
         },
     },
     'root': {
         'level': 'WARNING',
-        'handlers': [],
+        'handlers': ['file_info', 'file_error'],
     },
 }
 
 # Set log level based on DEBUG setting
 if DEBUG:
     LOGGING['root']['level'] = 'DEBUG'
-    # In development, loggers will use DEBUG level
-    for logger_config in LOGGING['loggers'].values():
+    # Add debug file handler in development
+    LOGGING['root']['handlers'].append('file_debug')
+    # In development, loggers will use DEBUG level and include debug handler
+    for logger_name, logger_config in LOGGING['loggers'].items():
         logger_config['level'] = 'DEBUG'
+        if 'file_debug' not in logger_config['handlers']:
+            logger_config['handlers'].append('file_debug')
 else:
     LOGGING['root']['level'] = 'INFO'
     # In production, use INFO level for application loggers
     for logger_config in LOGGING['loggers'].values():
         if logger_config['level'] == 'DEBUG':
             logger_config['level'] = 'INFO'
+        # Remove debug handler in production
+        if 'file_debug' in logger_config['handlers']:
+            logger_config['handlers'].remove('file_debug')
