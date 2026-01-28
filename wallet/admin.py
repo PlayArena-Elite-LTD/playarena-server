@@ -292,6 +292,22 @@ class WithdrawalAdmin(admin.ModelAdmin):
                 withdrawal.refresh_from_db()
                 notify_withdrawal_completed(withdrawal)
                 
+                # Audit log: Withdrawal completed via admin
+                from audit.utils import log_action
+                log_action(
+                    action='withdrawal_completed',
+                    user=request.user,
+                    details={
+                        'withdrawal_id': withdrawal.id,
+                        'amount': str(withdrawal.amount),
+                        'payment_method': withdrawal.payment_method,
+                        'transaction_id': result.get('transaction_id'),
+                        'completed_by': 'admin',
+                        'new_balance': str(wallet.balance),
+                    },
+                    request=request
+                )
+                
                 logger.info(
                     f'Withdrawal {withdrawal.id} processed successfully via admin by {request.user.username}. '
                     f'Transaction ID: {result.get("transaction_id")}'
@@ -319,6 +335,22 @@ class WithdrawalAdmin(admin.ModelAdmin):
                     # Send failure notification
                     withdrawal.refresh_from_db()
                     notify_withdrawal_failed(withdrawal, result.get('failure_reason', 'Unknown error'))
+                    
+                    # Audit log: Withdrawal failed via admin
+                    from audit.utils import log_action
+                    log_action(
+                        action='withdrawal_failed',
+                        user=request.user,
+                        details={
+                            'withdrawal_id': withdrawal.id,
+                            'amount': str(withdrawal.amount),
+                            'payment_method': withdrawal.payment_method,
+                            'failure_reason': result.get('failure_reason', 'Unknown error'),
+                            'retry_count': new_retry_count,
+                            'failed_by': 'admin',
+                        },
+                        request=request
+                    )
                     
                     logger.warning(
                         f'Withdrawal {withdrawal.id} failed after {new_retry_count} retries. '
@@ -509,6 +541,22 @@ class WithdrawalAdmin(admin.ModelAdmin):
             
             # Update withdrawal status (use update() to bypass clean() validation)
             Withdrawal.objects.filter(id=withdrawal.id).update(status='COMPLETED', updated_at=timezone.now())
+            
+            # Audit log: Withdrawal completed via admin
+            from audit.utils import log_action
+            log_action(
+                action='withdrawal_completed',
+                user=request.user,
+                details={
+                    'withdrawal_id': withdrawal.id,
+                    'amount': str(withdrawal.amount),
+                    'payment_method': withdrawal.payment_method,
+                    'completed_by': 'admin',
+                    'new_balance': str(wallet.balance),
+                },
+                request=request
+            )
+            
             count += 1
         
         self.message_user(request, f'{count} withdrawal(s) marked as completed.')
@@ -516,19 +564,53 @@ class WithdrawalAdmin(admin.ModelAdmin):
     @admin.action(description='Mark selected withdrawals as FAILED')
     def mark_as_failed(self, request, queryset):
         """Mark withdrawals as FAILED"""
-        count = Withdrawal.objects.filter(
+        withdrawals_to_fail = Withdrawal.objects.filter(
             id__in=queryset.values_list('id', flat=True),
             status__in=['PENDING', 'PROCESSING']
-        ).update(status='FAILED', updated_at=timezone.now())
+        )
+        count = withdrawals_to_fail.update(status='FAILED', updated_at=timezone.now())
+        
+        # Audit log: Withdrawals failed via admin
+        from audit.utils import log_action
+        for withdrawal in withdrawals_to_fail:
+            log_action(
+                action='withdrawal_failed',
+                user=request.user,
+                details={
+                    'withdrawal_id': withdrawal.id,
+                    'amount': str(withdrawal.amount),
+                    'payment_method': withdrawal.payment_method,
+                    'failed_by': 'admin',
+                },
+                request=request
+            )
+        
         self.message_user(request, f'{count} withdrawal(s) marked as failed.')
     
     @admin.action(description='Mark selected withdrawals as CANCELLED')
     def mark_as_cancelled(self, request, queryset):
         """Mark withdrawals as CANCELLED"""
-        count = Withdrawal.objects.filter(
+        withdrawals_to_cancel = Withdrawal.objects.filter(
             id__in=queryset.values_list('id', flat=True),
             status__in=['PENDING', 'PROCESSING']
-        ).update(status='CANCELLED', updated_at=timezone.now())
+        )
+        count = withdrawals_to_cancel.update(status='CANCELLED', updated_at=timezone.now())
+        
+        # Audit log: Withdrawals cancelled via admin
+        from audit.utils import log_action
+        for withdrawal in withdrawals_to_cancel:
+            log_action(
+                action='withdrawal_cancelled',
+                user=request.user,
+                details={
+                    'withdrawal_id': withdrawal.id,
+                    'amount': str(withdrawal.amount),
+                    'payment_method': withdrawal.payment_method,
+                    'cancelled_by': 'admin',
+                },
+                request=request
+            )
+        
         self.message_user(request, f'{count} withdrawal(s) marked as cancelled.')
     
     @admin.action(description='Process selected withdrawals manually')
@@ -621,6 +703,22 @@ class WithdrawalAdmin(admin.ModelAdmin):
                     withdrawal.refresh_from_db()
                     notify_withdrawal_completed(withdrawal)
                     
+                    # Audit log: Withdrawal completed via admin bulk action
+                    from audit.utils import log_action
+                    log_action(
+                        action='withdrawal_completed',
+                        user=request.user,
+                        details={
+                            'withdrawal_id': withdrawal.id,
+                            'amount': str(withdrawal.amount),
+                            'payment_method': withdrawal.payment_method,
+                            'transaction_id': result['transaction_id'],
+                            'completed_by': 'admin_bulk_action',
+                            'new_balance': str(wallet.balance),
+                        },
+                        request=request
+                    )
+                    
                     logger.info(
                         f'Withdrawal {withdrawal.id} processed successfully via admin. '
                         f'Transaction ID: {result["transaction_id"]}'
@@ -645,6 +743,22 @@ class WithdrawalAdmin(admin.ModelAdmin):
                         # Send failure notification
                         withdrawal.refresh_from_db()
                         notify_withdrawal_failed(withdrawal, result['failure_reason'])
+                        
+                        # Audit log: Withdrawal failed via admin bulk action
+                        from audit.utils import log_action
+                        log_action(
+                            action='withdrawal_failed',
+                            user=request.user,
+                            details={
+                                'withdrawal_id': withdrawal.id,
+                                'amount': str(withdrawal.amount),
+                                'payment_method': withdrawal.payment_method,
+                                'failure_reason': result['failure_reason'],
+                                'retry_count': new_retry_count,
+                                'failed_by': 'admin_bulk_action',
+                            },
+                            request=request
+                        )
                         
                         logger.warning(
                             f'Withdrawal {withdrawal.id} failed after {new_retry_count} retries. '

@@ -313,6 +313,21 @@ def handle_paystack_withdrawal_success(data):
         # Send notification
         notify_withdrawal_completed(withdrawal)
         
+        # Audit log: Withdrawal completed via webhook
+        from audit.utils import log_action
+        log_action(
+            action='withdrawal_completed',
+            user=withdrawal.user,
+            details={
+                'withdrawal_id': withdrawal.id,
+                'amount': str(withdrawal.amount),
+                'payment_method': withdrawal.payment_method,
+                'transaction_id': withdrawal.transaction_id,
+                'completed_via': 'paystack_webhook',
+                'new_balance': str(wallet.balance),
+            }
+        )
+        
         logger.info(f'Withdrawal {withdrawal.id} completed via Paystack webhook')
         return JsonResponse({'status': 'ok'})
     
@@ -357,6 +372,20 @@ def handle_paystack_withdrawal_failed(data):
         
         # Send notification
         notify_withdrawal_failed(withdrawal, reason)
+        
+        # Audit log: Withdrawal failed via webhook
+        from audit.utils import log_action
+        log_action(
+            action='withdrawal_failed',
+            user=withdrawal.user,
+            details={
+                'withdrawal_id': withdrawal.id,
+                'amount': str(withdrawal.amount),
+                'payment_method': withdrawal.payment_method,
+                'failure_reason': reason,
+                'failed_via': 'paystack_webhook',
+            }
+        )
         
         logger.info(f'Withdrawal {withdrawal.id} failed via Paystack webhook: {reason}')
         return JsonResponse({'status': 'ok'})
@@ -409,6 +438,21 @@ def handle_paystack_withdrawal_reversed(data):
             withdrawal.failure_reason = 'Withdrawal reversed by payment gateway'
             withdrawal.gateway_response = transfer_data
             withdrawal.save()
+            
+            # Audit log: Withdrawal reversed via webhook
+            from audit.utils import log_action
+            log_action(
+                action='withdrawal_reversed',
+                user=withdrawal.user,
+                details={
+                    'withdrawal_id': withdrawal.id,
+                    'amount': str(withdrawal.amount),
+                    'payment_method': withdrawal.payment_method,
+                    'transaction_id': transfer_code,
+                    'reversed_via': 'paystack_webhook',
+                    'new_balance': str(wallet.balance),
+                }
+            )
             
             logger.info(f'Withdrawal {withdrawal.id} reversed via Paystack webhook')
         
@@ -540,6 +584,21 @@ def handle_flutterwave_withdrawal_success(data):
         # Send notification
         notify_withdrawal_completed(withdrawal)
         
+        # Audit log: Withdrawal completed via webhook
+        from audit.utils import log_action
+        log_action(
+            action='withdrawal_completed',
+            user=withdrawal.user,
+            details={
+                'withdrawal_id': withdrawal.id,
+                'amount': str(withdrawal.amount),
+                'payment_method': withdrawal.payment_method,
+                'transaction_id': withdrawal.transaction_id,
+                'completed_via': 'flutterwave_webhook',
+                'new_balance': str(wallet.balance),
+            }
+        )
+        
         logger.info(f'Withdrawal {withdrawal.id} completed via Flutterwave webhook')
         return JsonResponse({'status': 'ok'})
     
@@ -584,6 +643,20 @@ def handle_flutterwave_withdrawal_failed(data):
         
         # Send notification
         notify_withdrawal_failed(withdrawal, reason)
+        
+        # Audit log: Withdrawal failed via webhook
+        from audit.utils import log_action
+        log_action(
+            action='withdrawal_failed',
+            user=withdrawal.user,
+            details={
+                'withdrawal_id': withdrawal.id,
+                'amount': str(withdrawal.amount),
+                'payment_method': withdrawal.payment_method,
+                'failure_reason': reason,
+                'failed_via': 'flutterwave_webhook',
+            }
+        )
         
         logger.info(f'Withdrawal {withdrawal.id} failed via Flutterwave webhook: {reason}')
         return JsonResponse({'status': 'ok'})

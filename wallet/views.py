@@ -234,6 +234,21 @@ def withdraw_view(request):
                 # Run validation (checks amount limits, balance, etc.)
                 withdrawal.full_clean()
                 withdrawal.save()
+                
+                # Audit log: Withdrawal created
+                from audit.utils import log_action
+                log_action(
+                    action='withdrawal_created',
+                    user=request.user,
+                    details={
+                        'withdrawal_id': withdrawal.id,
+                        'amount': str(withdrawal.amount),
+                        'payment_method': withdrawal.payment_method,
+                        'status': withdrawal.status,
+                        'suspicious': suspicious,
+                    },
+                    request=request
+                )
                     
                 # Send notification for withdrawal creation
                 from wallet.notifications import notify_withdrawal_created

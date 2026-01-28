@@ -271,6 +271,21 @@ def process_withdrawal_and_debit_wallet(withdrawal):
         withdrawal.save(update_fields=['status'])
         wallet.save(update_fields=['balance'])
         
+        # Audit log: Withdrawal completed
+        from audit.utils import log_action
+        log_action(
+            action='withdrawal_completed',
+            user=withdrawal.user,
+            details={
+                'withdrawal_id': withdrawal.id,
+                'amount': str(withdrawal.amount),
+                'payment_method': withdrawal.payment_method,
+                'transaction_id': withdrawal.transaction_id,
+                'new_balance': str(wallet.balance),
+                'transaction_record_id': transaction_record.id,
+            }
+        )
+        
         logger.info(
             f"Withdrawal {withdrawal.id} completed and wallet debited - "
             f"User: {withdrawal.user.username}, Amount: ${withdrawal.amount}, "
