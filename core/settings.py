@@ -281,3 +281,100 @@ FLUTTERWAVE_SECRET_KEY = os.environ.get('FLUTTERWAVE_SECRET_KEY', '')
 FLUTTERWAVE_PUBLIC_KEY = os.environ.get('FLUTTERWAVE_PUBLIC_KEY', '')
 FLUTTERWAVE_BASE_URL = 'https://api.flutterwave.com/v3'
 FLUTTERWAVE_WEBHOOK_URL = os.environ.get('FLUTTERWAVE_WEBHOOK_URL', None)  # Optional webhook URL
+
+# Logging Configuration
+# Create logs directory if it doesn't exist
+LOGS_DIR = BASE_DIR / 'logs'
+LOGS_DIR.mkdir(exist_ok=True)
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
+        },
+        'simple': {
+            'format': '{levelname} {asctime} {message}',
+            'style': '{',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
+        },
+        'detailed': {
+            'format': '{levelname} {asctime} {name} {pathname}:{lineno} {funcName}() {message}',
+            'style': '{',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
+        },
+    },
+    'handlers': {
+        # Console handler will be added in task 3
+        # File handlers will be added in task 2
+    },
+    'loggers': {
+        # Django framework loggers
+        'django': {
+            'handlers': [],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'django.request': {
+            'handlers': [],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+        'django.security': {
+            'handlers': [],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        # Application loggers
+        'accounts': {
+            'handlers': [],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'wallet': {
+            'handlers': [],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'matches': {
+            'handlers': [],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'panel': {
+            'handlers': [],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'messenger': {
+            'handlers': [],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'alert': {
+            'handlers': [],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+    'root': {
+        'level': 'WARNING',
+        'handlers': [],
+    },
+}
+
+# Set log level based on DEBUG setting
+if DEBUG:
+    LOGGING['root']['level'] = 'DEBUG'
+    # In development, loggers will use DEBUG level
+    for logger_config in LOGGING['loggers'].values():
+        logger_config['level'] = 'DEBUG'
+else:
+    LOGGING['root']['level'] = 'INFO'
+    # In production, use INFO level for application loggers
+    for logger_config in LOGGING['loggers'].values():
+        if logger_config['level'] == 'DEBUG':
+            logger_config['level'] = 'INFO'
