@@ -19,7 +19,7 @@ from alert.models import Notification
 logger = logging.getLogger('django_ratelimit')
 
 
-def get_client_ip(request):
+def _get_client_ip(request):
     """Get client IP address from request"""
     x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
     if x_forwarded_for:
@@ -27,6 +27,9 @@ def get_client_ip(request):
     else:
         ip = request.META.get('REMOTE_ADDR')
     return ip
+
+# Alias for backward compatibility
+get_client_ip = _get_client_ip
 
 @login_required
 @transaction.atomic
@@ -253,19 +256,19 @@ def submit_match_result(request, match_id):
     
     # Handle evidence upload if provided (optional)
     evidence_uploaded = False
-    if 'evidence_file' in request.FILES:
-        evidence_form = EvidenceUploadForm(request.POST, request.FILES)
+    if 'file' in request.FILES:
+        evidence_form = EvidenceUploadForm(request.POST, request.FILES, match=match, user=request.user)
         if evidence_form.is_valid():
             try:
-                evidence_file = evidence_form.cleaned_data['evidence_file']
+                file = evidence_form.cleaned_data['file']
+                file_type = evidence_form.cleaned_data['file_type']
                 description = evidence_form.cleaned_data.get('description', '').strip()
-                file_type = evidence_form.get_file_type()
                 
                 # Create Evidence instance
                 Evidence.objects.create(
                     match=match,
                     user=request.user,
-                    file=evidence_file,
+                    file=file,
                     file_type=file_type,
                     description=description if description else None
                 )
@@ -519,29 +522,22 @@ def upload_evidence(request, match_id):
     
     if form.is_valid():
         try:
-            evidence_file = form.cleaned_data['evidence_file']
+            file = form.cleaned_data['file']
+            file_type = form.cleaned_data['file_type']
             description = form.cleaned_data.get('description', '')
             
-            # Determine file type from the file
-            file_type = form.get_file_type()
-            if not file_type:
-                return JsonResponse({
-                    'success': False,
-                    'error': 'Unable to determine file type. Please ensure the file is a valid image or video.'
-                }, status=400)
-            
             # Security: Capture IP address and user agent
-            ip_address = get_client_ip(request)
+            ip_address = _get_client_ip(request)
             user_agent = request.META.get('HTTP_USER_AGENT', '')[:500]  # Limit length
             
             # Create Evidence instance
             evidence = Evidence(
                 match=match,
                 user=request.user,
-                file=evidence_file,
+                file=file,
                 file_type=file_type,
                 description=description,
-                file_size=evidence_file.size,
+                file_size=file.size,
                 ip_address=ip_address,
                 user_agent=user_agent
             )
@@ -566,7 +562,7 @@ def upload_evidence(request, match_id):
             logger.info(
                 f"Evidence uploaded successfully: match_id={match_id}, "
                 f"user={request.user.username}, file_type={file_type}, "
-                f"file_size={evidence_file.size}"
+                f"file_size={file.size}"
             )
             
             return JsonResponse({
@@ -714,7 +710,7 @@ def get_evidence(request, evidence_id):
     if not (is_participant or is_support_staff):
         logger.warning(
             f"Unauthorized evidence access attempt: evidence_id={evidence_id}, "
-            f"user={request.user.username}, ip={get_client_ip(request)}"
+            f"user={request.user.username}, ip={_get_client_ip(request)}"
         )
         return JsonResponse({
             'success': False,
@@ -729,7 +725,7 @@ def get_evidence(request, evidence_id):
     # Log access
     logger.info(
         f"Evidence accessed: evidence_id={evidence_id}, user={request.user.username}, "
-        f"match_id={match.id}, ip={get_client_ip(request)}"
+        f"match_id={match.id}, ip={_get_client_ip(request)}"
     )
     
     # Serve file with appropriate headers
@@ -771,7 +767,7 @@ def download_evidence(request, evidence_id):
     if not (is_participant or is_support_staff):
         logger.warning(
             f"Unauthorized evidence download attempt: evidence_id={evidence_id}, "
-            f"user={request.user.username}, ip={get_client_ip(request)}"
+            f"user={request.user.username}, ip={_get_client_ip(request)}"
         )
         return JsonResponse({
             'success': False,
@@ -786,7 +782,7 @@ def download_evidence(request, evidence_id):
     # Log access
     logger.info(
         f"Evidence downloaded: evidence_id={evidence_id}, user={request.user.username}, "
-        f"match_id={match.id}, ip={get_client_ip(request)}"
+        f"match_id={match.id}, ip={_get_client_ip(request)}"
     )
     
     # Serve file with download headers
@@ -831,7 +827,7 @@ def list_evidence(request, match_id):
     if not (is_participant or is_support_staff):
         logger.warning(
             f"Unauthorized evidence list attempt: match_id={match_id}, "
-            f"user={request.user.username}, ip={get_client_ip(request)}"
+            f"user={request.user.username}, ip={_get_client_ip(request)}"
         )
         return JsonResponse({
             'success': False,
@@ -891,7 +887,7 @@ def list_evidence(request, match_id):
     # Log access
     logger.info(
         f"Evidence list accessed: match_id={match_id}, user={request.user.username}, "
-        f"count={len(evidence_list)}, ip={get_client_ip(request)}"
+        f"count={len(evidence_list)}, ip={_get_client_ip(request)}"
     )
     
     return JsonResponse({
@@ -907,3 +903,35 @@ def list_evidence(request, match_id):
             'has_previous': page.has_previous(),
         }
     })
+
+
+@login_required
+@transaction.atomic
+def delete_evidence(request, evidence_id):
+    """
+    Allow a user to delete their own evidence while the match is still active
+    (JOINED or DISPUTED). This supports Day 9: evidence deletion before/around
+    result submission.
+    """
+    if request.method != 'POST':
+        return HttpResponseNotAllowed(['POST'])
+
+    evidence = get_object_or_404(Evidence, id=evidence_id)
+    match = evidence.match
+
+    # Only the uploader can delete their own evidence
+    if request.user != evidence.user:
+        messages.error(request, "You don't have permission to delete this evidence.")
+        return redirect('match_detail', match_id=match.id)
+
+    # Only allow deletion while match is still under review/play
+    if match.status not in ['JOINED', 'DISPUTED']:
+        messages.error(
+            request,
+            f"Cannot delete evidence for a match with status '{match.get_status_display()}'."
+        )
+        return redirect('match_detail', match_id=match.id)
+
+    evidence.delete()
+    messages.success(request, "Evidence deleted successfully.")
+    return redirect('match_detail', match_id=match.id)

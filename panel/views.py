@@ -39,11 +39,78 @@ def attend_dispute(request, dispute_id):
 @support_staff_required
 def my_disputes(request):
     """Show disputes assigned to the current support staff."""
-    disputes = Dispute.objects.filter(assigned_to=request.user).order_by('status', 'created_at')
+    # Show only active (non-resolved) disputes assigned to this staff member,
+    # ordered by status so OPEN/PENDING appear before anything else.
+    disputes = Dispute.objects.filter(
+        assigned_to=request.user
+    ).exclude(status='RESOLVED').order_by('status', 'created_at')
     context = {
         'disputes': disputes
     }
     return render(request, 'panel/my_disputes.html', context)
+
+
+@support_staff_required
+def dispute_stats(request):
+    """
+    Show dispute pattern statistics per user (how many disputes they are involved in).
+    
+    This helps support staff detect users who frequently appear in disputes.
+    """
+    from django.db.models import Count, Q
+    from matches.models import Match
+
+    # Base queryset of all disputes
+    disputes = Dispute.objects.select_related('match', 'match__creator', 'match__joiner')
+
+    # Build per-user stats by looking at match.creator and match.joiner
+    # We aggregate on the User model so that each row is a user with counts.
+    User = get_user_model()
+
+    user_stats = (
+        User.objects.filter(
+            Q(created_matches__dispute__isnull=False) |
+            Q(joined_matches__dispute__isnull=False)
+        )
+        .distinct()
+        .annotate(
+            total_disputes=Count('created_matches__dispute', distinct=True) +
+                           Count('joined_matches__dispute', distinct=True),
+            open_disputes=Count(
+                'created_matches__dispute',
+                filter=Q(created_matches__dispute__status='OPEN'),
+                distinct=True
+            ) + Count(
+                'joined_matches__dispute',
+                filter=Q(joined_matches__dispute__status='OPEN'),
+                distinct=True
+            ),
+            pending_disputes=Count(
+                'created_matches__dispute',
+                filter=Q(created_matches__dispute__status='PENDING'),
+                distinct=True
+            ) + Count(
+                'joined_matches__dispute',
+                filter=Q(joined_matches__dispute__status='PENDING'),
+                distinct=True
+            ),
+            resolved_disputes=Count(
+                'created_matches__dispute',
+                filter=Q(created_matches__dispute__status='RESOLVED'),
+                distinct=True
+            ) + Count(
+                'joined_matches__dispute',
+                filter=Q(joined_matches__dispute__status='RESOLVED'),
+                distinct=True
+            ),
+        )
+        .order_by('-total_disputes', 'username')
+    )
+
+    context = {
+        'user_stats': user_stats,
+    }
+    return render(request, 'panel/dispute_stats.html', context)
 
 @support_staff_required
 def dispute_detail(request, dispute_id):
@@ -55,18 +122,16 @@ def dispute_detail(request, dispute_id):
     participants = [match.creator]
     if match.joiner:
         participants.append(match.joiner)
-    
+
     # Evidence for this match (for dispute investigation)
-    evidence_queryset = Evidence.objects.filter(match=match).select_related('user').order_by('-uploaded_at')
-    evidence_list = evidence_queryset
+    evidence_queryset = Evidence.objects.filter(match=match).select_related('user')
     creator_evidence = evidence_queryset.filter(user=match.creator)
     joiner_evidence = evidence_queryset.filter(user=match.joiner) if match.joiner else Evidence.objects.none()
-    
     context = {
         'dispute': dispute,
         'match': match,
         'participants': participants,
-        'evidence_list': evidence_list,
+        'evidence_list': evidence_queryset,
         'creator_evidence': creator_evidence,
         'joiner_evidence': joiner_evidence,
     }
@@ -91,6 +156,11 @@ def resolve_dispute(request, dispute_id):
     """Resolve a dispute, select winner, update wallet, notify participants, and mark as resolved."""
     dispute = get_object_or_404(Dispute, id=dispute_id)
     match = dispute.match
+
+    # Only the assigned support staff can resolve, and only when dispute is PENDING
+    if dispute.status != 'PENDING' or dispute.assigned_to != request.user:
+        messages.error(request, "You are not allowed to resolve this dispute.")
+        return redirect('dispute_detail', dispute_id=dispute_id)
 
     if request.method == 'POST':
         winner_id = request.POST.get('winner_id')

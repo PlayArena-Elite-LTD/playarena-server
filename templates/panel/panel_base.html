@@ -10,6 +10,7 @@
             <div class="panel-navigation">
                 <a href="{% url 'open_disputes' %}" class="panel-nav-item {% if 'open-disputes' in request.path %}active{% endif %}">Open Disputes</a>
                 <a href="{% url 'my_disputes' %}" class="panel-nav-item {% if 'my-disputes' in request.path %}active{% endif %}">My Disputes</a>
+                <a href="{% url 'dispute_stats' %}" class="panel-nav-item {% if 'disputes/stats' in request.path %}active{% endif %}">Dispute Stats</a>
             </div>
         </div>
         

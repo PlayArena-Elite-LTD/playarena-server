@@ -383,8 +383,8 @@
         {% endif %}
     </div>
 
-    <!-- Resolution Form (if not resolved) -->
-    {% if dispute.status != "RESOLVED" %}
+    <!-- Resolution Form (only for assigned staff and if not resolved) -->
+    {% if dispute.status != "RESOLVED" and dispute.assigned_to == request.user %}
     <div class="panel-section">
         <h4 class="panel-section-title">Resolve Dispute</h4>
         <form action="{% url 'resolve_dispute' dispute.id %}" method="post" class="resolution-form"

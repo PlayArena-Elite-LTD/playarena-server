@@ -19,6 +19,5 @@ urlpatterns = [
 
 # Serve media files in development only
 # Security: Never use this in production - use proper storage service (S3, Cloudinary, etc.)
-# In production, serve media files through your web server (nginx, Apache, etc.)
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
