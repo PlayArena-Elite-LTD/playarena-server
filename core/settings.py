@@ -345,7 +345,12 @@ LOGGING = {
             'formatter': 'verbose',
             'encoding': 'utf-8',
         },
-        # Console handler will be added in task 3
+        'console': {
+            'class': 'logging.StreamHandler',
+            'level': 'DEBUG' if DEBUG else 'INFO',
+            'formatter': 'simple',
+            'stream': 'ext://sys.stdout',
+        },
     },
     'loggers': {
         # Django framework loggers
@@ -405,19 +410,27 @@ LOGGING = {
 # Set log level based on DEBUG setting
 if DEBUG:
     LOGGING['root']['level'] = 'DEBUG'
-    # Add debug file handler in development
+    # Add debug file handler and console handler in development
     LOGGING['root']['handlers'].append('file_debug')
-    # In development, loggers will use DEBUG level and include debug handler
+    LOGGING['root']['handlers'].append('console')
+    # In development, loggers will use DEBUG level and include debug handler and console
     for logger_name, logger_config in LOGGING['loggers'].items():
         logger_config['level'] = 'DEBUG'
         if 'file_debug' not in logger_config['handlers']:
             logger_config['handlers'].append('file_debug')
+        if 'console' not in logger_config['handlers']:
+            logger_config['handlers'].append('console')
 else:
     LOGGING['root']['level'] = 'INFO'
     # In production, use INFO level for application loggers
+    # Console handler can be optionally added in production for monitoring
+    # For now, we'll keep it out of production to reduce console noise
     for logger_config in LOGGING['loggers'].values():
         if logger_config['level'] == 'DEBUG':
             logger_config['level'] = 'INFO'
         # Remove debug handler in production
         if 'file_debug' in logger_config['handlers']:
             logger_config['handlers'].remove('file_debug')
+        # Remove console handler in production (optional - can be enabled if needed)
+        if 'console' in logger_config['handlers']:
+            logger_config['handlers'].remove('console')
