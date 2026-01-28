@@ -187,12 +187,22 @@ def resolve_dispute(request, dispute_id):
         # Notify both participants
         Notification.objects.create(
             user=match.creator,
-            message=f"Dispute for match {match.get_game_display()} resolved. Winner: {winner.username}."
+            message=(
+                f"Dispute resolved for your {match.get_game_display()} match "
+                f"against {match.joiner.username if match.joiner else 'opponent'} for ${match.amount}. "
+                f"Support staff selected {winner.username} as the winner; "
+                f"${match.winnings} has been processed accordingly."
+            ),
         )
         if match.joiner:
             Notification.objects.create(
                 user=match.joiner,
-                message=f"Dispute for match {match.get_game_display()} resolved. Winner: {winner.username}."
+                message=(
+                    f"Dispute resolved for your {match.get_game_display()} match "
+                    f"against {match.creator.username} for ${match.amount}. "
+                    f"Support staff selected {winner.username} as the winner; "
+                    f"${match.winnings} has been processed accordingly."
+                ),
             )
         # Update match & dispute
         match.status = 'COMPLETED'
@@ -235,6 +245,25 @@ def escalate_dispute(request, dispute_id):
     dispute.escalated_by = request.user
     dispute.escalation_reason = escalation_reason or None
     dispute.save(update_fields=['status', 'escalated_at', 'escalated_by', 'escalation_reason'])
+
+    # Notify participants that the dispute has been escalated
+    match = dispute.match
+    Notification.objects.create(
+        user=match.creator,
+        message=(
+            f"Your {match.get_game_display()} match dispute against "
+            f"{match.joiner.username if match.joiner else 'opponent'} for ${match.amount} "
+            "has been escalated for further review by support staff."
+        ),
+    )
+    if match.joiner:
+        Notification.objects.create(
+            user=match.joiner,
+            message=(
+                f"Your {match.get_game_display()} match dispute against {match.creator.username} "
+                f"for ${match.amount} has been escalated for further review by support staff."
+            ),
+        )
 
     messages.success(request, "Dispute has been escalated for further review.")
     return redirect('dispute_detail', dispute_id=dispute.id)

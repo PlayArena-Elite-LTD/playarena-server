@@ -434,15 +434,23 @@ def submit_match_result(request, match_id):
             match_result.submission_round = 2
             match_result.save()
             
-            # Notify both users
+            # Notify both users (round 1 disagreement)
             Notification.objects.create(
                 user=match.creator,
-                message=f"There was a disagreement in the result for your {match.get_game_display()} match against {match.joiner.username} for ${match.amount}. You have one more chance to submit the correct result."
+                message=(
+                    f"Result disagreement detected for your {match.get_game_display()} match "
+                    f"against {match.joiner.username} for ${match.amount}. "
+                    "Both players must submit their results again (final attempt)."
+                ),
             )
             
             Notification.objects.create(
                 user=match.joiner,
-                message=f"There was a disagreement in the result for your {match.get_game_display()} match against {match.creator.username} for ${match.amount}. You have one more chance to submit the correct result."
+                message=(
+                    f"Result disagreement detected for your {match.get_game_display()} match "
+                    f"against {match.creator.username} for ${match.amount}. "
+                    "Both players must submit their results again (final attempt)."
+                ),
             )
             
             messages.warning(request, "There was a disagreement with the match results. Both players must submit again with accurate results.")
@@ -465,15 +473,23 @@ def submit_match_result(request, match_id):
                 # If the model doesn't exist yet, just log it
                 print(f"Match {match_id} has been marked as disputed and requires admin intervention.")
             
-            # Notify both users
+            # Notify both users (match moved to dispute)
             Notification.objects.create(
                 user=match.creator,
-                message=f"Your {match.get_game_display()} match against {match.joiner.username} for ${match.amount} has been marked as disputed and will be reviewed by support."
+                message=(
+                    f"Your {match.get_game_display()} match against {match.joiner.username} "
+                    f"for ${match.amount} has been marked as DISPUTED after conflicting results. "
+                    "Support staff will review the evidence and notify you of the outcome."
+                ),
             )
             
             Notification.objects.create(
                 user=match.joiner,
-                message=f"Your {match.get_game_display()} match against {match.creator.username} for ${match.amount} has been marked as disputed and will be reviewed by support."
+                message=(
+                    f"Your {match.get_game_display()} match against {match.creator.username} "
+                    f"for ${match.amount} has been marked as DISPUTED after conflicting results. "
+                    "Support staff will review the evidence and notify you of the outcome."
+                ),
             )
             
             messages.error(request, "Match has been marked as disputed due to conflicting results and will be reviewed by support.")
