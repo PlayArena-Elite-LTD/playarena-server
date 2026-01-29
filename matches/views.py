@@ -355,6 +355,32 @@ def submit_match_result(request, match_id):
         match_result.creator_submission = submission
         match_result.creator_submission_time = timezone.now()
         match_result.save()
+
+        # Audit log: creator result submission
+        try:
+            from audit.utils import log_action, get_user_agent
+
+            log_action(
+                action='match_result_submitted',
+                user=request.user,
+                details={
+                    'match_id': match.id,
+                    'user_id': request.user.id,
+                    'username': request.user.username,
+                    'role': 'creator',
+                    'submission': submission,
+                    'submission_round': match_result.submission_round,
+                    'submission_time': match_result.creator_submission_time.isoformat(),
+                    'ip_address': _get_client_ip(request),
+                    'user_agent': get_user_agent(request),
+                },
+                request=request,
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to create audit log for match {match.id} creator submission: {e}",
+                exc_info=True,
+            )
         
         # Check if joiner has submitted
         if not match_result.joiner_submission:
@@ -377,6 +403,32 @@ def submit_match_result(request, match_id):
         match_result.joiner_submission = submission
         match_result.joiner_submission_time = timezone.now()
         match_result.save()
+
+        # Audit log: joiner result submission
+        try:
+            from audit.utils import log_action, get_user_agent
+
+            log_action(
+                action='match_result_submitted',
+                user=request.user,
+                details={
+                    'match_id': match.id,
+                    'user_id': request.user.id,
+                    'username': request.user.username,
+                    'role': 'joiner',
+                    'submission': submission,
+                    'submission_round': match_result.submission_round,
+                    'submission_time': match_result.joiner_submission_time.isoformat(),
+                    'ip_address': _get_client_ip(request),
+                    'user_agent': get_user_agent(request),
+                },
+                request=request,
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to create audit log for match {match.id} joiner submission: {e}",
+                exc_info=True,
+            )
         
         # Check if creator has submitted
         if not match_result.creator_submission:
