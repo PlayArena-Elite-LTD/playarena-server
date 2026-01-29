@@ -579,10 +579,39 @@ def submit_match_result(request, match_id):
             try:
                 # Assuming the Dispute model exists in the panel app
                 from panel.models import Dispute
-                Dispute.objects.create(
+                dispute = Dispute.objects.create(
                     match=match,
                     status='OPEN'
                 )
+
+                # Audit log: dispute created
+                try:
+                    from audit.utils import log_action, get_user_agent
+
+                    log_action(
+                        action='dispute_created',
+                        user=request.user,
+                        details={
+                            'dispute_id': dispute.id,
+                            'match_id': match.id,
+                            'creator_id': match.creator.id,
+                            'creator_username': match.creator.username,
+                            'joiner_id': match.joiner.id if match.joiner else None,
+                            'joiner_username': match.joiner.username if match.joiner else None,
+                            'match_amount': str(match.amount),
+                            'match_game': match.game,
+                            'match_device': match.device,
+                            'submission_round': match_result.submission_round,
+                            'ip_address': _get_client_ip(request),
+                            'user_agent': get_user_agent(request),
+                        },
+                        request=request,
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to create audit log for dispute creation on match {match.id}: {e}",
+                        exc_info=True,
+                    )
             except ImportError:
                 # If the model doesn't exist yet, just log it
                 print(f"Match {match_id} has been marked as disputed and requires admin intervention.")
