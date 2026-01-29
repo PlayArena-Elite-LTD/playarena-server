@@ -134,17 +134,48 @@ def join_match(request):
             match.save()
             
             # Then deduct match amount from user's wallet
+            old_balance = wallet.balance
             wallet.balance -= Decimal(match.amount)
-            wallet.save()
+            wallet.save(update_fields=['balance'])
             
             # Record transaction
-            Transaction.objects.create(
+            transaction_record = Transaction.objects.create(
                 wallet=wallet,
                 amount=-Decimal(match.amount),
                 transaction_type='MATCH_JOINING',
                 description=f"Joined {match.get_game_display()} match against {match.creator.username} for ${match.amount}",
                 related_match=match
             )
+
+            # Audit log: match joined
+            try:
+                from audit.utils import log_action
+
+                log_action(
+                    action='match_joined',
+                    user=request.user,
+                    details={
+                        'match_id': match.id,
+                        'game': match.game,
+                        'device': match.device,
+                        'amount': str(match.amount),
+                        'creator_id': match.creator.id,
+                        'creator_username': match.creator.username,
+                        'joiner_id': request.user.id,
+                        'joiner_username': request.user.username,
+                        'joining_code': match.joining_code,
+                        'wallet_id': wallet.id,
+                        'old_balance': str(old_balance),
+                        'new_balance': str(wallet.balance),
+                        'transaction_id': transaction_record.id,
+                    },
+                    request=request,
+                )
+            except Exception as e:
+                logger.error(
+                    f"Failed to create audit log for match {match.id} joining by user {request.user.id}: {e}",
+                    exc_info=True,
+                )
             
             # Create notification for the match creator
             Notification.objects.create(
