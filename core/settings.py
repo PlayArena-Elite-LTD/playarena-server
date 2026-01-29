@@ -400,6 +400,12 @@ LOGGING = {
             'filters': ['require_debug_false'],
             'include_html': True,
         },
+        'mail_admins_critical': {
+            'class': 'django.utils.log.AdminEmailHandler',
+            'level': 'CRITICAL',
+            'filters': ['require_debug_false'],
+            'include_html': True,
+        },
     },
     'loggers': {
         # Django framework loggers
@@ -409,7 +415,7 @@ LOGGING = {
             'propagate': False,
         },
         'django.request': {
-            'handlers': ['file_django', 'file_error', 'mail_admins'],
+            'handlers': ['file_django', 'file_error', 'mail_admins', 'mail_admins_critical'],
             'level': 'ERROR',
             'propagate': False,
         },
@@ -452,7 +458,7 @@ LOGGING = {
     },
     'root': {
         'level': 'WARNING',
-        'handlers': ['file_info', 'file_error', 'mail_admins'],
+        'handlers': ['file_info', 'file_error', 'mail_admins', 'mail_admins_critical'],
     },
 }
 
