@@ -183,6 +183,32 @@ def suspend_user(request, user_id, dispute_id):
         user.is_active = False
         user.save()
         messages.success(request, f"User {user.username} has been suspended.")
+
+        # Audit log: user suspended from dispute panel
+        try:
+            from audit.utils import log_action, get_user_agent
+
+            log_action(
+                action='user_suspended',
+                user=request.user,
+                details={
+                    'suspended_user_id': user.id,
+                    'suspended_username': user.username,
+                    'suspended_by_id': request.user.id,
+                    'suspended_by_username': request.user.username,
+                    'dispute_id': dispute_id,
+                    'ip_address': request.META.get('REMOTE_ADDR', 'unknown'),
+                    'user_agent': get_user_agent(request),
+                },
+                request=request,
+            )
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).error(
+                f"Failed to create audit log for user {user.id} suspension in dispute {dispute_id}: {e}",
+                exc_info=True,
+            )
     return redirect('dispute_detail', dispute_id=dispute_id)
 
 @support_staff_required
@@ -247,6 +273,36 @@ def resolve_dispute(request, dispute_id):
         dispute.resolved_at = timezone.now()
         dispute.resolution_notes = notes
         dispute.save()
+
+        # Audit log: dispute resolved
+        try:
+            from audit.utils import log_action, get_user_agent
+
+            log_action(
+                action='dispute_resolved',
+                user=request.user,
+                details={
+                    'dispute_id': dispute.id,
+                    'match_id': match.id,
+                    'winner_id': winner.id,
+                    'winner_username': winner.username,
+                    'resolved_by_id': request.user.id,
+                    'resolved_by_username': request.user.username,
+                    'resolution_notes': notes,
+                    'match_amount': str(match.amount),
+                    'match_winnings': str(match.winnings),
+                    'ip_address': request.META.get('REMOTE_ADDR', 'unknown'),
+                    'user_agent': get_user_agent(request),
+                },
+                request=request,
+            )
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).error(
+                f"Failed to create audit log for dispute {dispute.id} resolution: {e}",
+                exc_info=True,
+            )
         messages.success(request, f"Dispute resolved. {winner.username} is the winner and has been credited.")
         return redirect('my_disputes')
     # On GET, redirect to dispute detail
