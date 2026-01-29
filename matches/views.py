@@ -48,18 +48,49 @@ def create_match(request):
             # Deduct match amount from user's wallet
             wallet = request.user.wallet
             match_amount = form.cleaned_data['amount']
+
+            # Capture old balance for audit purposes
+            old_balance = wallet.balance
             
             wallet.balance -= Decimal(match_amount)
-            wallet.save()
+            wallet.save(update_fields=['balance'])
             
             # Now record the transaction with the saved match
-            Transaction.objects.create(
+            transaction_record = Transaction.objects.create(
                 wallet=wallet,
                 amount=-Decimal(match_amount),
                 transaction_type='MATCH_CREATION',
                 description=f"Created {match.get_game_display()} match for ${match_amount}",
                 related_match=match
             )
+
+            # Audit log: match created
+            try:
+                from audit.utils import log_action, get_user_agent
+
+                log_action(
+                    action='match_created',
+                    user=request.user,
+                    details={
+                        'match_id': match.id,
+                        'game': match.game,
+                        'device': match.device,
+                        'amount': str(match.amount),
+                        'creator_id': request.user.id,
+                        'creator_username': request.user.username,
+                        'joining_code': match.joining_code,
+                        'wallet_id': wallet.id,
+                        'old_balance': str(old_balance),
+                        'new_balance': str(wallet.balance),
+                        'transaction_id': transaction_record.id,
+                    },
+                    request=request,
+                )
+            except Exception as e:
+                logger.error(
+                    f"Failed to create audit log for match {match.id} creation: {e}",
+                    exc_info=True,
+                )
             
             messages.success(request, f"Match created successfully! Your match code is {match.joining_code}")
             return redirect('match_detail', match_id=match.id)
