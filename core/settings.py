@@ -232,6 +232,12 @@ EMAIL_HOST_PASSWORD = "yrvx rrvl ndvc hmps"
 EMAIL_USE_TLS = True
 EMAIL_USE_SSL = False
 
+# Admin email alerts (used by logging handlers)
+ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL')
+ADMINS = [('Admin', ADMIN_EMAIL)] if ADMIN_EMAIL else []
+SERVER_EMAIL = os.environ.get('SERVER_EMAIL', EMAIL_HOST_USER)
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
+
 # Required for HTML emails in password reset
 PASSWORD_RESET_TIMEOUT = 86400  # 24 hours in seconds
 
@@ -322,6 +328,11 @@ LOGS_DIR.mkdir(exist_ok=True)
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+    'filters': {
+        'require_debug_false': {
+            '()': 'django.utils.log.RequireDebugFalse',
+        },
+    },
     'formatters': {
         'verbose': {
             'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
@@ -383,6 +394,12 @@ LOGGING = {
             'formatter': 'simple',
             'stream': 'ext://sys.stdout',
         },
+        'mail_admins': {
+            'class': 'django.utils.log.AdminEmailHandler',
+            'level': 'ERROR',
+            'filters': ['require_debug_false'],
+            'include_html': True,
+        },
     },
     'loggers': {
         # Django framework loggers
@@ -392,7 +409,7 @@ LOGGING = {
             'propagate': False,
         },
         'django.request': {
-            'handlers': ['file_django', 'file_error'],
+            'handlers': ['file_django', 'file_error', 'mail_admins'],
             'level': 'ERROR',
             'propagate': False,
         },
@@ -435,7 +452,7 @@ LOGGING = {
     },
     'root': {
         'level': 'WARNING',
-        'handlers': ['file_info', 'file_error'],
+        'handlers': ['file_info', 'file_error', 'mail_admins'],
     },
 }
 
