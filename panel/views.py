@@ -37,6 +37,33 @@ def attend_dispute(request, dispute_id):
     dispute.assigned_to = request.user
     dispute.status = 'PENDING'
     dispute.save()
+
+    # Audit log: dispute assigned
+    try:
+        from audit.utils import log_action, get_user_agent
+
+        log_action(
+            action='dispute_assigned',
+            user=request.user,
+            details={
+                'dispute_id': dispute.id,
+                'match_id': dispute.match.id,
+                'assigned_to_id': request.user.id,
+                'assigned_to_username': request.user.username,
+                'assigned_by_id': request.user.id,
+                'assigned_by_username': request.user.username,
+                'ip_address': request.META.get('REMOTE_ADDR', 'unknown'),
+                'user_agent': get_user_agent(request),
+            },
+            request=request,
+        )
+    except Exception as e:
+        import logging
+
+        logging.getLogger(__name__).error(
+            f"Failed to create audit log for dispute {dispute.id} assignment: {e}",
+            exc_info=True,
+        )
     messages.success(request, "You have been assigned to the dispute.")
     return redirect('my_disputes')
 
