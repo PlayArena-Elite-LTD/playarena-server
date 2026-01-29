@@ -29,6 +29,37 @@ DEBUG = True
 ALLOWED_HOSTS = ['lucadev.pythonanywhere.com', '127.0.0.1']
 CSRF_TRUSTED_ORIGINS = ['https://lucadev.pythonanywhere.com']
 
+# Sentry configuration (only in production)
+SENTRY_DSN = os.environ.get('SENTRY_DSN')
+SENTRY_ENVIRONMENT = os.environ.get('SENTRY_ENVIRONMENT', 'production')
+SENTRY_RELEASE = os.environ.get('SENTRY_RELEASE')
+
+if not DEBUG and SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.django import DjangoIntegration
+
+    def _sentry_before_send(event, hint):
+        """
+        Scrub potentially sensitive fields before sending to Sentry.
+        """
+        request = event.get('request', {})
+        data = request.get('data')
+        if isinstance(data, dict):
+            for key in ['password', 'token', 'authorization', 'card_number', 'account_details']:
+                if key in data:
+                    data[key] = '[Filtered]'
+        return event
+
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        integrations=[DjangoIntegration()],
+        environment=SENTRY_ENVIRONMENT,
+        release=SENTRY_RELEASE,
+        send_default_pii=False,
+        traces_sample_rate=0.0,  # Disable performance tracing by default
+        before_send=_sentry_before_send,
+    )
+
 # Application definition
 
 INSTALLED_APPS = [
