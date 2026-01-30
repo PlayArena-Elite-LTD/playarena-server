@@ -14,6 +14,26 @@ class WalletAdmin(admin.ModelAdmin):
     list_display = ['user', 'balance', 'id']
     search_fields = ['user__username', 'user__email']
     readonly_fields = ['balance']
+    actions = ['reconcile_selected_wallets']
+
+    @admin.action(description='Reconcile selected wallets (fix balances)')
+    def reconcile_selected_wallets(self, request, queryset):
+        """
+        Admin action to reconcile wallet balances against transaction sums.
+        """
+        fixed_count = 0
+        for wallet in queryset.select_related('user'):
+            result = wallet.verify_balance_integrity()
+            if result['is_valid']:
+                continue
+            wallet.recalculate_balance()
+            fixed_count += 1
+
+        self.message_user(
+            request,
+            f"Reconciliation complete. Wallets fixed: {fixed_count}.",
+            level=messages.INFO,
+        )
 
 @admin.register(Transaction)
 class TransactionAdmin(admin.ModelAdmin):
