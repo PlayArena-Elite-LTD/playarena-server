@@ -19,7 +19,3 @@ class MyMatchesView(generics.ListAPIView):
     def get_queryset(self):
         user = self.request.user
         return Match.objects.filter(creator=user) | Match.objects.filter(joiner=user)
-
-from django.shortcuts import render
-
-# Create your views here.
