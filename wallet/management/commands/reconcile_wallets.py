@@ -1,3 +1,4 @@
+from decimal import Decimal
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 from django.db import transaction
@@ -50,10 +51,13 @@ class Command(BaseCommand):
 
         discrepancies = []
         fixed_count = 0
+        valid_count = 0
+        total_discrepancy = Decimal('0.00')
 
         for wallet in wallets:
             result = wallet.verify_balance_integrity()
             if result["is_valid"]:
+                valid_count += 1
                 continue
 
             discrepancies.append({
@@ -64,6 +68,10 @@ class Command(BaseCommand):
                 "discrepancy": result["discrepancy"],
                 "transaction_count": result["transaction_count"],
             })
+            try:
+                total_discrepancy += abs(result["discrepancy"])
+            except Exception:
+                pass
 
             if dry_run:
                 continue
@@ -78,6 +86,15 @@ class Command(BaseCommand):
                 "Wallet {wallet_id} ({user}): expected={expected}, actual={actual}, "
                 "discrepancy={discrepancy}, tx_count={transaction_count}".format(**item)
             )
+        self.stdout.write(
+            "Summary: checked={total}, valid={valid}, discrepancies={count}, "
+            "total_abs_discrepancy={total_discrepancy}".format(
+                total=total_wallets,
+                valid=valid_count,
+                count=len(discrepancies),
+                total_discrepancy=total_discrepancy,
+            )
+        )
 
         if not dry_run:
             self.stdout.write(self.style.SUCCESS(f"Wallets fixed: {fixed_count}"))
