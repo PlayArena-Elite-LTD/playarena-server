@@ -15,6 +15,39 @@ class WalletAdmin(admin.ModelAdmin):
     search_fields = ['user__username', 'user__email']
     readonly_fields = ['balance']
     actions = ['reconcile_selected_wallets']
+    change_list_template = 'admin/wallet/wallet/change_list.html'
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                'reconcile/',
+                self.admin_site.admin_view(self.reconcile_wallets_view),
+                name='wallet_wallet_reconcile',
+            ),
+        ]
+        return custom_urls + urls
+
+    def reconcile_wallets_view(self, request):
+        """
+        Admin view to run wallet reconciliation across all wallets.
+        """
+        from wallet.models import Wallet
+
+        if request.method != 'POST':
+            messages.error(request, "Reconciliation must be triggered via POST.")
+            return redirect('admin:wallet_wallet_changelist')
+
+        fix = request.POST.get('fix') == '1'
+        result = Wallet.reconcile_all_wallets(dry_run=not fix)
+
+        msg = (
+            f"Reconciliation complete. Wallets checked: {result['total_wallets']}, "
+            f"discrepancies: {result['wallets_with_discrepancies']}, "
+            f"fixed: {result['wallets_fixed']}."
+        )
+        messages.info(request, msg)
+        return redirect('admin:wallet_wallet_changelist')
 
     @admin.action(description='Reconcile selected wallets (fix balances)')
     def reconcile_selected_wallets(self, request, queryset):
