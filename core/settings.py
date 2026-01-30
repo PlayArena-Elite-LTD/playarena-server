@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'panel',
     'rest_framework',
     'rest_framework_simplejwt',
+    'api',
 ]
 
 AUTH_USER_MODEL = 'accounts.CustomUser'
