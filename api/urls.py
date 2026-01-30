@@ -10,7 +10,9 @@ from .views import (
     ChangePasswordView,
     PasswordResetRequestView,
     WalletDetailView,
-    TransactionHistoryView
+    TransactionHistoryView,
+    DepositCreateView,
+    WithdrawalCreateView
 )
 
 
@@ -34,6 +36,8 @@ urlpatterns = [
     # Wallet endpoints
     path('wallet/', WalletDetailView.as_view(), name='api_wallet'),
     path('wallet/transactions/', TransactionHistoryView.as_view(), name='api_wallet_transactions'),
+    path('wallet/deposit/', DepositCreateView.as_view(), name='api_wallet_deposit'),
+    path('wallet/withdraw/', WithdrawalCreateView.as_view(), name='api_wallet_withdraw'),
 ]
 
 

@@ -12,11 +12,14 @@ from .serializers import (
     UserRegistrationSerializer,
     ChangePasswordSerializer,
     WalletSerializer,
-    TransactionSerializer
+    TransactionSerializer,
+    DepositCreateSerializer,
+    WithdrawalCreateSerializer
 )
 from accounts.models import CustomUser, Profile
 from matches.models import Match
 from wallet.models import Wallet, Transaction
+from wallet.notifications import notify_withdrawal_created
 
 User = get_user_model()
 
@@ -269,4 +272,109 @@ class TransactionHistoryView(generics.ListAPIView):
             Transaction.objects.select_related('wallet', 'related_match')
             .filter(wallet__user=self.request.user)
             .order_by('-created_at')
+        )
+
+
+class DepositCreateView(APIView):
+    """
+    POST /api/wallet/deposit/
+
+    Create a deposit request for the authenticated user.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = DepositCreateSerializer(data=request.data, context={'request': request})
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        deposit = serializer.save()
+
+        from audit.utils import log_action
+        log_action(
+            action='deposit_created',
+            user=request.user,
+            details={
+                'deposit_id': deposit.id,
+                'amount': str(deposit.amount),
+                'payment_method': deposit.payment_method,
+                'status': deposit.status,
+            },
+            request=request,
+        )
+
+        return Response(
+            {
+                'deposit_id': deposit.id,
+                'status': deposit.status,
+                'amount': str(deposit.amount),
+                'payment_method': deposit.payment_method,
+                'message': 'Deposit request created. Payment processing pending.',
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class WithdrawalCreateView(APIView):
+    """
+    POST /api/wallet/withdraw/
+
+    Create a withdrawal request for the authenticated user.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = WithdrawalCreateSerializer(data=request.data, context={'request': request})
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        from wallet.error_handlers import _get_client_ip, detect_suspicious_withdrawal_activity, log_security_event
+        suspicious, reasons = detect_suspicious_withdrawal_activity(
+            request,
+            serializer.validated_data['amount'],
+            serializer.validated_data['payment_method'],
+        )
+
+        if suspicious:
+            log_security_event(
+                'suspicious_withdrawal_activity',
+                {
+                    'reasons': reasons,
+                    'amount': float(serializer.validated_data['amount']),
+                    'payment_method': serializer.validated_data['payment_method'],
+                    'user_id': request.user.id,
+                    'username': request.user.username,
+                },
+                request=request,
+                severity='WARNING',
+            )
+
+        withdrawal = serializer.save()
+
+        from audit.utils import log_action
+        log_action(
+            action='withdrawal_created',
+            user=request.user,
+            details={
+                'withdrawal_id': withdrawal.id,
+                'amount': str(withdrawal.amount),
+                'payment_method': withdrawal.payment_method,
+                'status': withdrawal.status,
+                'suspicious': suspicious,
+                'ip_address': _get_client_ip(request),
+            },
+            request=request,
+        )
+
+        notify_withdrawal_created(withdrawal)
+
+        return Response(
+            {
+                'withdrawal_id': withdrawal.id,
+                'status': withdrawal.status,
+                'amount': str(withdrawal.amount),
+                'payment_method': withdrawal.payment_method,
+                'message': 'Withdrawal request created and queued for processing.',
+            },
+            status=status.HTTP_201_CREATED,
         )

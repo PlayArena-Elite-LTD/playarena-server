@@ -3,7 +3,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth import get_user_model
 from accounts.models import CustomUser, Profile
 from matches.models import Match
-from wallet.models import Wallet, Transaction
+from wallet.models import Wallet, Transaction, Deposit, Withdrawal
 
 User = get_user_model()
 
@@ -211,6 +211,61 @@ class TransactionSerializer(serializers.ModelSerializer):
             'related_match',
         ]
         read_only_fields = fields
+
+
+class DepositCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating deposit requests"""
+    class Meta:
+        model = Deposit
+        fields = ['amount', 'payment_method']
+
+    def create(self, validated_data):
+        request = self.context.get('request')
+        user = request.user
+        wallet, _created = Wallet.objects.get_or_create(user=user)
+        ip_address = request.META.get('REMOTE_ADDR')
+        user_agent = request.META.get('HTTP_USER_AGENT', '')[:500]
+
+        deposit = Deposit(
+            user=user,
+            amount=validated_data['amount'],
+            payment_method=validated_data['payment_method'],
+            status='PENDING',
+            wallet=wallet,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        deposit.full_clean()
+        deposit.save()
+        return deposit
+
+
+class WithdrawalCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating withdrawal requests"""
+    class Meta:
+        model = Withdrawal
+        fields = ['amount', 'payment_method', 'account_details']
+
+    def create(self, validated_data):
+        request = self.context.get('request')
+        user = request.user
+        wallet, _created = Wallet.objects.get_or_create(user=user)
+        ip_address = request.META.get('REMOTE_ADDR')
+        user_agent = request.META.get('HTTP_USER_AGENT', '')[:500]
+
+        withdrawal = Withdrawal(
+            user=user,
+            amount=validated_data['amount'],
+            payment_method=validated_data['payment_method'],
+            account_details=validated_data['account_details'],
+            status='PENDING',
+            wallet=wallet,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        withdrawal.full_clean()
+        withdrawal.save()
+        return withdrawal
 
 
 class MatchSerializer(serializers.ModelSerializer):
