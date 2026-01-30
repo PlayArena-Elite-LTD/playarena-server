@@ -2,6 +2,8 @@ from decimal import Decimal
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 from django.db import transaction
+from django.core.mail import mail_admins
+import logging
 
 from wallet.models import Wallet
 
@@ -29,6 +31,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        logger = logging.getLogger(__name__)
         dry_run = options["dry_run"]
         limit = options["limit"]
         user_id = options["user_id"]
@@ -98,3 +101,22 @@ class Command(BaseCommand):
 
         if not dry_run:
             self.stdout.write(self.style.SUCCESS(f"Wallets fixed: {fixed_count}"))
+
+        if discrepancies:
+            alert_message = (
+                "Wallet reconciliation found discrepancies.\n"
+                f"Checked: {total_wallets}\n"
+                f"Discrepancies: {len(discrepancies)}\n"
+                f"Total absolute discrepancy: {total_discrepancy}\n"
+                f"Dry run: {dry_run}\n"
+            )
+            logger.error(alert_message)
+
+            try:
+                mail_admins(
+                    subject="Wallet reconciliation discrepancies detected",
+                    message=alert_message,
+                    fail_silently=True,
+                )
+            except Exception:
+                logger.exception("Failed to send reconciliation alert email.")
