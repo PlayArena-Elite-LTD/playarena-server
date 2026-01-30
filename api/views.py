@@ -16,6 +16,7 @@ from .serializers import (
     DepositCreateSerializer,
     WithdrawalCreateSerializer
 )
+from .permissions import IsWalletOwner
 from accounts.models import CustomUser, Profile
 from matches.models import Match
 from wallet.models import Wallet, Transaction
@@ -249,7 +250,7 @@ class WalletDetailView(generics.RetrieveAPIView):
     Return the authenticated user's wallet balance.
     """
     serializer_class = WalletSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsWalletOwner]
 
     def get_object(self):
         wallet, _created = Wallet.objects.select_related('user').get_or_create(
