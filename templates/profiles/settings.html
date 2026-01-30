@@ -1,6 +1,34 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="section">
+<style>
+  .settings-grid { display: grid; gap: 16px; }
+  .settings-hero {
+    background: var(--neo-surface);
+    border: 1px solid var(--neo-border);
+    border-radius: 16px;
+    padding: 16px 18px;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .settings-hero h2 { margin: 0; color: var(--neo-text); }
+  .settings-hero p { margin: 6px 0 0; color: var(--neo-soft); }
+  .settings-card { background: var(--neo-surface); border: 1px solid var(--neo-border); border-radius: 16px; box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08); }
+  .settings-heading { color: var(--neo-text); margin-bottom: 8px; }
+  .settings-item { background: var(--neo-surface); border: 1px solid var(--neo-border); border-radius: 12px; padding: 12px 14px; display: flex; align-items: center; gap: 12px; }
+  .settings-item:hover { box-shadow: 0 8px 22px rgba(8, 145, 178, 0.22); border-color: rgba(8, 145, 178, 0.45); background: linear-gradient(135deg, rgba(8, 145, 178, 0.12), rgba(59, 130, 246, 0.10)); }
+  .settings-item-icon { width: 40px; height: 40px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; background: rgba(8, 145, 178, 0.12); color: var(--neo-text); }
+  .settings-item-title { color: var(--neo-text); font-weight: 700; }
+  .settings-item-desc { color: var(--neo-soft); }
+  .settings-item-button { background: transparent; border: none; color: var(--neo-text); margin-left: auto; }
+  .settings-item-danger { border-color: rgba(219, 39, 119, 0.45); }
+  .settings-item-danger .settings-item-icon { background: rgba(219, 39, 119, 0.12); color: #db2777; }
+  .settings-cta { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 0 16px; border-radius: 12px; font-weight: 700; background: linear-gradient(135deg, rgba(34, 211, 238, 0.85), rgba(59, 130, 246, 0.85)); border: 1px solid rgba(34, 211, 238, 0.5); color: #0b1020; text-decoration: none; }
+  @media (max-width: 900px) { .settings-hero { flex-direction: column; align-items: flex-start; } }
+</style>
+<section class="section neo-section">
   <div class="container">
     {% if messages %}
     <div class="messages">
@@ -13,13 +41,20 @@
     </div>
     {% endif %}
     
-    <h2 class="section-title">Settings</h2>
-    <div class="settings">
+    <div class="settings-grid">
+      <div class="settings-hero">
+        <div>
+          <h2>Settings</h2>
+          <p>Manage your account, security, and preferences in one place.</p>
+        </div>
+        <a href="{% url 'profile_edit' %}" class="settings-cta">Edit Profile</a>
+      </div>
       <div class="settings-card">
         <div class="settings-section">
           <h3 class="settings-heading">Account Settings</h3>
           
           <a href="{% url 'profile' %}" class="settings-item">
+            <div class="settings-item-icon"><i class="fas fa-user"></i></div>
             <div class="settings-item-content">
               <span class="settings-item-title">Profile Information</span>
               <span class="settings-item-desc">Edit your personal information</span>
@@ -28,6 +63,7 @@
           </a>
           
           <a href="{% url 'password_change' %}" class="settings-item">
+            <div class="settings-item-icon"><i class="fas fa-lock"></i></div>
             <div class="settings-item-content">
               <span class="settings-item-title">Change Password</span>
               <span class="settings-item-desc">Update your password</span>
@@ -36,6 +72,7 @@
           </a>
           
           <a href="{% url 'password_reset' %}" class="settings-item">
+            <div class="settings-item-icon"><i class="fas fa-key"></i></div>
             <div class="settings-item-content">
               <span class="settings-item-title">Reset Password</span>
               <span class="settings-item-desc">Send password reset email</span>
@@ -48,6 +85,7 @@
           <h3 class="settings-heading">Preferences</h3>
           
           <a href="#" class="settings-item">
+            <div class="settings-item-icon"><i class="fas fa-bell"></i></div>
             <div class="settings-item-content">
               <span class="settings-item-title">Notifications</span>
               <span class="settings-item-desc">Manage email notifications</span>
@@ -56,6 +94,7 @@
           </a>
           
           <a href="#" class="settings-item">
+            <div class="settings-item-icon"><i class="fas fa-shield-alt"></i></div>
             <div class="settings-item-content">
               <span class="settings-item-title">Privacy</span>
               <span class="settings-item-desc">Control your data and privacy settings</span>
@@ -71,6 +110,7 @@
    data-confirm-title="Log Out"
    data-confirm-button="Log Out">
             {% csrf_token %}
+            <div class="settings-item-icon"><i class="fas fa-right-from-bracket"></i></div>
             <div class="settings-item-content">
               <span class="settings-item-title">Log Out</span>
               <span class="settings-item-desc">Sign out from @{{ user.username }}</span>
@@ -81,6 +121,7 @@
           </form>
           
           <a href="#" class="settings-item settings-item-danger">
+            <div class="settings-item-icon"><i class="fas fa-triangle-exclamation"></i></div>
             <div class="settings-item-content">
               <span class="settings-item-title">Close Account</span>
               <span class="settings-item-desc">Delete your account and data</span>

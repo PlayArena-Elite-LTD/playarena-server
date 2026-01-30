@@ -3,7 +3,33 @@
 {% block title %}Chat with {{ other_user.username }}{% endblock %}
 
 {% block content %}
-<section class="conversation-section">
+<style>
+  .conversation-container { padding: 18px; }
+  .conversation-header { background: var(--neo-surface); border: 1px solid var(--neo-border); border-radius: 14px; padding: 12px 14px; }
+  .back-button { width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; border-radius: 12px; border: 1px solid var(--neo-border); background: var(--neo-surface); color: var(--neo-text); }
+  .back-button:hover { box-shadow: 0 8px 22px rgba(8, 145, 178, 0.22); border-color: rgba(8, 145, 178, 0.45); background: linear-gradient(135deg, rgba(8, 145, 178, 0.12), rgba(59, 130, 246, 0.10)); }
+  .messages-area { margin-top: 14px; }
+  .message-bubble { border-radius: 14px; }
+  .message-wrapper.outgoing .message-bubble { background: linear-gradient(135deg, rgba(34, 211, 238, 0.25), rgba(59, 130, 246, 0.2)); border: 1px solid rgba(34, 211, 238, 0.35); }
+  .message-wrapper.incoming .message-bubble { background: var(--neo-surface); border: 1px solid var(--neo-border); }
+  .message-timestamp { color: var(--neo-soft); }
+  .message-form-container { margin-top: 14px; }
+  .message-input-wrapper input,
+  .message-input-wrapper textarea {
+    border-radius: 12px;
+    border: 1px solid var(--neo-border);
+    background: var(--neo-surface);
+    color: var(--neo-text);
+  }
+  .send-button {
+    width: 44px; height: 44px; border-radius: 12px;
+    border: 1px solid rgba(34, 211, 238, 0.5);
+    background: linear-gradient(135deg, rgba(34, 211, 238, 0.85), rgba(59, 130, 246, 0.85));
+    color: #0b1020;
+  }
+  .send-button:hover { box-shadow: 0 8px 22px rgba(34, 211, 238, 0.25); }
+</style>
+<section class="conversation-section neo-section">
   <div class="conversation-container">
     <!-- Conversation Header -->
     <div class="conversation-header">

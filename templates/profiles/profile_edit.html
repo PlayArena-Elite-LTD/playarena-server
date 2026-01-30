@@ -1,6 +1,22 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="section">
+<style>
+  .profile-card { background: var(--neo-surface); border: 1px solid var(--neo-border); border-radius: 16px; box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08); }
+  .profile-form-field { background: var(--neo-surface); border: 1px solid var(--neo-border); border-radius: 12px; padding: 10px 12px; }
+  .profile-label { color: var(--neo-soft); text-transform: uppercase; letter-spacing: .04em; font-size: 12px; }
+  .profile-form-field input,
+  .profile-form-field select,
+  .profile-form-field textarea {
+    border-radius: 12px;
+    border: 1px solid var(--neo-border);
+    background: var(--neo-surface);
+    color: var(--neo-text);
+  }
+  .profile-actions { margin-top: 14px; display: flex; gap: 10px; }
+  .profile-button { min-height: 40px; padding: 0 16px; border-radius: 12px; font-weight: 700; border: 1px solid rgba(34, 211, 238, 0.5); background: linear-gradient(135deg, rgba(34, 211, 238, 0.85), rgba(59, 130, 246, 0.85)); color: #0b1020; }
+  .profile-button-secondary { background: var(--neo-surface); border: 1px solid var(--neo-border); color: var(--neo-text); }
+</style>
+<section class="section neo-section">
   <div class="container">
   	
   	{% if messages %}

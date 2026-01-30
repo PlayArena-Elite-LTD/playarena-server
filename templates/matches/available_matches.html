@@ -1,6 +1,32 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="section">
+<style>
+  .match-join-button,
+  .match-create-link,
+  .private-match-button,
+  .my-matches {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 40px;
+    padding: 0 16px;
+    border-radius: 12px;
+    font-weight: 600;
+    border: 1px solid var(--neo-border);
+    background: var(--neo-surface);
+    color: var(--neo-text);
+    text-decoration: none;
+  }
+  .match-join-button:hover,
+  .match-create-link:hover,
+  .private-match-button:hover,
+  .my-matches:hover {
+    box-shadow: 0 8px 22px rgba(8, 145, 178, 0.22);
+    border-color: rgba(8, 145, 178, 0.45);
+    background: linear-gradient(135deg, rgba(8, 145, 178, 0.18), rgba(59, 130, 246, 0.16));
+  }
+</style>
+<section class="section neo-section">
   <div class="container">
     {% if messages %}
     <div class="messages">

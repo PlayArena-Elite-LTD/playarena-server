@@ -3,7 +3,24 @@
 {% block title %}My Chats{% endblock %}
 
 {% block content %}
-<section class="section messages-section">
+<style>
+  .conversations-list { display: grid; gap: 12px; }
+  .conversation-card {
+    padding: 12px 14px;
+    min-height: 72px;
+    border-radius: 14px;
+    transition: all .2s ease;
+  }
+  .conversation-card:hover {
+    box-shadow: 0 8px 22px rgba(8, 145, 178, 0.22);
+    border-color: rgba(8, 145, 178, 0.45);
+    background: linear-gradient(135deg, rgba(8, 145, 178, 0.12), rgba(59, 130, 246, 0.10));
+  }
+  .conversation-name { font-weight: 700; }
+  .conversation-time { font-size: 12px; }
+  .conversation-preview { color: var(--neo-soft); }
+</style>
+<section class="section messages-section neo-section">
   <div class="container">
     <div class="messages-header">
       <h1 class="section-title">Chats</h1>
