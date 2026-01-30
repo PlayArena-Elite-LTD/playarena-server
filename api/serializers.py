@@ -3,6 +3,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth import get_user_model
 from accounts.models import CustomUser, Profile
 from matches.models import Match
+from wallet.models import Wallet, Transaction
 
 User = get_user_model()
 
@@ -187,6 +188,29 @@ class ChangePasswordSerializer(serializers.Serializer):
         user.set_password(self.validated_data['new_password'])
         user.save()
         return user
+
+
+class WalletSerializer(serializers.ModelSerializer):
+    """Serializer for wallet summary data"""
+    class Meta:
+        model = Wallet
+        fields = ['id', 'balance']
+        read_only_fields = ['id', 'balance']
+
+
+class TransactionSerializer(serializers.ModelSerializer):
+    """Serializer for wallet transactions"""
+    class Meta:
+        model = Transaction
+        fields = [
+            'id',
+            'amount',
+            'transaction_type',
+            'description',
+            'created_at',
+            'related_match',
+        ]
+        read_only_fields = fields
 
 
 class MatchSerializer(serializers.ModelSerializer):
