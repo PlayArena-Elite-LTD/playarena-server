@@ -46,6 +46,8 @@ INSTALLED_APPS = [
     'alert',
     'messenger',
     'panel',
+    'rest_framework',
+    'rest_framework_simplejwt',
 ]
 
 AUTH_USER_MODEL = 'accounts.CustomUser'
@@ -281,3 +283,20 @@ FLUTTERWAVE_SECRET_KEY = os.environ.get('FLUTTERWAVE_SECRET_KEY', '')
 FLUTTERWAVE_PUBLIC_KEY = os.environ.get('FLUTTERWAVE_PUBLIC_KEY', '')
 FLUTTERWAVE_BASE_URL = 'https://api.flutterwave.com/v3'
 FLUTTERWAVE_WEBHOOK_URL = os.environ.get('FLUTTERWAVE_WEBHOOK_URL', None)  # Optional webhook URL
+
+from datetime import timedelta
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    ),
+}
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'AUTH_HEADER_TYPES': ('Bearer',),
+}
