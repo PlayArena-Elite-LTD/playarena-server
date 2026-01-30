@@ -78,6 +78,9 @@ INSTALLED_APPS = [
     'messenger',
     'panel',
     'audit',
+    'rest_framework',
+    'rest_framework_simplejwt',
+    'api',
 ]
 
 AUTH_USER_MODEL = 'accounts.CustomUser'
@@ -325,6 +328,7 @@ FLUTTERWAVE_PUBLIC_KEY = os.environ.get('FLUTTERWAVE_PUBLIC_KEY', '')
 FLUTTERWAVE_BASE_URL = 'https://api.flutterwave.com/v3'
 FLUTTERWAVE_WEBHOOK_URL = os.environ.get('FLUTTERWAVE_WEBHOOK_URL', None)  # Optional webhook URL
 
+<<<<<<< HEAD
 # Logging Configuration
 # Create logs directory if it doesn't exist
 LOGS_DIR = BASE_DIR / 'logs'
@@ -526,3 +530,21 @@ else:
         # Remove console handler in production (optional - can be enabled if needed)
         if 'console' in logger_config['handlers']:
             logger_config['handlers'].remove('console')
+=======
+from datetime import timedelta
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    ),
+}
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'AUTH_HEADER_TYPES': ('Bearer',),
+}
+>>>>>>> origin/day-8
