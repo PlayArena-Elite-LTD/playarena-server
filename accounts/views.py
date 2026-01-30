@@ -4,6 +4,7 @@ from django.contrib.auth import authenticate, login, logout, get_user_model
 from django.contrib.auth.decorators import login_required
 from datetime import datetime
 from django.contrib.auth.views import LoginView
+from django.utils.decorators import method_decorator
 from django.contrib.auth.forms import AuthenticationForm
 from django.core import signing
 from django.core.mail import send_mail, EmailMultiAlternatives
@@ -95,14 +96,10 @@ def signup(request):
         return redirect('profile_edit')
     return render(request, 'registration/signup.html', {'form': form})
 
+@method_decorator(ratelimit(key='ip', rate='5/15m', method='POST', block=True), name='dispatch')
 class CustomLoginView(LoginView):
     authentication_form = EmailOrUsernameAuthenticationForm
     template_name = 'registration/login.html'
-    
-    @ratelimit(key='ip', rate='5/15m', method='POST', block=True)
-    def post(self, request, *args, **kwargs):
-        """Apply rate limiting to login POST requests"""
-        return super().post(request, *args, **kwargs)
     
     def dispatch(self, request, *args, **kwargs):
         # Check if user is already authenticated

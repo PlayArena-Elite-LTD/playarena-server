@@ -249,11 +249,16 @@ CACHES = {
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
         }
-    }
+    },
+    'ratelimit': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'ratelimit',
+    },
 }
 
 # Rate limiting configuration
-RATELIMIT_ENABLE = True
+# Disable ratelimit in DEBUG to avoid requiring a shared cache backend locally.
+RATELIMIT_ENABLE = False if DEBUG else True
 RATELIMIT_USE_CACHE = 'default'
 
 # CORS configuration
