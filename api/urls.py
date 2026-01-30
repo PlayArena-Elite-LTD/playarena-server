@@ -8,7 +8,9 @@ from .views import (
     UserDetailView,
     UserRegistrationView,
     ChangePasswordView,
-    PasswordResetRequestView
+    PasswordResetRequestView,
+    WalletDetailView,
+    TransactionHistoryView
 )
 
 
@@ -28,6 +30,10 @@ urlpatterns = [
 
     # Match endpoints
     path('my-matches/', MyMatchesView.as_view(), name='api_my_matches'),
+
+    # Wallet endpoints
+    path('wallet/', WalletDetailView.as_view(), name='api_wallet'),
+    path('wallet/transactions/', TransactionHistoryView.as_view(), name='api_wallet_transactions'),
 ]
 
 

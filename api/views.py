@@ -10,10 +10,13 @@ from .serializers import (
     ProfileSerializer,
     MatchSerializer,
     UserRegistrationSerializer,
-    ChangePasswordSerializer
+    ChangePasswordSerializer,
+    WalletSerializer,
+    TransactionSerializer
 )
 from accounts.models import CustomUser, Profile
 from matches.models import Match
+from wallet.models import Wallet, Transaction
 
 User = get_user_model()
 
@@ -234,3 +237,36 @@ class MyMatchesView(generics.ListAPIView):
     def get_queryset(self):
         user = self.request.user
         return Match.objects.filter(creator=user) | Match.objects.filter(joiner=user)
+
+
+class WalletDetailView(generics.RetrieveAPIView):
+    """
+    GET /api/wallet/
+
+    Return the authenticated user's wallet balance.
+    """
+    serializer_class = WalletSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self):
+        wallet, _created = Wallet.objects.select_related('user').get_or_create(
+            user=self.request.user
+        )
+        return wallet
+
+
+class TransactionHistoryView(generics.ListAPIView):
+    """
+    GET /api/wallet/transactions/
+
+    Return the authenticated user's wallet transactions.
+    """
+    serializer_class = TransactionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return (
+            Transaction.objects.select_related('wallet', 'related_match')
+            .filter(wallet__user=self.request.user)
+            .order_by('-created_at')
+        )
