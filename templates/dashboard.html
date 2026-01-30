@@ -1,5 +1,94 @@
 {% extends "base.html" %}
 {% block content %}
+<style>
+  :root {
+    --base-bg: #f8fafc;
+    --neon-cyan: #0891b2;
+    --neon-purple: #7c3aed;
+    --neon-pink: #db2777;
+    --glass-bg: rgba(255, 255, 255, 0.85);
+    --glass-border: rgba(15, 23, 42, 0.08);
+    --text-soft: #475569;
+    --text-bright: #0f172a;
+    --hero-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(241, 245, 249, 0.95));
+    --hero-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+  }
+  .dark-theme {
+    --base-bg: #0b1020;
+    --neon-cyan: #22d3ee;
+    --neon-purple: #a78bfa;
+    --neon-pink: #f472b6;
+    --glass-bg: rgba(11, 16, 32, 0.6);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --text-soft: #cbd5e1;
+    --text-bright: #f8fafc;
+    --hero-bg: linear-gradient(135deg, rgba(15, 23, 42, 0.85), rgba(2, 6, 23, 0.95));
+    --hero-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  }
+  .section { background: radial-gradient(1200px 600px at 10% -10%, rgba(34, 211, 238, 0.08), transparent 60%), radial-gradient(900px 500px at 90% -20%, rgba(167, 139, 250, 0.12), transparent 55%), var(--base-bg); border-radius: 18px; }
+  .container { padding: 24px; }
+  .dash-grid { display: grid; gap: 20px; }
+  .dash-hero {
+    display: flex; justify-content: space-between; align-items: center; gap: 16px;
+    padding: 22px; border-radius: 16px; color: var(--text-bright);
+    background: var(--hero-bg);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--hero-shadow), 0 0 22px rgba(34, 211, 238, 0.12);
+  }
+  .dash-hero h2 { margin: 0; font-size: 26px; text-shadow: 0 0 12px rgba(34, 211, 238, 0.35); }
+  .dash-hero p { margin: 6px 0 0; color: var(--text-soft); }
+  .dash-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+  .dash-card {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px; padding: 18px;
+    backdrop-filter: blur(14px);
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.25);
+    color: var(--text-bright);
+  }
+  .dash-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+  .dash-kpi {
+    padding: 16px; border-radius: 14px;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    box-shadow: inset 0 0 18px rgba(34, 211, 238, 0.06);
+  }
+  .dash-kpi .label { font-size: 12px; color: var(--text-soft); text-transform: uppercase; letter-spacing: .06em; }
+  .dash-kpi .value { font-size: 22px; font-weight: 700; margin-top: 6px; color: var(--text-bright); }
+  .dash-section-title { margin: 0 0 10px; font-size: 16px; color: var(--text-bright); }
+  .dash-button {
+    padding: 10px 14px; border-radius: 12px; border: 1px solid var(--glass-border);
+    background: var(--glass-bg); color: var(--text-bright);
+    text-decoration: none; font-weight: 600; transition: all .2s ease;
+    box-shadow: 0 0 0 rgba(34, 211, 238, 0);
+  }
+  .dash-button:hover { transform: translateY(-1px); box-shadow: 0 0 18px rgba(34, 211, 238, 0.3); }
+  body:not(.dark-theme) .dash-button:hover {
+    box-shadow: 0 8px 26px rgba(8, 145, 178, 0.28), 0 0 0 2px rgba(8, 145, 178, 0.18) inset;
+    border-color: rgba(8, 145, 178, 0.55);
+    background: linear-gradient(135deg, rgba(8, 145, 178, 0.18), rgba(59, 130, 246, 0.16));
+  }
+  .dash-button.primary {
+    background: linear-gradient(135deg, rgba(34, 211, 238, 0.85), rgba(59, 130, 246, 0.85));
+    border-color: rgba(34, 211, 238, 0.5);
+  }
+  .dash-button.dark {
+    background: linear-gradient(135deg, rgba(244, 114, 182, 0.85), rgba(167, 139, 250, 0.85));
+    border-color: rgba(244, 114, 182, 0.5);
+  }
+  .dash-muted { color: var(--text-soft); font-size: 13px; }
+  .dash-row { display: grid; grid-template-columns: 1.25fr .75fr; gap: 20px; }
+  .transaction-list { display: grid; gap: 12px; }
+  .transaction-item { background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 12px; padding: 12px; }
+  .transaction-description { color: var(--text-bright); }
+  .transaction-date, .transaction-type { color: var(--text-soft); }
+  .transaction-amount.credit-text { color: var(--neon-cyan); }
+  .transaction-amount.debit-text { color: var(--neon-pink); }
+  .transaction-indicator.credit { background: var(--neon-cyan); box-shadow: 0 0 10px rgba(34, 211, 238, 0.6); }
+  .transaction-indicator.debit { background: var(--neon-pink); box-shadow: 0 0 10px rgba(244, 114, 182, 0.6); }
+  .transaction-empty { color: var(--text-soft); }
+  @media (max-width: 900px) { .dash-row { grid-template-columns: 1fr; } .dash-hero { flex-direction: column; align-items: flex-start; } }
+</style>
 <section class="section">
   <div class="container">
     {% if messages %}
@@ -13,37 +102,51 @@
     </div>
     {% endif %}
     
-    <!-- Section heading -->
-    <h2 class="section-title">Dashboard</h2>
-    
-    <!-- Dashboard header -->
-    <div class="dashboard-header">
-      <div class="dashboard-meta">
-        <p class="dashboard-welcome">Hi <strong>@{{ user.username }}</strong></p>
-        <p class="dashboard-tag">Let's do this!</p>
+    <div class="dash-grid">
+      <!-- Hero -->
+      <div class="dash-hero">
+        <div>
+          <h2>Welcome back, @{{ user.username }}</h2>
+          <p>Your arena command center for wallet, profile, and activity.</p>
+          <div class="dash-muted">Last login: {{ user.last_login|date:"M d, Y h:i A" }}</div>
+        </div>
+        <div class="dash-actions">
+          <a href="{% url 'profile_edit' %}" class="dash-button">Edit Profile</a>
+        </div>
       </div>
-    </div>
-    
-    <!-- Wallet balance card -->
-    <div class="dashboard-card">
-      <div class="dashboard-card-header">
-        <h3 class="dashboard-card-title">Wallet Balance</h3>
-      </div>
-      <div class="dashboard-balance">
-        <span class="dashboard-balance-amount">${{ user.wallet.balance|floatformat:2 }}</span>
-        <span class="dashboard-balance-label">Available Balance</span>
-      </div>
-      <div class="dashboard-actions">
-        <a href="{% url 'deposit' %}" class="dashboard-button dashboard-button-primary">Add Funds</a>
-        <a href="{% url 'withdraw' %}" class="dashboard-button">Withdraw</a>
+
+      <!-- Wallet summary -->
+      <div class="dash-card">
+        <div class="dash-kpis">
+          <div class="dash-kpi">
+            <div class="label">Wallet Balance</div>
+            <div class="value">${{ user.wallet.balance|floatformat:2 }}</div>
+            <div class="dash-muted">Available balance</div>
+          </div>
+          <div class="dash-kpi">
+            <div class="label">Transactions</div>
+            <div class="value">{{ user.wallet.transactions.count }}</div>
+            <div class="dash-muted">Total activity</div>
+          </div>
+          <div class="dash-kpi">
+            <div class="label">Account Status</div>
+            <div class="value">{% if user.is_active %}Active{% else %}Inactive{% endif %}</div>
+            <div class="dash-muted">Profile ready</div>
+          </div>
+        </div>
+        <div class="dash-actions" style="margin-top: 12px;">
+          <a href="{% url 'deposit' %}" class="dash-button primary">Add Funds</a>
+          <a href="{% url 'withdraw' %}" class="dash-button">Withdraw</a>
+          <a href="{% url 'transaction_history' %}" class="dash-button">Transactions</a>
+          <a href="{% url 'available_matches' %}" class="dash-button">Find Matches</a>
+          <a href="{% url 'my_matches' %}" class="dash-button">My Matches</a>
+        </div>
       </div>
     </div>
     
     <!-- Transaction History card -->
-    <div class="dashboard-card">
-      <div class="dashboard-card-header">
-        <h3 class="dashboard-card-title">Transaction History</h3>
-      </div>
+    <div class="dash-card">
+      <h3 class="dash-section-title">Recent Transactions</h3>
       <div class="transaction-list">
         {% for transaction in user.wallet.transactions.all|dictsortreversed:"created_at" %}
           <div class="transaction-item">

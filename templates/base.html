@@ -21,6 +21,48 @@
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
     />
+    <style>
+      :root {
+        --nav-bg: rgba(255, 255, 255, 0.8);
+        --nav-border: rgba(15, 23, 42, 0.08);
+        --nav-text: #0f172a;
+        --nav-accent: #0891b2;
+        --nav-link-bg: rgba(248, 250, 252, 0.9);
+        --nav-link-border: rgba(15, 23, 42, 0.08);
+        --nav-link-hover: rgba(8, 145, 178, 0.18);
+        --nav-cta-bg: linear-gradient(135deg, rgba(8, 145, 178, 0.95), rgba(59, 130, 246, 0.9));
+        --nav-cta-danger-bg: linear-gradient(135deg, rgba(244, 114, 182, 0.95), rgba(167, 139, 250, 0.9));
+        --nav-cta-text: #0b1020;
+      }
+      .dark-theme {
+        --nav-bg: rgba(11, 16, 32, 0.7);
+        --nav-border: rgba(255, 255, 255, 0.08);
+        --nav-text: #f8fafc;
+        --nav-accent: #22d3ee;
+        --nav-link-bg: rgba(15, 23, 42, 0.55);
+        --nav-link-border: rgba(255, 255, 255, 0.08);
+        --nav-link-hover: rgba(34, 211, 238, 0.25);
+        --nav-cta-bg: linear-gradient(135deg, rgba(34, 211, 238, 0.95), rgba(59, 130, 246, 0.9));
+        --nav-cta-danger-bg: linear-gradient(135deg, rgba(244, 114, 182, 0.95), rgba(167, 139, 250, 0.9));
+        --nav-cta-text: #0b1020;
+      }
+      .header { background: var(--nav-bg); backdrop-filter: blur(14px); border-bottom: 1px solid var(--nav-border); }
+      .nav-brand { font-weight: 700; letter-spacing: .3px; color: var(--nav-text); }
+      .nav-brand span { color: var(--nav-accent); }
+      .nav-list { display: flex; flex-wrap: wrap; gap: 10px; }
+      .nav-link { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 12px; color: var(--nav-text); background: var(--nav-link-bg); border: 1px solid var(--nav-link-border); transition: all .2s ease; }
+      .nav-link:hover { transform: translateY(-1px); box-shadow: 0 0 16px var(--nav-link-hover); }
+      body:not(.dark-theme) .nav-link:hover {
+        box-shadow: 0 8px 22px rgba(8, 145, 178, 0.2);
+        border-color: rgba(8, 145, 178, 0.45);
+        background: linear-gradient(135deg, rgba(8, 145, 178, 0.16), rgba(59, 130, 246, 0.14));
+      }
+      .nav-icon { display: flex; align-items: center; justify-content: center; }
+      .nav-cta { background: var(--nav-cta-bg); border-color: rgba(34, 211, 238, 0.6); color: var(--nav-cta-text); font-weight: 700; }
+      .nav-cta-danger { background: var(--nav-cta-danger-bg); border-color: rgba(244, 114, 182, 0.6); color: var(--nav-cta-text); font-weight: 700; }
+      .nav-icon-only { width: 40px; height: 40px; padding: 0; justify-content: center; }
+      .nav-icon-only span { display: none; }
+    </style>
     {% block additional_styles %}{% endblock %}
   </head>
 <body>
@@ -119,6 +161,9 @@
           <div class="theme">
             <i class="fas fa-moon theme-toggle" id="theme-toggle"></i>
           </div>
+          <a href="{% url 'logout' %}" class="nav-link nav-cta-danger nav-icon-only" style="margin-left: 8px;" aria-label="Logout" title="Logout">
+            <div class="nav-icon"><i class="fas fa-right-from-bracket"></i></div>
+          </a>
           <div class="nav-toggle" id="nav-toggle">
             <i class="bx bx-grid-alt"></i>
           </div>
