@@ -4,7 +4,9 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import get_user_model
 from .serializers import (
-    UserSerializer, 
+    UserSerializer,
+    PublicUserSerializer,
+    UserUpdateSerializer,
     MatchSerializer,
     UserRegistrationSerializer,
     ChangePasswordSerializer
@@ -140,17 +142,63 @@ class PasswordResetRequestView(APIView):
             }, status=status.HTTP_200_OK)
 
 
-class MeView(generics.RetrieveAPIView):
+class MeView(generics.RetrieveUpdateAPIView):
     """
     GET /api/me/
+    PUT /api/me/
+    PATCH /api/me/
     
-    Get current authenticated user information.
+    Get or update current authenticated user information.
+    
+    GET: Returns current user data
+    PUT/PATCH: Updates current user (username, email, first_name, last_name)
     """
-    serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated]
+    
+    def get_serializer_class(self):
+        if self.request.method in ['PUT', 'PATCH']:
+            return UserUpdateSerializer
+        return UserSerializer
 
     def get_object(self):
         return self.request.user
+
+
+class UserListView(generics.ListAPIView):
+    """
+    GET /api/users/
+    
+    List all users. Admin and staff only.
+    
+    Returns public profile information for all users.
+    Supports pagination.
+    """
+    serializer_class = PublicUserSerializer
+    permission_classes = [permissions.IsAdminUser]
+    queryset = User.objects.all().order_by('-date_joined')
+    
+    def get_queryset(self):
+        """Filter queryset if needed (e.g., search by username)"""
+        queryset = super().get_queryset()
+        username = self.request.query_params.get('username', None)
+        if username:
+            queryset = queryset.filter(username__icontains=username)
+        return queryset
+
+
+class UserDetailView(generics.RetrieveAPIView):
+    """
+    GET /api/users/{id}/
+    
+    Get public profile information for a specific user.
+    
+    Returns limited user information (no email, no sensitive data).
+    Public endpoint (no authentication required).
+    """
+    serializer_class = PublicUserSerializer
+    permission_classes = [permissions.AllowAny]
+    queryset = User.objects.all()
+    lookup_field = 'id'
 
 
 class MyMatchesView(generics.ListAPIView):

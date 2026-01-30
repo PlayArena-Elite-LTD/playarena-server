@@ -32,6 +32,21 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'date_joined', 'is_support_staff']
 
 
+class PublicUserSerializer(serializers.ModelSerializer):
+    """Public user serializer for viewing other users (limited fields)"""
+    profile = ProfileSerializer(read_only=True)
+    
+    class Meta:
+        model = CustomUser
+        fields = [
+            'id',
+            'username',
+            'date_joined',
+            'profile'
+        ]
+        read_only_fields = ['id', 'username', 'date_joined']
+
+
 class UserRegistrationSerializer(serializers.ModelSerializer):
     """Serializer for user registration with password validation"""
     password = serializers.CharField(
