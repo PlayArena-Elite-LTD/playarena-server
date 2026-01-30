@@ -7,11 +7,12 @@ from .serializers import (
     UserSerializer,
     PublicUserSerializer,
     UserUpdateSerializer,
+    ProfileSerializer,
     MatchSerializer,
     UserRegistrationSerializer,
     ChangePasswordSerializer
 )
-from accounts.models import CustomUser
+from accounts.models import CustomUser, Profile
 from matches.models import Match
 
 User = get_user_model()
@@ -199,6 +200,26 @@ class UserDetailView(generics.RetrieveAPIView):
     permission_classes = [permissions.AllowAny]
     queryset = User.objects.all()
     lookup_field = 'id'
+
+
+class ProfileView(generics.RetrieveUpdateAPIView):
+    """
+    GET /api/me/profile/
+    PUT /api/me/profile/
+    PATCH /api/me/profile/
+    
+    Get or update current user's profile (first_name, last_name).
+    
+    GET: Returns current user's profile
+    PUT/PATCH: Updates profile fields
+    """
+    serializer_class = ProfileSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_object(self):
+        """Get or create profile for current user"""
+        profile, created = Profile.objects.get_or_create(user=self.request.user)
+        return profile
 
 
 class MyMatchesView(generics.ListAPIView):

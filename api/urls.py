@@ -2,6 +2,7 @@ from django.urls import path
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from .views import (
     MeView,
+    ProfileView,
     MyMatchesView,
     UserListView,
     UserDetailView,
@@ -21,6 +22,7 @@ urlpatterns = [
 
     # User endpoints
     path('me/', MeView.as_view(), name='api_me'),
+    path('me/profile/', ProfileView.as_view(), name='api_profile'),
     path('users/', UserListView.as_view(), name='api_user_list'),
     path('users/<int:id>/', UserDetailView.as_view(), name='api_user_detail'),
 
