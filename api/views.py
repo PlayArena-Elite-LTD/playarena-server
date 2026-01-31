@@ -5,6 +5,8 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from decimal import Decimal
 from .serializers import (
     UserSerializer,
@@ -14,6 +16,7 @@ from .serializers import (
     MatchSerializer,
     MatchCreateSerializer,
     MatchJoinSerializer,
+    MatchResultSubmissionSerializer,
     UserRegistrationSerializer,
     ChangePasswordSerializer,
     WalletSerializer,
@@ -23,7 +26,8 @@ from .serializers import (
 )
 from .permissions import IsWalletOwner
 from accounts.models import CustomUser, Profile
-from matches.models import Match
+from matches.models import Match, MatchResult
+from alert.models import Notification
 from wallet.models import Wallet, Transaction
 from wallet.notifications import notify_withdrawal_created
 
@@ -452,6 +456,355 @@ class MatchJoinView(APIView):
                 'message': 'Match joined successfully.',
                 'match': MatchSerializer(match).data,
             },
+            status=status.HTTP_200_OK,
+        )
+
+
+class MatchResultSubmitView(APIView):
+    """
+    POST /api/matches/{id}/submit-result/
+
+    Submit match result for creator or joiner.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, id):
+        match = get_object_or_404(Match, id=id)
+
+        if match.status != 'JOINED':
+            return Response(
+                {'detail': f"Cannot submit result for a match with status '{match.get_status_display()}'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if request.user != match.creator and request.user != match.joiner:
+            return Response(
+                {'detail': 'You are not a participant in this match.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = MatchResultSubmissionSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        submission = serializer.validated_data['submission']
+        match_result, _created = MatchResult.objects.get_or_create(match=match)
+
+        is_creator = request.user == match.creator
+        if is_creator:
+            if match_result.creator_submission:
+                return Response(
+                    {'detail': 'You have already submitted your result for this match.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            match_result.creator_submission = submission
+            match_result.creator_submission_time = timezone.now()
+        else:
+            if match_result.joiner_submission:
+                return Response(
+                    {'detail': 'You have already submitted your result for this match.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            match_result.joiner_submission = submission
+            match_result.joiner_submission_time = timezone.now()
+
+        match_result.save()
+
+        try:
+            from audit.utils import log_action
+            log_action(
+                action='match_result_submitted',
+                user=request.user,
+                details={
+                    'match_id': match.id,
+                    'user_id': request.user.id,
+                    'username': request.user.username,
+                    'role': 'creator' if is_creator else 'joiner',
+                    'submission': submission,
+                    'submission_round': match_result.submission_round,
+                },
+                request=request,
+            )
+        except Exception:
+            pass
+
+        if not match_result.creator_submission or not match_result.joiner_submission:
+            opponent = match.joiner if is_creator else match.creator
+            Notification.objects.create(
+                user=opponent,
+                message=(
+                    f"Your opponent has submitted their result for the {match.get_game_display()} "
+                    f"match (${match.amount}). Please submit your result."
+                )
+            )
+            return Response(
+                {'message': 'Result submitted. Waiting for opponent.'},
+                status=status.HTTP_200_OK,
+            )
+
+        creator_sub = match_result.creator_submission
+        joiner_sub = match_result.joiner_submission
+
+        if (creator_sub == 'WON' and joiner_sub == 'LOST') or \
+           (creator_sub == 'LOST' and joiner_sub == 'WON') or \
+           (creator_sub == 'DRAW' and joiner_sub == 'DRAW'):
+
+            match.status = 'COMPLETED'
+
+            if creator_sub == 'WON':
+                winner = match.creator
+                loser = match.joiner
+            elif joiner_sub == 'WON':
+                winner = match.joiner
+                loser = match.creator
+            else:
+                refund_amount = Decimal(match.amount) * Decimal('0.9')
+                creator_wallet = match.creator.wallet
+                joiner_wallet = match.joiner.wallet
+
+                creator_wallet.balance += refund_amount
+                creator_wallet.save(update_fields=['balance'])
+                joiner_wallet.balance += refund_amount
+                joiner_wallet.save(update_fields=['balance'])
+
+                Transaction.objects.create(
+                    wallet=creator_wallet,
+                    amount=refund_amount,
+                    transaction_type='MATCH_DRAW_RETURN',
+                    description=(
+                        f"Return from draw in {match.get_game_display()} match against "
+                        f"{match.joiner.username} for ${match.amount}"
+                    ),
+                    related_match=match
+                )
+
+                Transaction.objects.create(
+                    wallet=joiner_wallet,
+                    amount=refund_amount,
+                    transaction_type='MATCH_DRAW_RETURN',
+                    description=(
+                        f"Return from draw in {match.get_game_display()} match against "
+                        f"{match.creator.username} for ${match.amount}"
+                    ),
+                    related_match=match
+                )
+
+                Notification.objects.create(
+                    user=match.creator,
+                    message=(
+                        f"Your {match.get_game_display()} match against {match.joiner.username} "
+                        f"ended in a draw. ${refund_amount} has been returned to your wallet."
+                    )
+                )
+                Notification.objects.create(
+                    user=match.joiner,
+                    message=(
+                        f"Your {match.get_game_display()} match against {match.creator.username} "
+                        f"ended in a draw. ${refund_amount} has been returned to your wallet."
+                    )
+                )
+
+                match.save(update_fields=['status'])
+
+                return Response(
+                    {'message': 'Match recorded as a draw.', 'status': match.status},
+                    status=status.HTTP_200_OK,
+                )
+
+            match.winner = winner
+            match.save(update_fields=['status', 'winner'])
+
+            winner_wallet = winner.wallet
+            winner_wallet.balance += Decimal(match.winnings)
+            winner_wallet.save(update_fields=['balance'])
+
+            Transaction.objects.create(
+                wallet=winner_wallet,
+                amount=Decimal(match.winnings),
+                transaction_type='MATCH_WINNINGS',
+                description=(
+                    f"Winnings from {match.get_game_display()} match against {loser.username} "
+                    f"for ${match.amount}"
+                ),
+                related_match=match
+            )
+
+            Notification.objects.create(
+                user=winner,
+                message=(
+                    f"Congratulations! You won the {match.get_game_display()} match against "
+                    f"{loser.username}. ${match.winnings} has been added to your wallet."
+                )
+            )
+            Notification.objects.create(
+                user=loser,
+                message=(
+                    f"You lost the {match.get_game_display()} match against {winner.username}."
+                )
+            )
+
+            return Response(
+                {
+                    'message': 'Match result recorded successfully.',
+                    'status': match.status,
+                    'winner_id': winner.id,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        if match_result.submission_round == 1:
+            match_result.creator_submission = None
+            match_result.creator_submission_time = None
+            match_result.joiner_submission = None
+            match_result.joiner_submission_time = None
+            match_result.submission_round = 2
+            match_result.save()
+
+            Notification.objects.create(
+                user=match.creator,
+                message=(
+                    f"Result disagreement detected for your {match.get_game_display()} match "
+                    f"against {match.joiner.username}. Please submit results again (final attempt)."
+                ),
+            )
+            Notification.objects.create(
+                user=match.joiner,
+                message=(
+                    f"Result disagreement detected for your {match.get_game_display()} match "
+                    f"against {match.creator.username}. Please submit results again (final attempt)."
+                ),
+            )
+
+            return Response(
+                {'message': 'Disagreement detected. Please submit results again.', 'round': 2},
+                status=status.HTTP_200_OK,
+            )
+
+        match.status = 'DISPUTED'
+        match.save(update_fields=['status'])
+
+        try:
+            from panel.models import Dispute
+            Dispute.objects.create(match=match, status='OPEN')
+        except Exception:
+            pass
+
+        Notification.objects.create(
+            user=match.creator,
+            message=(
+                f"Your {match.get_game_display()} match against {match.joiner.username} "
+                f"has been marked as DISPUTED after conflicting results. Support will review."
+            ),
+        )
+        Notification.objects.create(
+            user=match.joiner,
+            message=(
+                f"Your {match.get_game_display()} match against {match.creator.username} "
+                f"has been marked as DISPUTED after conflicting results. Support will review."
+            ),
+        )
+
+        return Response(
+            {'message': 'Match marked as disputed. Support will review.', 'status': match.status},
+            status=status.HTTP_200_OK,
+        )
+
+
+class MatchCancelView(APIView):
+    """
+    POST /api/matches/{id}/cancel/
+
+    Cancel a match or leave a joined match. Handles refunds.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, id):
+        match = get_object_or_404(Match, id=id)
+
+        if request.user != match.creator and request.user != match.joiner:
+            return Response(
+                {'detail': "You don't have permission to cancel this match."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if match.status not in ['OPEN', 'JOINED']:
+            return Response(
+                {'detail': f"Cannot cancel a match with status '{match.get_status_display()}'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        match_game = match.get_game_display()
+        match_amount = match.amount
+
+        if request.user == match.creator:
+            creator_wallet = match.creator.wallet
+            creator_wallet.balance += Decimal(match.amount)
+            creator_wallet.save(update_fields=['balance'])
+
+            Transaction.objects.create(
+                wallet=creator_wallet,
+                amount=Decimal(match.amount),
+                transaction_type='MATCH_REFUND',
+                description=f"Refund from cancelled {match_game} match for ${match_amount}",
+                related_match=match
+            )
+
+            if match.joiner:
+                joiner = match.joiner
+                joiner_wallet = joiner.wallet
+                joiner_wallet.balance += Decimal(match.amount)
+                joiner_wallet.save(update_fields=['balance'])
+
+                Transaction.objects.create(
+                    wallet=joiner_wallet,
+                    amount=Decimal(match.amount),
+                    transaction_type='MATCH_REFUND',
+                    description=f"Refund from cancelled {match_game} match for ${match_amount}",
+                    related_match=match
+                )
+
+                Notification.objects.create(
+                    user=joiner,
+                    message=(
+                        f"A {match_game} match you joined has been cancelled by the creator. "
+                        f"${match_amount} has been refunded to your wallet."
+                    )
+                )
+
+            match.delete()
+
+            return Response(
+                {'message': 'Match cancelled and refunded.', 'status': 'CANCELLED'},
+                status=status.HTTP_200_OK,
+            )
+
+        joiner_wallet = match.joiner.wallet
+        joiner_wallet.balance += Decimal(match.amount)
+        joiner_wallet.save(update_fields=['balance'])
+
+        match.joiner = None
+        match.status = 'OPEN'
+        match.save(update_fields=['joiner', 'status'])
+
+        Transaction.objects.create(
+            wallet=joiner_wallet,
+            amount=Decimal(match.amount),
+            transaction_type='MATCH_REFUND',
+            description=f"Refund from leaving {match_game} match for ${match_amount}",
+            related_match=match
+        )
+
+        Notification.objects.create(
+            user=match.creator,
+            message=(
+                f"{request.user.username} has left your {match_game} match. The match is now open."
+            )
+        )
+
+        return Response(
+            {'message': 'You have left the match and been refunded.', 'status': match.status},
             status=status.HTTP_200_OK,
         )
 

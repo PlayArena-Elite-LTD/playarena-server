@@ -8,6 +8,8 @@ from .views import (
     MatchDetailView,
     MatchCreateView,
     MatchJoinView,
+    MatchResultSubmitView,
+    MatchCancelView,
     UserListView,
     UserDetailView,
     UserRegistrationView,
@@ -40,6 +42,8 @@ urlpatterns = [
     path('matches/<int:id>/', MatchDetailView.as_view(), name='api_match_detail'),
     path('matches/create/', MatchCreateView.as_view(), name='api_match_create'),
     path('matches/join/', MatchJoinView.as_view(), name='api_match_join'),
+    path('matches/<int:id>/submit-result/', MatchResultSubmitView.as_view(), name='api_match_submit_result'),
+    path('matches/<int:id>/cancel/', MatchCancelView.as_view(), name='api_match_cancel'),
 
     # Wallet endpoints
     path('wallet/', WalletDetailView.as_view(), name='api_wallet'),

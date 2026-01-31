@@ -364,3 +364,8 @@ class MatchJoinSerializer(serializers.Serializer):
 
         self.context['match'] = match
         return value
+
+class MatchResultSubmissionSerializer(serializers.Serializer):
+    """Serializer for submitting a match result"""
+    submission = serializers.ChoiceField(choices=['WON', 'LOST', 'DRAW'])
+
