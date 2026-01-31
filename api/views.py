@@ -24,7 +24,7 @@ from .serializers import (
     DepositCreateSerializer,
     WithdrawalCreateSerializer
 )
-from .permissions import IsWalletOwner
+from .permissions import IsWalletOwner, IsMatchParticipant
 from accounts.models import CustomUser, Profile
 from matches.models import Match, MatchResult
 from alert.models import Notification
@@ -466,11 +466,12 @@ class MatchResultSubmitView(APIView):
 
     Submit match result for creator or joiner.
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsMatchParticipant]
 
     @transaction.atomic
     def post(self, request, id):
         match = get_object_or_404(Match, id=id)
+        self.check_object_permissions(request, match)
 
         if match.status != 'JOINED':
             return Response(
@@ -717,11 +718,12 @@ class MatchCancelView(APIView):
 
     Cancel a match or leave a joined match. Handles refunds.
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsMatchParticipant]
 
     @transaction.atomic
     def post(self, request, id):
         match = get_object_or_404(Match, id=id)
+        self.check_object_permissions(request, match)
 
         if request.user != match.creator and request.user != match.joiner:
             return Response(
