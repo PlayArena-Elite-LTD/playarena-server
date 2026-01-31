@@ -1,13 +1,16 @@
-from rest_framework import generics, permissions, status
+from rest_framework import generics, permissions, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.exceptions import PermissionDenied
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from decimal import Decimal
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
 from .serializers import (
     UserSerializer,
     PublicUserSerializer,
@@ -22,12 +25,19 @@ from .serializers import (
     WalletSerializer,
     TransactionSerializer,
     DepositCreateSerializer,
-    WithdrawalCreateSerializer
+    WithdrawalCreateSerializer,
+    DisputeSerializer,
+    DisputeResolutionSerializer,
+    MessageSerializer,
+    MessageCreateSerializer,
+    NotificationSerializer
 )
 from .permissions import IsWalletOwner, IsMatchParticipant
 from accounts.models import CustomUser, Profile
 from matches.models import Match, MatchResult
-from alert.models import Notification
+from panel.models import Dispute
+from messenger.models import Message, ReadMessage
+from alert.models import Notification, ReadNotification
 from wallet.models import Wallet, Transaction
 from wallet.notifications import notify_withdrawal_created
 
@@ -946,4 +956,369 @@ class WithdrawalCreateView(APIView):
                 'message': 'Withdrawal request created and queued for processing.',
             },
             status=status.HTTP_201_CREATED,
+        )
+@extend_schema_view(
+    list=extend_schema(
+        summary="List disputes",
+        description="Get list of disputes. Support staff see all disputes, regular users see only disputes for their own matches.",
+        parameters=[
+            OpenApiParameter(
+                name='status',
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description='Filter by status (OPEN, PENDING, RESOLVED)',
+                required=False,
+            ),
+        ],
+    ),
+    retrieve=extend_schema(
+        summary="Get dispute detail",
+        description="Get detailed information about a specific dispute.",
+    ),
+    resolve=extend_schema(
+        summary="Resolve dispute",
+        description="Resolve a dispute. Only support staff can resolve disputes.",
+        request=DisputeResolutionSerializer,
+        responses={200: DisputeSerializer},
+    ),
+)
+class DisputeViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing disputes.
+    
+    list: GET /api/disputes/ - List all disputes (support staff: all, users: own)
+    retrieve: GET /api/disputes/{id}/ - Get dispute detail
+    resolve: POST /api/disputes/{id}/resolve/ - Resolve a dispute (support staff only)
+    """
+    serializer_class = DisputeSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        """Filter disputes based on user role"""
+        user = self.request.user
+        
+        # Support staff can see all disputes
+        if user.is_support_staff or user.is_staff:
+            queryset = Dispute.objects.all()
+        else:
+            # Regular users can only see disputes for their matches
+            queryset = Dispute.objects.filter(
+                match__creator=user
+            ) | Dispute.objects.filter(
+                match__joiner=user
+            )
+        
+        # Filter by status if provided
+        status_filter = self.request.query_params.get('status', None)
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        
+        return queryset.order_by('-created_at')
+    
+    def get_permissions(self):
+        """Override permissions for specific actions"""
+        if self.action == 'resolve':
+            # Only support staff can resolve disputes
+            return [permissions.IsAuthenticated(), permissions.IsAdminUser()]
+        # Regular users can list and retrieve their own disputes
+        return [permissions.IsAuthenticated()]
+    
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser])
+    def resolve(self, request, pk=None):
+        """
+        POST /api/disputes/{id}/resolve/
+        
+        Resolve a dispute. Only support staff can resolve disputes.
+        
+        Request body:
+        {
+            "status": "RESOLVED",
+            "resolution_notes": "Dispute resolved in favor of creator"
+        }
+        """
+        dispute = self.get_object()
+        serializer = DisputeResolutionSerializer(data=request.data)
+        
+        if serializer.is_valid():
+            dispute.status = serializer.validated_data['status']
+            dispute.resolution_notes = serializer.validated_data.get('resolution_notes', '')
+            
+            if dispute.status == 'RESOLVED':
+                dispute.resolved_at = timezone.now()
+            
+            dispute.save()
+            
+            # Create notification for match participants
+            match = dispute.match
+            participants = [match.creator]
+            if match.joiner:
+                participants.append(match.joiner)
+            
+            for participant in participants:
+                Notification.objects.create(
+                    user=participant,
+                    message=f"Dispute for match {dispute.match.joining_code} has been {dispute.get_status_display().lower()}."
+                )
+            
+            return Response(
+                DisputeSerializer(dispute).data,
+                status=status.HTTP_200_OK
+            )
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@extend_schema_view(
+    list=extend_schema(
+        summary="List messages",
+        description="Get all messages where the current user is either sender or receiver.",
+    ),
+    create=extend_schema(
+        summary="Send message",
+        description="Send a new message to another user.",
+        request=MessageCreateSerializer,
+        responses={201: MessageSerializer},
+    ),
+    retrieve=extend_schema(
+        summary="Get message detail",
+        description="Get detailed information about a specific message.",
+    ),
+    conversations=extend_schema(
+        summary="List conversations",
+        description="Get all conversations with latest message and unread count for each conversation.",
+    ),
+    conversation=extend_schema(
+        summary="Get conversation",
+        description="Get all messages in a conversation with a specific user. Automatically marks received messages as read.",
+    ),
+)
+class MessageViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing messages.
+    
+    list: GET /api/messages/ - List all messages (sent/received)
+    create: POST /api/messages/ - Send a new message
+    retrieve: GET /api/messages/{id}/ - Get message detail
+    conversations: GET /api/messages/conversations/ - List all conversations
+    conversation: GET /api/messages/conversation/{user_id}/ - Get conversation with a user
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_serializer_class(self):
+        """Use different serializers for different actions"""
+        if self.action == 'create':
+            return MessageCreateSerializer
+        return MessageSerializer
+    
+    def get_queryset(self):
+        """Get messages where user is sender or receiver"""
+        user = self.request.user
+        return (Message.objects.filter(sender=user) | 
+                Message.objects.filter(receiver=user)).order_by('-created_at')
+    
+    def perform_create(self, serializer):
+        """Set sender to current user and create notification"""
+        serializer.save(sender=self.request.user)
+        
+        receiver = serializer.validated_data['receiver']
+        Notification.objects.create(
+            user=receiver,
+            message=f"You have a new message from {self.request.user.username}"
+        )
+    
+    @action(detail=False, methods=['get'])
+    def conversations(self, request):
+        """
+        GET /api/messages/conversations/
+        
+        List all conversations (users you've messaged with).
+        Returns list of users with latest message and unread count.
+        """
+        user = request.user
+        User = get_user_model()
+        
+        # Get all users the current user has exchanged messages with
+        conversations = User.objects.filter(
+            Q(sent_messages__receiver=user) | 
+            Q(received_messages__sender=user)
+        ).distinct().exclude(id=user.id)
+        
+        conversation_data = []
+        for other_user in conversations:
+            # Get latest message
+            latest_message = Message.objects.filter(
+                (Q(sender=user) & Q(receiver=other_user)) |
+                (Q(sender=other_user) & Q(receiver=user))
+            ).order_by('-created_at').first()
+            
+            # Count unread messages
+            unread_count = Message.objects.filter(
+                sender=other_user,
+                receiver=user
+            ).exclude(
+                id__in=ReadMessage.objects.filter(
+                    receiver=user
+                ).values_list('message_id', flat=True)
+            ).count()
+            
+            conversation_data.append({
+                'user_id': other_user.id,
+                'username': other_user.username,
+                'latest_message': MessageSerializer(
+                    latest_message,
+                    context={'request': request}
+                ).data if latest_message else None,
+                'unread_count': unread_count
+            })
+        
+        return Response(conversation_data, status=status.HTTP_200_OK)
+    
+    @action(detail=False, methods=['get'], url_path='conversation/(?P<user_id>[^/.]+)')
+    def conversation(self, request, user_id=None):
+        """
+        GET /api/messages/conversation/{user_id}/
+        
+        Get all messages in a conversation with a specific user.
+        Marks messages as read when viewed.
+        """
+        User = get_user_model()
+        other_user = get_object_or_404(User, id=user_id)
+        
+        # Get all messages between these two users
+        messages = Message.objects.filter(
+            (Q(sender=request.user) & Q(receiver=other_user)) |
+            (Q(sender=other_user) & Q(receiver=request.user))
+        ).order_by('created_at')
+        
+        # Mark all received messages as read
+        unread_messages = Message.objects.filter(
+            sender=other_user,
+            receiver=request.user
+        ).exclude(
+            id__in=ReadMessage.objects.filter(
+                receiver=request.user
+            ).values_list('message_id', flat=True)
+        )
+        
+        for msg in unread_messages:
+            ReadMessage.objects.get_or_create(
+                message=msg,
+                receiver=request.user
+            )
+        
+        serializer = MessageSerializer(messages, many=True, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@extend_schema_view(
+    list=extend_schema(
+        summary="List notifications",
+        description="Get all notifications for the current user, ordered by most recent first.",
+    ),
+    retrieve=extend_schema(
+        summary="Get notification detail",
+        description="Get detailed information about a specific notification.",
+    ),
+    mark_read=extend_schema(
+        summary="Mark notification as read",
+        description="Mark a specific notification as read. Users can only mark their own notifications.",
+    ),
+    mark_all_read=extend_schema(
+        summary="Mark all notifications as read",
+        description="Mark all unread notifications for the current user as read.",
+    ),
+    unread_count=extend_schema(
+        summary="Get unread count",
+        description="Get count of unread notifications for the current user.",
+    ),
+)
+class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet for managing notifications.
+    
+    list: GET /api/notifications/ - List all notifications for current user
+    retrieve: GET /api/notifications/{id}/ - Get notification detail
+    mark_read: POST /api/notifications/{id}/mark-read/ - Mark notification as read
+    mark_all_read: POST /api/notifications/mark-all-read/ - Mark all notifications as read
+    unread_count: GET /api/notifications/unread-count/ - Get unread notification count
+    """
+    serializer_class = NotificationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        """Get notifications for current user only"""
+        return Notification.objects.filter(
+            user=self.request.user
+        ).order_by('-created_at')
+    
+    @action(detail=True, methods=['post'])
+    def mark_read(self, request, pk=None):
+        """
+        POST /api/notifications/{id}/mark-read/
+        
+        Mark a specific notification as read.
+        """
+        notification = self.get_object()
+        
+        # Ensure user can only mark their own notifications as read
+        if notification.user != request.user:
+            return Response(
+                {'error': 'You can only mark your own notifications as read.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        ReadNotification.objects.get_or_create(
+            notification=notification,
+            user=request.user
+        )
+        
+        return Response(
+            {'message': 'Notification marked as read.'},
+            status=status.HTTP_200_OK
+        )
+    
+    @action(detail=False, methods=['post'])
+    def mark_all_read(self, request):
+        """
+        POST /api/notifications/mark-all-read/
+        
+        Mark all notifications for current user as read.
+        """
+        unread_notifications = Notification.objects.filter(
+            user=request.user
+        ).exclude(
+            id__in=ReadNotification.objects.filter(
+                user=request.user
+            ).values_list('notification_id', flat=True)
+        )
+        
+        for notification in unread_notifications:
+            ReadNotification.objects.get_or_create(
+                notification=notification,
+                user=request.user
+            )
+        
+        return Response(
+            {'message': f'{unread_notifications.count()} notifications marked as read.'},
+            status=status.HTTP_200_OK
+        )
+    
+    @action(detail=False, methods=['get'])
+    def unread_count(self, request):
+        """
+        GET /api/notifications/unread-count/
+        
+        Get count of unread notifications for current user.
+        """
+        unread_count = Notification.objects.filter(
+            user=request.user
+        ).exclude(
+            id__in=ReadNotification.objects.filter(
+                user=request.user
+            ).values_list('notification_id', flat=True)
+        ).count()
+        
+        return Response(
+            {'unread_count': unread_count},
+            status=status.HTTP_200_OK
         )

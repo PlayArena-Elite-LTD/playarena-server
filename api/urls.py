@@ -1,5 +1,11 @@
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularRedocView,
+    SpectacularSwaggerView
+)
 from .views import (
     MeView,
     ProfileView,
@@ -18,11 +24,25 @@ from .views import (
     WalletDetailView,
     TransactionHistoryView,
     DepositCreateView,
-    WithdrawalCreateView
+    WithdrawalCreateView,
+    DisputeViewSet,
+    MessageViewSet,
+    NotificationViewSet
 )
 
 
+# Create router for ViewSets
+router = DefaultRouter()
+router.register(r'disputes', DisputeViewSet, basename='dispute')
+router.register(r'messages', MessageViewSet, basename='message')
+router.register(r'notifications', NotificationViewSet, basename='notification')
+
 urlpatterns = [
+    # API Schema endpoints (Swagger/OpenAPI)
+    path('schema/', SpectacularAPIView.as_view(), name='schema'),
+    path('schema/swagger-ui/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    path('schema/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
+    
     # Authentication endpoints
     path('auth/register/', UserRegistrationView.as_view(), name='api_register'),
     path('auth/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
@@ -50,6 +70,9 @@ urlpatterns = [
     path('wallet/transactions/', TransactionHistoryView.as_view(), name='api_wallet_transactions'),
     path('wallet/deposit/', DepositCreateView.as_view(), name='api_wallet_deposit'),
     path('wallet/withdraw/', WithdrawalCreateView.as_view(), name='api_wallet_withdraw'),
+    
+    # Include router URLs (disputes, messages, notifications)
+    path('', include(router.urls)),
 ]
 
 

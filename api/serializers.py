@@ -5,6 +5,9 @@ from django.contrib.auth import get_user_model
 from accounts.models import CustomUser, Profile
 from matches.models import Match, MatchResult
 from wallet.models import Wallet, Transaction, Deposit, Withdrawal
+from panel.models import Dispute
+from messenger.models import Message, ReadMessage
+from alert.models import Notification, ReadNotification
 
 User = get_user_model()
 
@@ -368,4 +371,116 @@ class MatchJoinSerializer(serializers.Serializer):
 class MatchResultSubmissionSerializer(serializers.Serializer):
     """Serializer for submitting a match result"""
     submission = serializers.ChoiceField(choices=['WON', 'LOST', 'DRAW'])
+
+class DisputeSerializer(serializers.ModelSerializer):
+    """Serializer for Dispute model"""
+    match_id = serializers.IntegerField(source='match.id', read_only=True)
+    match_game = serializers.SerializerMethodField()
+    match_amount = serializers.DecimalField(source='match.amount', max_digits=10, decimal_places=2, read_only=True)
+    match_status = serializers.CharField(source='match.status', read_only=True)
+    assigned_to_username = serializers.CharField(source='assigned_to.username', read_only=True, allow_null=True)
+    creator_username = serializers.CharField(source='match.creator.username', read_only=True)
+    joiner_username = serializers.CharField(source='match.joiner.username', read_only=True, allow_null=True)
+    
+    def get_match_game(self, obj):
+        """Get the display name for the match game"""
+        return obj.match.get_game_display() if obj.match else None
+    
+    class Meta:
+        model = Dispute
+        fields = [
+            'id',
+            'match_id',
+            'match_game',
+            'match_amount',
+            'match_status',
+            'status',
+            'created_at',
+            'assigned_to',
+            'assigned_to_username',
+            'resolution_notes',
+            'resolved_at',
+            'creator_username',
+            'joiner_username'
+        ]
+        read_only_fields = ['id', 'created_at', 'resolved_at']
+
+
+class DisputeResolutionSerializer(serializers.Serializer):
+    """Serializer for resolving disputes"""
+    status = serializers.ChoiceField(choices=Dispute.STATUS_CHOICES)
+    resolution_notes = serializers.CharField(required=False, allow_blank=True)
+    
+    def validate_status(self, value):
+        """Ensure status is valid"""
+        if value not in ['OPEN', 'PENDING', 'RESOLVED']:
+            raise serializers.ValidationError("Invalid status choice.")
+        return value
+
+
+class MessageSerializer(serializers.ModelSerializer):
+    """Serializer for Message model"""
+    sender_username = serializers.CharField(source='sender.username', read_only=True)
+    receiver_username = serializers.CharField(source='receiver.username', read_only=True)
+    is_read = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Message
+        fields = [
+            'id',
+            'sender',
+            'sender_username',
+            'receiver',
+            'receiver_username',
+            'message',
+            'created_at',
+            'is_read'
+        ]
+        read_only_fields = ['id', 'created_at', 'sender']
+    
+    def get_is_read(self, obj):
+        """Check if message is read by receiver"""
+        request = self.context.get('request')
+        if request and request.user == obj.receiver:
+            return ReadMessage.objects.filter(message=obj, receiver=request.user).exists()
+        return False
+
+
+class MessageCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating new messages"""
+    class Meta:
+        model = Message
+        fields = ['receiver', 'message']
+    
+    def validate_receiver(self, value):
+        """Ensure user doesn't message themselves"""
+        request = self.context.get('request')
+        if request and value == request.user:
+            raise serializers.ValidationError("You cannot send messages to yourself.")
+        return value
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+    """Serializer for Notification model"""
+    is_read = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Notification
+        fields = [
+            'id',
+            'message',
+            'created_at',
+            'is_read'
+        ]
+        read_only_fields = ['id', 'created_at']
+    
+    def get_is_read(self, obj):
+        """Check if notification is read"""
+        request = self.context.get('request')
+        if request:
+            return ReadNotification.objects.filter(
+                notification=obj,
+                user=request.user
+            ).exists()
+        return False
 
