@@ -7,6 +7,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
 from .serializers import (
     UserSerializer,
     PublicUserSerializer,
@@ -248,6 +249,31 @@ class MyMatchesView(generics.ListAPIView):
         return Match.objects.filter(creator=user) | Match.objects.filter(joiner=user)
 
 
+@extend_schema_view(
+    list=extend_schema(
+        summary="List disputes",
+        description="Get list of disputes. Support staff see all disputes, regular users see only disputes for their own matches.",
+        parameters=[
+            OpenApiParameter(
+                name='status',
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description='Filter by status (OPEN, PENDING, RESOLVED)',
+                required=False,
+            ),
+        ],
+    ),
+    retrieve=extend_schema(
+        summary="Get dispute detail",
+        description="Get detailed information about a specific dispute.",
+    ),
+    resolve=extend_schema(
+        summary="Resolve dispute",
+        description="Resolve a dispute. Only support staff can resolve disputes.",
+        request=DisputeResolutionSerializer,
+        responses={200: DisputeSerializer},
+    ),
+)
 class DisputeViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing disputes.
@@ -334,6 +360,30 @@ class DisputeViewSet(viewsets.ModelViewSet):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+@extend_schema_view(
+    list=extend_schema(
+        summary="List messages",
+        description="Get all messages where the current user is either sender or receiver.",
+    ),
+    create=extend_schema(
+        summary="Send message",
+        description="Send a new message to another user.",
+        request=MessageCreateSerializer,
+        responses={201: MessageSerializer},
+    ),
+    retrieve=extend_schema(
+        summary="Get message detail",
+        description="Get detailed information about a specific message.",
+    ),
+    conversations=extend_schema(
+        summary="List conversations",
+        description="Get all conversations with latest message and unread count for each conversation.",
+    ),
+    conversation=extend_schema(
+        summary="Get conversation",
+        description="Get all messages in a conversation with a specific user. Automatically marks received messages as read.",
+    ),
+)
 class MessageViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing messages.
@@ -452,6 +502,28 @@ class MessageViewSet(viewsets.ModelViewSet):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
+@extend_schema_view(
+    list=extend_schema(
+        summary="List notifications",
+        description="Get all notifications for the current user, ordered by most recent first.",
+    ),
+    retrieve=extend_schema(
+        summary="Get notification detail",
+        description="Get detailed information about a specific notification.",
+    ),
+    mark_read=extend_schema(
+        summary="Mark notification as read",
+        description="Mark a specific notification as read. Users can only mark their own notifications.",
+    ),
+    mark_all_read=extend_schema(
+        summary="Mark all notifications as read",
+        description="Mark all unread notifications for the current user as read.",
+    ),
+    unread_count=extend_schema(
+        summary="Get unread count",
+        description="Get count of unread notifications for the current user.",
+    ),
+)
 class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
     """
     ViewSet for managing notifications.
