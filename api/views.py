@@ -4,12 +4,16 @@ from rest_framework.views import APIView
 from rest_framework.exceptions import PermissionDenied
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import get_user_model
+from django.db import transaction
+from decimal import Decimal
 from .serializers import (
     UserSerializer,
     PublicUserSerializer,
     UserUpdateSerializer,
     ProfileSerializer,
     MatchSerializer,
+    MatchCreateSerializer,
+    MatchJoinSerializer,
     UserRegistrationSerializer,
     ChangePasswordSerializer,
     WalletSerializer,
@@ -300,6 +304,156 @@ class MatchDetailView(generics.RetrieveAPIView):
         if match.privacy == 'PRIVATE' and user not in [match.creator, match.joiner]:
             raise PermissionDenied("You do not have access to this match.")
         return match
+
+
+class MatchCreateView(APIView):
+    """
+    POST /api/matches/create/
+
+    Create a new match and deduct stake from the creator's wallet.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request):
+        serializer = MatchCreateSerializer(data=request.data, context={'request': request})
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        match = Match(**serializer.validated_data)
+        match.creator = request.user
+        match.save()
+
+        wallet, _created = Wallet.objects.get_or_create(user=request.user)
+        amount = Decimal(match.amount)
+        old_balance = wallet.balance
+        wallet.balance -= amount
+        wallet.save(update_fields=['balance'])
+
+        transaction_record = Transaction.objects.create(
+            wallet=wallet,
+            amount=-amount,
+            transaction_type='MATCH_CREATION',
+            description=f"Created {match.get_game_display()} match for ${match.amount}",
+            related_match=match
+        )
+
+        try:
+            from audit.utils import log_action
+            log_action(
+                action='match_created',
+                user=request.user,
+                details={
+                    'match_id': match.id,
+                    'game': match.game,
+                    'device': match.device,
+                    'amount': str(match.amount),
+                    'creator_id': request.user.id,
+                    'creator_username': request.user.username,
+                    'joining_code': match.joining_code,
+                    'wallet_id': wallet.id,
+                    'old_balance': str(old_balance),
+                    'new_balance': str(wallet.balance),
+                    'transaction_id': transaction_record.id,
+                },
+                request=request,
+            )
+        except Exception:
+            pass
+
+        return Response(
+            {
+                'message': 'Match created successfully.',
+                'match': MatchSerializer(match).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class MatchJoinView(APIView):
+    """
+    POST /api/matches/join/
+
+    Join an existing match by code and deduct stake from the joiner's wallet.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request):
+        serializer = MatchJoinSerializer(data=request.data, context={'request': request})
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        match = serializer.context['match']
+        match = Match.objects.select_for_update().get(pk=match.pk)
+
+        if match.status != 'OPEN' or match.joiner is not None:
+            return Response(
+                {'detail': 'Match is no longer available.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if match.creator == request.user:
+            return Response(
+                {'detail': 'You cannot join your own match.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        wallet, _created = Wallet.objects.get_or_create(user=request.user)
+        if wallet.balance < Decimal(match.amount):
+            return Response(
+                {'detail': f"Insufficient funds. You need ${match.amount} to join this match."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        match.joiner = request.user
+        match.status = 'JOINED'
+        match.save(update_fields=['joiner', 'status'])
+
+        amount = Decimal(match.amount)
+        old_balance = wallet.balance
+        wallet.balance -= amount
+        wallet.save(update_fields=['balance'])
+
+        transaction_record = Transaction.objects.create(
+            wallet=wallet,
+            amount=-amount,
+            transaction_type='MATCH_JOINING',
+            description=f"Joined {match.get_game_display()} match against {match.creator.username} for ${match.amount}",
+            related_match=match
+        )
+
+        try:
+            from audit.utils import log_action
+            log_action(
+                action='match_joined',
+                user=request.user,
+                details={
+                    'match_id': match.id,
+                    'game': match.game,
+                    'device': match.device,
+                    'amount': str(match.amount),
+                    'creator_id': match.creator.id,
+                    'creator_username': match.creator.username,
+                    'joiner_id': request.user.id,
+                    'joiner_username': request.user.username,
+                    'joining_code': match.joining_code,
+                    'wallet_id': wallet.id,
+                    'old_balance': str(old_balance),
+                    'new_balance': str(wallet.balance),
+                    'transaction_id': transaction_record.id,
+                },
+                request=request,
+            )
+        except Exception:
+            pass
+
+        return Response(
+            {
+                'message': 'Match joined successfully.',
+                'match': MatchSerializer(match).data,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class WalletDetailView(generics.RetrieveAPIView):

@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from decimal import Decimal
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth import get_user_model
 from accounts.models import CustomUser, Profile
@@ -320,3 +321,46 @@ class MatchResultSerializer(serializers.ModelSerializer):
         ]
 
 
+
+
+
+class MatchCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating a match"""
+    class Meta:
+        model = Match
+        fields = ['game', 'device', 'privacy', 'amount']
+
+    def validate_amount(self, value):
+        request = self.context.get('request')
+        user = request.user
+        wallet, _created = Wallet.objects.get_or_create(user=user)
+        if wallet.balance < Decimal(value):
+            raise serializers.ValidationError(
+                f"Insufficient funds. Your balance (${wallet.balance}) is less than the match amount (${value})."
+            )
+        return value
+
+
+class MatchJoinSerializer(serializers.Serializer):
+    """Serializer for joining a match by code"""
+    joining_code = serializers.CharField(max_length=10)
+
+    def validate_joining_code(self, value):
+        request = self.context.get('request')
+        user = request.user
+        try:
+            match = Match.objects.get(joining_code=value, status='OPEN')
+        except Match.DoesNotExist:
+            raise serializers.ValidationError("Invalid match code or the match is no longer available.")
+
+        if match.creator == user:
+            raise serializers.ValidationError("You cannot join your own match.")
+
+        wallet, _created = Wallet.objects.get_or_create(user=user)
+        if wallet.balance < Decimal(match.amount):
+            raise serializers.ValidationError(
+                f"Insufficient funds. You need ${match.amount} to join this match."
+            )
+
+        self.context['match'] = match
+        return value
