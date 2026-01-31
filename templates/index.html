@@ -1,5 +1,244 @@
 {% extends "base.html" %}
 
+{% block additional_styles %}
+<style>
+  :root {
+    --landing-bg: #0a0f1d;
+    --landing-surface: rgba(12, 19, 38, 0.75);
+    --landing-border: rgba(148, 163, 184, 0.18);
+    --landing-text: #d2d9e6;
+    --landing-heading: #f8fafc;
+    --landing-accent: #22d3ee;
+    --landing-accent-2: #a78bfa;
+    --landing-accent-3: #f472b6;
+    --landing-glow: rgba(34, 211, 238, 0.28);
+    --landing-shadow: 0 18px 40px rgba(5, 8, 20, 0.45);
+    --landing-soft-shadow: 0 8px 22px rgba(10, 15, 30, 0.28);
+  }
+
+  body {
+    background:
+      radial-gradient(1200px 800px at 10% -10%, rgba(34, 211, 238, 0.14), transparent 55%),
+      radial-gradient(900px 600px at 90% -20%, rgba(167, 139, 250, 0.18), transparent 60%),
+      radial-gradient(700px 520px at 50% 10%, rgba(244, 114, 182, 0.12), transparent 55%),
+      var(--landing-bg);
+    color: var(--landing-text);
+  }
+
+  .landing-neon .section {
+    padding: 5rem 0 3rem;
+  }
+
+  .landing-neon .container {
+    max-width: 1180px;
+  }
+
+  .landing-neon .hero {
+    background: linear-gradient(135deg, rgba(9, 14, 30, 0.98), rgba(2, 6, 23, 0.98));
+    border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .landing-neon .hero::after {
+    content: "";
+    position: absolute;
+    inset: -60% -40% auto auto;
+    width: 60%;
+    height: 60%;
+    background: radial-gradient(circle, rgba(34, 211, 238, 0.12), transparent 65%);
+    pointer-events: none;
+  }
+
+  .landing-neon .hero-title {
+    color: var(--landing-heading);
+    text-shadow: 0 0 16px rgba(34, 211, 238, 0.28);
+    letter-spacing: -0.02em;
+  }
+
+  .landing-neon .hero-description,
+  .landing-neon .section-title,
+  .landing-neon .about-description,
+  .landing-neon .reviews-intro,
+  .landing-neon .faq-description,
+  .landing-neon .footer-brand-text,
+  .landing-neon .pricing-description,
+  .landing-neon .games-description {
+    color: var(--landing-text);
+  }
+
+  .landing-neon .section-title {
+    font-size: clamp(1.6rem, 2.6vw, 2.4rem);
+  }
+
+  .landing-neon .hero-description {
+    max-width: 520px;
+  }
+
+  .landing-neon .landing-stats {
+    margin-top: -2.5rem;
+    padding-bottom: 1rem;
+  }
+
+  .landing-neon .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem;
+  }
+
+  .landing-neon .stat-card {
+    background: rgba(12, 19, 38, 0.9);
+    border: 1px solid var(--landing-border);
+    border-radius: 16px;
+    padding: 1.25rem 1.5rem;
+    text-align: center;
+    box-shadow: var(--landing-soft-shadow);
+  }
+
+  .landing-neon .stat-value {
+    font-size: clamp(1.5rem, 2.6vw, 2rem);
+    font-weight: 700;
+    color: var(--landing-heading);
+  }
+
+  .landing-neon .stat-label {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--landing-text);
+    margin-top: 0.35rem;
+  }
+
+  .landing-neon .highlight-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1.25rem;
+    margin-top: 2rem;
+  }
+
+  .landing-neon .highlight-card {
+    background: var(--landing-surface);
+    border: 1px solid var(--landing-border);
+    border-radius: 18px;
+    padding: 1.5rem;
+    box-shadow: var(--landing-shadow);
+  }
+
+  .landing-neon .highlight-icon {
+    width: 46px;
+    height: 46px;
+    border-radius: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, rgba(34, 211, 238, 0.35), rgba(167, 139, 250, 0.25));
+    color: var(--landing-heading);
+    margin-bottom: 0.75rem;
+    box-shadow: 0 8px 16px rgba(34, 211, 238, 0.2);
+  }
+
+  .landing-neon .highlight-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--landing-heading);
+    margin-bottom: 0.35rem;
+  }
+
+  .landing-neon .highlight-text {
+    color: var(--landing-text);
+    font-size: 0.95rem;
+  }
+
+  .landing-neon .button--primary {
+    background: linear-gradient(135deg, rgba(34, 211, 238, 0.9), rgba(59, 130, 246, 0.85));
+    color: #0b1020;
+    border: 1px solid rgba(34, 211, 238, 0.6);
+    box-shadow: 0 10px 24px rgba(34, 211, 238, 0.25);
+  }
+
+  .landing-neon .button--primary:hover {
+    box-shadow: 0 14px 30px rgba(34, 211, 238, 0.4);
+    transform: translateY(-1px);
+  }
+
+  .landing-neon .button--outline {
+    border: 2px solid rgba(167, 139, 250, 0.8);
+    color: var(--landing-heading);
+    background: rgba(15, 23, 42, 0.3);
+  }
+
+  .landing-neon .button--outline:hover {
+    background: linear-gradient(135deg, rgba(244, 114, 182, 0.25), rgba(167, 139, 250, 0.2));
+    border-color: rgba(244, 114, 182, 0.7);
+  }
+
+  .landing-neon .about-card,
+  .landing-neon .reviews-card,
+  .landing-neon .faq-item,
+  .landing-neon .contact-card,
+  .landing-neon .pricing-card,
+  .landing-neon .games-card {
+    background: var(--landing-surface);
+    border: 1px solid var(--landing-border);
+    box-shadow: var(--landing-shadow);
+    color: var(--landing-heading);
+    backdrop-filter: blur(14px);
+  }
+
+  .landing-neon .about-card:hover,
+  .landing-neon .reviews-card:hover,
+  .landing-neon .faq-item:hover,
+  .landing-neon .contact-card:hover {
+    box-shadow: 0 18px 36px rgba(34, 211, 238, 0.2);
+    border-color: rgba(34, 211, 238, 0.42);
+    transform: translateY(-2px);
+  }
+
+  .landing-neon .footer {
+    background: rgba(2, 6, 23, 0.9);
+    border-top: 1px solid var(--landing-border);
+  }
+
+  .landing-neon .footer-link,
+  .landing-neon .footer-links-title,
+  .landing-neon .footer-logo {
+    color: var(--landing-heading);
+  }
+
+  .landing-neon .footer-link:hover {
+    color: var(--landing-accent);
+  }
+
+  .landing-neon .nav-link {
+    background: rgba(15, 23, 42, 0.6);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .landing-neon .nav-link:hover {
+    box-shadow: 0 0 18px rgba(34, 211, 238, 0.25);
+  }
+
+  .landing-neon .games-slider-content,
+  .landing-neon .pricing-card,
+  .landing-neon .reviews-card {
+    position: relative;
+  }
+
+  .landing-neon .pricing-card::after,
+  .landing-neon .reviews-card::after {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    border: 1px solid transparent;
+    background: linear-gradient(135deg, rgba(34, 211, 238, 0.25), rgba(167, 139, 250, 0.12)) border-box;
+    mask: linear-gradient(#000 0 0) padding-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+</style>
+{% endblock %}
+
 {% block nav %}
 
 <div class="nav-menu" id="nav-menu">
@@ -57,6 +296,7 @@
       {% endblock %}
 
 {% block content %}
+<div class="landing-neon">
         
       <section class="hero" id="hero">
         <div class="container">
@@ -81,6 +321,55 @@
             </div>
             <div class="hero-image">
             	<img src="./../static/images/landing/hero-controller.png" alt="Gaming Controller" class="hero-img">
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="landing-stats section">
+        <div class="container stats-grid">
+          <div class="stat-card">
+            <div class="stat-value">24K+</div>
+            <div class="stat-label">Active Players</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">$1.8M</div>
+            <div class="stat-label">Rewards Won</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">120+</div>
+            <div class="stat-label">Daily Matches</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">4.9★</div>
+            <div class="stat-label">Community Rating</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section landing-highlights">
+        <div class="container">
+          <h2 class="section-title">Why Play Arena Wins</h2>
+          <div class="highlight-grid">
+            <div class="highlight-card">
+              <div class="highlight-icon"><i class="fas fa-bolt"></i></div>
+              <div class="highlight-title">Instant Matchmaking</div>
+              <p class="highlight-text">Jump into skill-based battles in seconds with smart matchmaking.</p>
+            </div>
+            <div class="highlight-card">
+              <div class="highlight-icon"><i class="fas fa-shield-halved"></i></div>
+              <div class="highlight-title">Secure Escrow</div>
+              <p class="highlight-text">Funds are protected and released only when results are verified.</p>
+            </div>
+            <div class="highlight-card">
+              <div class="highlight-icon"><i class="fas fa-chart-line"></i></div>
+              <div class="highlight-title">Track Your Rise</div>
+              <p class="highlight-text">Detailed stats, win streaks, and performance insights keep you sharp.</p>
+            </div>
+            <div class="highlight-card">
+              <div class="highlight-icon"><i class="fas fa-headset"></i></div>
+              <div class="highlight-title">Priority Support</div>
+              <p class="highlight-text">Fast dispute resolution and always-on support for competitive play.</p>
             </div>
           </div>
         </div>
@@ -808,4 +1097,5 @@
       </div>
       
     </footer>
+</div>
 {% endblock %}

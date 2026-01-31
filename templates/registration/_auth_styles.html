@@ -1,0 +1,174 @@
+<style>
+  :root {
+    --auth-bg: #0a0f1d;
+    --auth-surface: rgba(12, 19, 38, 0.82);
+    --auth-border: rgba(148, 163, 184, 0.2);
+    --auth-text: #d2d9e6;
+    --auth-heading: #f8fafc;
+    --auth-accent: #22d3ee;
+    --auth-accent-2: #a78bfa;
+    --auth-glow: rgba(34, 211, 238, 0.28);
+  }
+
+  body {
+    background:
+      radial-gradient(900px 600px at 15% -10%, rgba(34, 211, 238, 0.16), transparent 55%),
+      radial-gradient(700px 520px at 85% -20%, rgba(167, 139, 250, 0.2), transparent 60%),
+      var(--auth-bg);
+    color: var(--auth-text);
+  }
+
+  .auth-section {
+    min-height: calc(100vh - 90px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 1.5rem;
+  }
+
+  .auth-container {
+    width: 100%;
+    max-width: 440px;
+    background: var(--auth-surface);
+    border: 1px solid var(--auth-border);
+    border-radius: 20px;
+    padding: 2.5rem;
+    box-shadow: 0 24px 50px rgba(5, 8, 20, 0.45);
+    backdrop-filter: blur(14px);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .auth-container::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 20px;
+    padding: 1px;
+    background: linear-gradient(135deg, rgba(34, 211, 238, 0.35), rgba(167, 139, 250, 0.2));
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  .auth-header h2 {
+    color: var(--auth-heading);
+    font-size: 1.9rem;
+    margin-bottom: 0.5rem;
+    text-shadow: 0 0 16px var(--auth-glow);
+  }
+
+  .auth-subtitle {
+    color: var(--auth-text);
+    font-size: 0.95rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .messages,
+  .errorlist {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 1rem;
+  }
+
+  .messages li,
+  .errorlist li {
+    padding: 0.6rem 0.85rem;
+    border-radius: 10px;
+    margin-bottom: 0.5rem;
+    background: rgba(244, 114, 182, 0.12);
+    border: 1px solid rgba(244, 114, 182, 0.35);
+    color: var(--auth-heading);
+  }
+
+  .messages li.success {
+    background: rgba(34, 211, 238, 0.12);
+    border-color: rgba(34, 211, 238, 0.45);
+  }
+
+  .messages li.info {
+    background: rgba(167, 139, 250, 0.12);
+    border-color: rgba(167, 139, 250, 0.45);
+  }
+
+  .auth-form {
+    color: var(--auth-text);
+  }
+
+  .auth-form label {
+    color: var(--auth-text);
+    font-weight: 600;
+    margin-bottom: 0.35rem;
+    display: inline-block;
+  }
+
+  .auth-form p {
+    margin-bottom: 1.1rem;
+    color: var(--auth-text);
+  }
+
+  .auth-form input {
+    width: 100%;
+    margin-top: 0.35rem;
+    padding: 0.75rem 0.9rem;
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    background: rgba(10, 15, 30, 0.7);
+    color: var(--auth-heading);
+  }
+
+  .auth-form input::placeholder {
+    color: rgba(210, 217, 230, 0.6);
+  }
+
+  .auth-form input:focus {
+    outline: none;
+    border-color: rgba(34, 211, 238, 0.6);
+    box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.2);
+  }
+
+  .auth-form button,
+  .auth-form .button {
+    width: 100%;
+    margin-top: 1rem;
+    padding: 0.9rem 1rem;
+    border-radius: 12px;
+    border: 1px solid rgba(34, 211, 238, 0.6);
+    background: linear-gradient(135deg, rgba(34, 211, 238, 0.9), rgba(59, 130, 246, 0.85));
+    color: #0b1020;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    min-height: 44px;
+  }
+
+  .auth-form button:hover,
+  .auth-form .button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 14px 30px rgba(34, 211, 238, 0.4);
+  }
+
+  .auth-form button:active,
+  .auth-form .button:active {
+    transform: translateY(0);
+    box-shadow: 0 10px 20px rgba(34, 211, 238, 0.35);
+  }
+
+  .auth-footer {
+    margin-top: 1.25rem;
+    display: grid;
+    gap: 0.35rem;
+  }
+
+  .auth-footer a {
+    color: var(--auth-accent);
+  }
+
+  .auth-footer a:hover {
+    color: var(--auth-accent-2);
+  }
+</style>

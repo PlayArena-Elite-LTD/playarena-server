@@ -1,4 +1,7 @@
 {% extends "base.html" %}
+{% block additional_styles %}
+{% include "wallet/_wallet_styles.html" %}
+{% endblock %}
 {% block content %}
 <style>
   :root {
@@ -89,7 +92,7 @@
   .transaction-empty { color: var(--text-soft); }
   @media (max-width: 900px) { .dash-row { grid-template-columns: 1fr; } .dash-hero { flex-direction: column; align-items: flex-start; } }
 </style>
-<section class="section">
+<section class="section wallet-theme">
   <div class="container">
     {% if messages %}
     <div class="messages">
@@ -111,7 +114,7 @@
           <div class="dash-muted">Last login: {{ user.last_login|date:"M d, Y h:i A" }}</div>
         </div>
         <div class="dash-actions">
-          <a href="{% url 'profile_edit' %}" class="dash-button">Edit Profile</a>
+          <a href="{% url 'profile_edit' %}" class="dash-button dashboard-button">Edit Profile</a>
         </div>
       </div>
 
@@ -135,11 +138,11 @@
           </div>
         </div>
         <div class="dash-actions" style="margin-top: 12px;">
-          <a href="{% url 'deposit' %}" class="dash-button primary">Add Funds</a>
-          <a href="{% url 'withdraw' %}" class="dash-button">Withdraw</a>
-          <a href="{% url 'transaction_history' %}" class="dash-button">Transactions</a>
-          <a href="{% url 'available_matches' %}" class="dash-button">Find Matches</a>
-          <a href="{% url 'my_matches' %}" class="dash-button">My Matches</a>
+          <a href="{% url 'deposit' %}" class="dash-button primary dashboard-button dashboard-button-primary">Add Funds</a>
+          <a href="{% url 'withdraw' %}" class="dash-button dashboard-button">Withdraw</a>
+          <a href="{% url 'transaction_history' %}" class="dash-button dashboard-button">Transactions</a>
+          <a href="{% url 'available_matches' %}" class="dash-button dashboard-button">Find Matches</a>
+          <a href="{% url 'my_matches' %}" class="dash-button dashboard-button">My Matches</a>
         </div>
       </div>
     </div>

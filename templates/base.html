@@ -225,9 +225,15 @@
           <div class="theme">
             <i class="fas fa-moon theme-toggle" id="theme-toggle"></i>
           </div>
+          {% if user.is_authenticated %}
           <a href="{% url 'logout' %}" class="nav-link nav-cta-danger nav-icon-only" style="margin-left: 8px;" aria-label="Logout" title="Logout">
             <div class="nav-icon"><i class="fas fa-right-from-bracket"></i></div>
           </a>
+          {% else %}
+          <a href="{% url 'login' %}" class="nav-link nav-cta nav-icon-only" style="margin-left: 8px;" aria-label="Login" title="Login">
+            <div class="nav-icon"><i class="fas fa-user-circle"></i></div>
+          </a>
+          {% endif %}
           <div class="nav-toggle" id="nav-toggle">
             <i class="bx bx-grid-alt"></i>
           </div>

@@ -1,7 +1,10 @@
 {% extends "base.html" %}
+{% block additional_styles %}
+{% include "wallet/_wallet_styles.html" %}
+{% endblock %}
 {% block content %}
 
-<section class="section">
+<section class="section wallet-theme">
   <div class="container">
     {% if messages %}
     <div class="messages">
@@ -15,6 +18,7 @@
     {% endif %}
     
     <h2 class="section-title">Deposit Funds</h2>
+    <p class="wallet-subtitle">Top up your wallet to enter matches faster.</p>
 
     <div class="match-creator-header">
       <div class="match-creator-balance">

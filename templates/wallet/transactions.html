@@ -1,6 +1,9 @@
 {% extends "base.html" %}
+{% block additional_styles %}
+{% include "wallet/_wallet_styles.html" %}
+{% endblock %}
 {% block content %}
-<section class="section">
+<section class="section wallet-theme">
   <div class="container">
     {% if messages %}
     <div class="messages">
@@ -14,8 +17,11 @@
     {% endif %}
     
     <!-- Section heading -->
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-      <h2 class="section-title">Transaction History</h2>
+    <div class="wallet-header">
+      <div>
+        <h2 class="section-title">Transaction History</h2>
+        <p class="wallet-subtitle">Track every credit and withdrawal in one place.</p>
+      </div>
       <a href="{% url 'wallet' %}" class="dashboard-button">Back to Wallet</a>
     </div>
     

@@ -1,10 +1,15 @@
 {% extends "base.html" %}
 
+{% block additional_styles %}
+{% include "registration/_auth_styles.html" %}
+{% endblock %}
+
 {% block content %}
 <section class="auth-section">
 	<div class="auth-container">
     <div class="auth-header">
         <h2>Invalid Registration Link</h2>
+        <p class="auth-subtitle">This link is no longer active.</p>
     </div>
 
     <div class="auth-form">

@@ -1,11 +1,15 @@
 {% extends "base.html" %}
 
+{% block additional_styles %}
+{% include "registration/_auth_styles.html" %}
+{% endblock %}
+
 {% block content %}
 <section class="auth-section">
   <div class="auth-container">
     <div class="auth-header">
         <h2>Create Account</h2>
-        <p>Enter your email to receive a registration link</p>
+        <p class="auth-subtitle">Enter your email to receive a registration link.</p>
     </div>
 
     {% if messages %}

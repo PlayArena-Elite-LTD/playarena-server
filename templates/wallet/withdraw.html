@@ -1,8 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Withdraw Funds - PlayArena{% endblock %}
+{% block additional_styles %}
+{% include "wallet/_wallet_styles.html" %}
+{% endblock %}
 
 {% block content %}
-<section class="section">
+<section class="section wallet-theme">
   <div class="container">
     {% if messages %}
     <div class="messages">
@@ -17,6 +20,7 @@
     
     <div class="form-header">
       <h2 class="section-title">Withdraw Funds</h2>
+      <p class="wallet-subtitle">Request a payout to your preferred method.</p>
       <div class="header-actions">
         <a href="{% url 'payment_methods_list' %}" class="dashboard-button">
           <i class="fas fa-credit-card"></i> Manage Payment Methods
@@ -179,178 +183,5 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 
-<style>
-.form-container {
-  max-width: 600px;
-  margin: 0 auto;
-  background: var(--card-bg);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 2rem;
-}
-
-.form-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 2rem;
-  flex-wrap: wrap;
-  gap: 1rem;
-}
-
-.header-actions {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.wallet-info-card {
-  background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
-  border-radius: 8px;
-  padding: 1.5rem;
-  margin-bottom: 2rem;
-  color: white;
-  text-align: center;
-}
-
-.wallet-balance {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.balance-label {
-  font-size: 0.9rem;
-  opacity: 0.9;
-  margin-bottom: 0.5rem;
-}
-
-.balance-amount {
-  font-size: 2rem;
-  font-weight: 700;
-}
-
-.withdrawal-form {
-  width: 100%;
-}
-
-.form-group {
-  margin-bottom: 1.5rem;
-}
-
-.form-label {
-  display: block;
-  margin-bottom: 0.5rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.required {
-  color: #dc3545;
-}
-
-.form-control,
-.form-select {
-  width: 100%;
-  padding: 0.75rem;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 1rem;
-  transition: all 0.2s ease;
-}
-
-.form-control:focus,
-.form-select:focus {
-  outline: none;
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.1);
-}
-
-.form-control textarea {
-  min-height: 100px;
-  resize: vertical;
-}
-
-.form-help {
-  display: block;
-  margin-top: 0.5rem;
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-}
-
-.form-help a {
-  color: var(--primary-color);
-  text-decoration: none;
-}
-
-.form-help a:hover {
-  text-decoration: underline;
-}
-
-.form-error {
-  color: #dc3545;
-  font-size: 0.85rem;
-  margin-top: 0.5rem;
-}
-
-.checkbox-group {
-  display: flex;
-  flex-direction: column;
-}
-
-.form-check {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.form-check-input {
-  width: auto;
-  margin: 0;
-}
-
-.form-check-label {
-  margin: 0;
-  font-weight: normal;
-}
-
-.form-actions {
-  display: flex;
-  gap: 1rem;
-  margin-top: 2rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid var(--border-color);
-}
-
-.dashboard-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem 1.5rem;
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  text-decoration: none;
-  border-radius: 6px;
-  transition: all 0.2s ease;
-  border: 1px solid var(--border-color);
-  cursor: pointer;
-  font-size: 1rem;
-}
-
-.dashboard-button:hover {
-  background: var(--bg-tertiary);
-}
-
-.dashboard-button-primary {
-  background: var(--primary-color);
-  color: white;
-  border-color: var(--primary-color);
-}
-
-.dashboard-button-primary:hover {
-  background: var(--primary-hover);
-}
-</style>
 {% endblock %}
 
