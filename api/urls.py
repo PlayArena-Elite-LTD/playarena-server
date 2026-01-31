@@ -1,4 +1,5 @@
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from .views import (
     MeView,
@@ -8,9 +9,18 @@ from .views import (
     UserDetailView,
     UserRegistrationView,
     ChangePasswordView,
-    PasswordResetRequestView
+    PasswordResetRequestView,
+    DisputeViewSet,
+    MessageViewSet,
+    NotificationViewSet
 )
 
+
+# Create router for ViewSets
+router = DefaultRouter()
+router.register(r'disputes', DisputeViewSet, basename='dispute')
+router.register(r'messages', MessageViewSet, basename='message')
+router.register(r'notifications', NotificationViewSet, basename='notification')
 
 urlpatterns = [
     # Authentication endpoints
@@ -28,6 +38,9 @@ urlpatterns = [
 
     # Match endpoints
     path('my-matches/', MyMatchesView.as_view(), name='api_my_matches'),
+    
+    # Include router URLs (disputes, messages, notifications)
+    path('', include(router.urls)),
 ]
 
 
