@@ -4,6 +4,8 @@ from .views import (
     MeView,
     ProfileView,
     MyMatchesView,
+    MatchListView,
+    MatchDetailView,
     UserListView,
     UserDetailView,
     UserRegistrationView,
@@ -32,6 +34,8 @@ urlpatterns = [
 
     # Match endpoints
     path('my-matches/', MyMatchesView.as_view(), name='api_my_matches'),
+    path('matches/', MatchListView.as_view(), name='api_match_list'),
+    path('matches/<int:id>/', MatchDetailView.as_view(), name='api_match_detail'),
 
     # Wallet endpoints
     path('wallet/', WalletDetailView.as_view(), name='api_wallet'),

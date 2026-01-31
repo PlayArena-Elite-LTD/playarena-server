@@ -1,1 +1,0 @@
-# Wallet tests package

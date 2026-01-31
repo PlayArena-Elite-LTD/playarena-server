@@ -1,6 +1,7 @@
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.exceptions import PermissionDenied
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import get_user_model
 from .serializers import (
@@ -241,6 +242,64 @@ class MyMatchesView(generics.ListAPIView):
     def get_queryset(self):
         user = self.request.user
         return Match.objects.filter(creator=user) | Match.objects.filter(joiner=user)
+
+
+class MatchListView(generics.ListAPIView):
+    """
+    GET /api/matches/
+
+    List matches with optional filters. Defaults to all matches.
+
+    Query params:
+    - status
+    - game
+    - device
+    - privacy
+    - available=true (filters OPEN + PUBLIC)
+    """
+    serializer_class = MatchSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = Match.objects.select_related('creator', 'joiner', 'winner').order_by('-created_at')
+
+        status_param = self.request.query_params.get('status')
+        game_param = self.request.query_params.get('game')
+        device_param = self.request.query_params.get('device')
+        privacy_param = self.request.query_params.get('privacy')
+        available_param = self.request.query_params.get('available')
+
+        if status_param:
+            queryset = queryset.filter(status=status_param)
+        if game_param:
+            queryset = queryset.filter(game=game_param)
+        if device_param:
+            queryset = queryset.filter(device=device_param)
+        if privacy_param:
+            queryset = queryset.filter(privacy=privacy_param)
+        if available_param and available_param.lower() in ['1', 'true', 'yes']:
+            queryset = queryset.filter(status='OPEN', privacy='PUBLIC')
+
+        return queryset
+
+
+class MatchDetailView(generics.RetrieveAPIView):
+    """
+    GET /api/matches/{id}/
+
+    Retrieve match details. Private matches are restricted to participants.
+    """
+    serializer_class = MatchSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    queryset = Match.objects.select_related('creator', 'joiner', 'winner')
+    lookup_field = 'id'
+
+    def get_object(self):
+        match = super().get_object()
+        user = self.request.user
+        if match.privacy == 'PRIVATE' and user not in [match.creator, match.joiner]:
+            raise PermissionDenied("You do not have access to this match.")
+        return match
 
 
 class WalletDetailView(generics.RetrieveAPIView):
