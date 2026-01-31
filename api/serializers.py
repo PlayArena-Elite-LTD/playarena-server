@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth import get_user_model
 from accounts.models import CustomUser, Profile
-from matches.models import Match
+from matches.models import Match, MatchResult
 from wallet.models import Wallet, Transaction, Deposit, Withdrawal
 
 User = get_user_model()
@@ -269,8 +269,54 @@ class WithdrawalCreateSerializer(serializers.ModelSerializer):
 
 
 class MatchSerializer(serializers.ModelSerializer):
+    """Serializer for match data"""
     class Meta:
         model = Match
-        fields = ['id', 'game', 'device', 'amount', 'status', 'created_at']
+        fields = [
+            'id',
+            'creator',
+            'joiner',
+            'game',
+            'device',
+            'privacy',
+            'joining_code',
+            'amount',
+            'winnings',
+            'status',
+            'winner',
+            'created_at',
+        ]
+        read_only_fields = [
+            'id',
+            'creator',
+            'joiner',
+            'joining_code',
+            'winnings',
+            'status',
+            'winner',
+            'created_at',
+        ]
+
+
+class MatchResultSerializer(serializers.ModelSerializer):
+    """Serializer for match results"""
+    class Meta:
+        model = MatchResult
+        fields = [
+            'id',
+            'match',
+            'creator_submission',
+            'creator_submission_time',
+            'joiner_submission',
+            'joiner_submission_time',
+            'submission_round',
+        ]
+        read_only_fields = [
+            'id',
+            'match',
+            'creator_submission_time',
+            'joiner_submission_time',
+            'submission_round',
+        ]
 
 
