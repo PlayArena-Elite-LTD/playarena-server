@@ -112,6 +112,123 @@
     background: rgba(34, 211, 238, 0.25);
   }
 
+  .admin-kpis {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    margin-bottom: 24px;
+  }
+
+  .admin-kpi-card {
+    background: var(--admin-surface);
+    border: 1px solid var(--admin-border);
+    border-radius: 14px;
+    padding: 16px 18px;
+    box-shadow: var(--admin-shadow);
+  }
+
+  .admin-kpi-label {
+    color: var(--admin-muted);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .admin-kpi-value {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: #f8fafc;
+    margin-top: 6px;
+  }
+
+  .admin-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+
+  .admin-action-button {
+    padding: 10px 16px;
+    border-radius: 10px;
+    border: 1px solid rgba(34, 211, 238, 0.4);
+    background: rgba(15, 23, 42, 0.7);
+    color: #e2e8f0;
+    font-weight: 600;
+    text-decoration: none;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .admin-action-button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 22px rgba(34, 211, 238, 0.25);
+  }
+
+  .app-grid {
+    display: grid;
+    gap: 20px;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  }
+
+  .app-card {
+    background: rgba(15, 23, 42, 0.65);
+    border: 1px solid var(--admin-border);
+    border-radius: 16px;
+    padding: 16px 18px;
+    box-shadow: var(--admin-shadow);
+    display: grid;
+    gap: 12px;
+  }
+
+  .app-card__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .app-card__title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #f8fafc;
+    margin: 0;
+  }
+
+  .app-card__link {
+    color: var(--admin-accent);
+    text-decoration: none;
+    font-size: 0.85rem;
+  }
+
+  .app-card__models {
+    display: grid;
+    gap: 8px;
+  }
+
+  .app-card__model {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: rgba(15, 23, 42, 0.55);
+    border: 1px solid rgba(148, 163, 184, 0.12);
+  }
+
+  .app-card__model-name {
+    color: #e2e8f0;
+    font-weight: 600;
+  }
+
+  .app-card__actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .app-card__actions a {
+    font-size: 0.75rem;
+    color: var(--admin-muted);
+  }
+
   .row1,
   .row2 {
     background: transparent;

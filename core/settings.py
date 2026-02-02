@@ -111,6 +111,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'core.context_processors.environment_label',
                 'alert.context_processors.notification_count',
                 'messenger.context_processors.unread_messages_count',
                 'panel.context_processors.open_dispute_count',
@@ -334,6 +335,9 @@ FLUTTERWAVE_WEBHOOK_URL = os.environ.get('FLUTTERWAVE_WEBHOOK_URL', None)  # Opt
 # Create logs directory if it doesn't exist
 LOGS_DIR = BASE_DIR / 'logs'
 LOGS_DIR.mkdir(exist_ok=True)
+# Avoid Windows file lock issues with autoreload by only enabling
+# file logging in the main process during DEBUG.
+USE_FILE_LOGGING = (not DEBUG) or (os.environ.get('RUN_MAIN') == 'true')
 
 LOGGING = {
     'version': 1,
@@ -489,9 +493,11 @@ APPLICATION_LOGGERS = ['accounts', 'wallet', 'matches', 'panel', 'messenger', 'a
 if DEBUG:
     # Development environment: More verbose logging
     LOGGING['root']['level'] = 'DEBUG'
-    LOGGING['root']['handlers'].append('file_debug')
-    LOGGING['root']['handlers'].append('console')
-    
+    if USE_FILE_LOGGING and 'file_debug' not in LOGGING['root']['handlers']:
+        LOGGING['root']['handlers'].append('file_debug')
+    if 'console' not in LOGGING['root']['handlers']:
+        LOGGING['root']['handlers'].append('console')
+
     # Set application loggers to DEBUG for detailed development logging
     # Preserve protected logger levels (django.request, django.security)
     for logger_name, logger_config in LOGGING['loggers'].items():
@@ -504,12 +510,28 @@ if DEBUG:
         # Django logger can be DEBUG in development
         elif logger_name == 'django':
             logger_config['level'] = 'DEBUG'
-        
+
         # Add debug and console handlers in development
-        if 'file_debug' not in logger_config['handlers']:
+        if USE_FILE_LOGGING and 'file_debug' not in logger_config['handlers']:
             logger_config['handlers'].append('file_debug')
         if 'console' not in logger_config['handlers']:
             logger_config['handlers'].append('console')
+
+    if not USE_FILE_LOGGING:
+        # Avoid duplicate file handlers in the autoreloader process on Windows.
+        for logger_config in LOGGING['loggers'].values():
+            logger_config['handlers'] = [
+                handler for handler in logger_config['handlers']
+                if not handler.startswith('file_')
+            ]
+            if 'console' not in logger_config['handlers']:
+                logger_config['handlers'].append('console')
+        LOGGING['root']['handlers'] = [
+            handler for handler in LOGGING['root']['handlers']
+            if not handler.startswith('file_')
+        ]
+        if 'console' not in LOGGING['root']['handlers']:
+            LOGGING['root']['handlers'].append('console')
 else:
     # Production environment: Less verbose, security-focused logging
     LOGGING['root']['level'] = 'INFO'

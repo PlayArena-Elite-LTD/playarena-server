@@ -1,0 +1,61 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+  .admin-dashboard {
+    display: grid;
+    gap: 24px;
+  }
+
+  .admin-dashboard__intro {
+    background: var(--admin-surface);
+    border: 1px solid var(--admin-border);
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: var(--admin-shadow);
+  }
+
+  .admin-dashboard__intro h1 {
+    margin: 0 0 6px;
+    color: #f8fafc;
+    text-shadow: 0 0 18px rgba(34, 211, 238, 0.35);
+  }
+
+  .admin-dashboard__intro p {
+    margin: 0;
+    color: var(--admin-muted);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="admin-dashboard">
+  <div class="admin-dashboard__intro">
+    <h1>{% trans "Site administration" %}</h1>
+    <p>{% trans "Manage users, wallets, matches, and platform settings from one hub." %}</p>
+  </div>
+
+  <div class="admin-kpis">
+    <div class="admin-kpi-card">
+      <div class="admin-kpi-label">{% trans "Live Users" %}</div>
+      <div class="admin-kpi-value">{{ online_users }}</div>
+    </div>
+    <div class="admin-kpi-card">
+      <div class="admin-kpi-label">{% trans "Total Users" %}</div>
+      <div class="admin-kpi-value">{{ total_users }}</div>
+    </div>
+    <div class="admin-kpi-card">
+      <div class="admin-kpi-label">{% trans "Environment" %}</div>
+      <div class="admin-kpi-value">{{ environment_label }}</div>
+    </div>
+  </div>
+
+  {% if app_list %}
+    {% include "admin/app_list.html" with app_list=app_list show_changelinks=True %}
+  {% else %}
+    <p>{% trans "You don't have permission to view or edit anything." %}</p>
+  {% endif %}
+</div>
+{% endblock %}
