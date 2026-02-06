@@ -17,6 +17,29 @@ import os
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Load local environment variables from `.env` (if allowed) or `local.env` (gitignored).
+# This keeps secrets out of source control and avoids re-typing `$env:...` every terminal.
+_dotenv_path = (BASE_DIR / ".env")
+if not _dotenv_path.exists():
+    _dotenv_path = (BASE_DIR / "local.env")
+
+if _dotenv_path.exists():
+    try:
+        for raw_line in _dotenv_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key:
+                os.environ.setdefault(key, value)
+    except Exception:
+        # Never crash settings if the local .env is malformed.
+        pass
+
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -27,8 +50,32 @@ SECRET_KEY = 'django-insecure-k=zcyj&f3bu3yfofrlw=w7nf-aarhrl1vxj^dsuofxh+ko0d5d
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['lucadev.pythonanywhere.com', '127.0.0.1']
-CSRF_TRUSTED_ORIGINS = ['https://lucadev.pythonanywhere.com']
+def _split_csv_env(name: str, default: list[str]) -> list[str]:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    parts = [p.strip() for p in str(raw).split(",")]
+    return [p for p in parts if p]
+
+
+# Host/origin configuration
+# - In local dev, you may use a public tunnel domain (ngrok/Cloudflare Tunnel). Set `PUBLIC_BASE_URL`
+#   and (optionally) `DJANGO_ALLOWED_HOSTS` / `DJANGO_CSRF_TRUSTED_ORIGINS` to avoid host/CSRF errors.
+_default_allowed_hosts = ["lucadev.pythonanywhere.com", "127.0.0.1", "localhost"]
+if DEBUG and os.environ.get("DJANGO_ALLOWED_HOSTS") is None:
+    # Dev convenience: avoid DisallowedHost when using dynamic tunnel domains.
+    ALLOWED_HOSTS = ["*"]
+else:
+    ALLOWED_HOSTS = _split_csv_env("DJANGO_ALLOWED_HOSTS", _default_allowed_hosts)
+
+_default_csrf_trusted = [
+    "https://lucadev.pythonanywhere.com",
+    "http://127.0.0.1:8000",
+    "http://localhost:8000",
+    "http://127.0.0.1:8001",
+    "http://localhost:8001",
+]
+CSRF_TRUSTED_ORIGINS = _split_csv_env("DJANGO_CSRF_TRUSTED_ORIGINS", _default_csrf_trusted)
 
 # Sentry configuration (only in production)
 SENTRY_DSN = os.environ.get('SENTRY_DSN')
@@ -196,6 +243,11 @@ STORAGES = {
     },
 }
 
+# In development, avoid manifest-based static storage unless you run `collectstatic`.
+# This prevents missing static assets / 404s and `Missing staticfiles manifest entry` errors.
+if DEBUG:
+    STORAGES["staticfiles"]["BACKEND"] = "django.contrib.staticfiles.storage.StaticFilesStorage"
+
 # Media files (User-uploaded files)
 # https://docs.djangoproject.com/en/5.2/topics/files/
 MEDIA_URL = '/media/'
@@ -262,6 +314,23 @@ CACHES = {
     },
 }
 
+# In development, prefer a fast local in-memory cache unless Redis is explicitly enabled.
+# This avoids long timeouts/hangs when Redis isn't running on Windows.
+USE_REDIS_CACHE = os.environ.get('USE_REDIS_CACHE', '').strip().lower() in ('1', 'true', 'yes', 'y', 'on')
+if DEBUG and not USE_REDIS_CACHE:
+    # Fast local cache for development. (Not shared / no atomic incr, but fine for DEBUG.)
+    CACHES['default'] = {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'default',
+    }
+
+    # django-ratelimit enforces shared+atomic cache backends via system checks even if you disable rate limiting.
+    # Since RATELIMIT_ENABLE is already False in DEBUG, silence these checks for local dev.
+    SILENCED_SYSTEM_CHECKS = list(globals().get('SILENCED_SYSTEM_CHECKS', []))
+    for code in ('django_ratelimit.E003', 'django_ratelimit.W001'):
+        if code not in SILENCED_SYSTEM_CHECKS:
+            SILENCED_SYSTEM_CHECKS.append(code)
+
 # Rate limiting configuration
 # Disable ratelimit in DEBUG to avoid requiring a shared cache backend locally.
 RATELIMIT_ENABLE = False if DEBUG else True
@@ -316,7 +385,51 @@ WALLET_AUTO_PROCESS_WITHDRAWALS = True
 
 # Payment Gateway Settings
 # Test mode: Set to False in production
-PAYMENT_GATEWAY_TEST_MODE = True
+PAYMENT_GATEWAY_TEST_MODE = os.environ.get('PAYMENT_GATEWAY_TEST_MODE', 'true').strip().lower() in (
+    '1', 'true', 'yes', 'y', 'on'
+)
+
+# Pesapal Configuration (active gateway)
+#
+# Expected env vars:
+# - PESAPAL_CONSUMER_KEY
+# - PESAPAL_CONSUMER_SECRET
+# - PESAPAL_BASE_URL (sandbox example: https://cybqa.pesapal.com/pesapalv3)
+# - PESAPAL_IPN_ID (notification_id used when submitting orders)
+PESAPAL_CONSUMER_KEY = os.environ.get('PESAPAL_CONSUMER_KEY', '')
+PESAPAL_CONSUMER_SECRET = os.environ.get('PESAPAL_CONSUMER_SECRET', '')
+PESAPAL_BASE_URL = os.environ.get('PESAPAL_BASE_URL', 'https://cybqa.pesapal.com/pesapalv3')
+PESAPAL_IPN_ID = os.environ.get('PESAPAL_IPN_ID', '')
+PESAPAL_CURRENCY = os.environ.get('PESAPAL_CURRENCY', os.environ.get('DEFAULT_PAYMENT_CURRENCY', 'KES'))
+
+# Dev-only: enable a mock Pesapal flow (no external calls; auto-completes deposits).
+# This is intentionally gated by DEBUG to avoid accidental production enablement.
+PESAPAL_MOCK_MODE = (
+    DEBUG
+    and os.environ.get("PESAPAL_MOCK_MODE", "").strip().lower() in ("1", "true", "yes", "y", "on")
+)
+
+# Optional: public base URL used to build callback/IPN URLs when running behind a tunnel/proxy.
+# Example (ngrok): https://abcd-1234.ngrok-free.app
+# If empty, we fall back to request.build_absolute_uri(...)
+PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '').strip()
+
+# If `PUBLIC_BASE_URL` is set, trust it for CSRF in dev/proxy scenarios.
+if PUBLIC_BASE_URL:
+    try:
+        from urllib.parse import urlparse
+
+        _pub_origin = urlparse(PUBLIC_BASE_URL).scheme + "://" + urlparse(PUBLIC_BASE_URL).netloc
+        if _pub_origin not in CSRF_TRUSTED_ORIGINS:
+            CSRF_TRUSTED_ORIGINS.append(_pub_origin)
+    except Exception:
+        pass
+
+# Allow overrides if Pesapal changes paths (or if your base URL includes /api already)
+PESAPAL_AUTH_ENDPOINT = os.environ.get('PESAPAL_AUTH_ENDPOINT', '/api/Auth/RequestToken')
+PESAPAL_SUBMIT_ORDER_ENDPOINT = os.environ.get('PESAPAL_SUBMIT_ORDER_ENDPOINT', '/api/Transactions/SubmitOrderRequest')
+PESAPAL_TXN_STATUS_ENDPOINT = os.environ.get('PESAPAL_TXN_STATUS_ENDPOINT', '/api/Transactions/GetTransactionStatus')
+PESAPAL_REGISTER_IPN_ENDPOINT = os.environ.get('PESAPAL_REGISTER_IPN_ENDPOINT', '/api/URLSetup/RegisterIPN')
 
 # Paystack Configuration
 # Get keys from: https://dashboard.paystack.com/#/settings/developer
@@ -428,6 +541,19 @@ LOGGING = {
             'level': 'INFO',
             'propagate': False,
         },
+        # Django autoreloader can be VERY noisy when root logging is DEBUG.
+        'django.utils.autoreload': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        # SQL query logging can be extremely noisy/sluggish on Windows.
+        # Enable it only when explicitly needed via env var.
+        'django.db.backends': {
+            'handlers': ['console'],
+            'level': 'DEBUG' if os.environ.get('DJANGO_SQL_DEBUG', '').strip().lower() in ('1', 'true', 'yes', 'y', 'on') else 'WARNING',
+            'propagate': False,
+        },
         'django.request': {
             'handlers': ['file_django', 'file_error', 'mail_admins', 'mail_admins_critical'],
             'level': 'ERROR',
@@ -485,14 +611,18 @@ LOGGING = {
 PROTECTED_LOGGER_LEVELS = {
     'django.request': 'ERROR',      # Only log request errors
     'django.security': 'WARNING',   # Security warnings are important
+    'django.db.backends': LOGGING['loggers']['django.db.backends']['level'],  # Preserve SQL verbosity choice
+    'django.utils.autoreload': 'WARNING',
 }
 
 # Application loggers that can be adjusted based on environment
 APPLICATION_LOGGERS = ['accounts', 'wallet', 'matches', 'panel', 'messenger', 'alert']
 
 if DEBUG:
-    # Development environment: More verbose logging
-    LOGGING['root']['level'] = 'DEBUG'
+    # Development environment: keep logs readable/fast by default.
+    # Enable full debug logging only if explicitly requested.
+    DEV_VERBOSE_LOGGING = os.environ.get('DJANGO_VERBOSE_LOGGING', '').strip().lower() in ('1', 'true', 'yes', 'y', 'on')
+    LOGGING['root']['level'] = 'DEBUG' if DEV_VERBOSE_LOGGING else 'INFO'
     if USE_FILE_LOGGING and 'file_debug' not in LOGGING['root']['handlers']:
         LOGGING['root']['handlers'].append('file_debug')
     if 'console' not in LOGGING['root']['handlers']:
@@ -503,13 +633,13 @@ if DEBUG:
     for logger_name, logger_config in LOGGING['loggers'].items():
         # Only adjust application loggers, preserve Django framework logger levels
         if logger_name in APPLICATION_LOGGERS:
-            logger_config['level'] = 'DEBUG'
+            logger_config['level'] = 'DEBUG' if DEV_VERBOSE_LOGGING else 'INFO'
         # Protected loggers keep their configured levels
         elif logger_name in PROTECTED_LOGGER_LEVELS:
             logger_config['level'] = PROTECTED_LOGGER_LEVELS[logger_name]
         # Django logger can be DEBUG in development
         elif logger_name == 'django':
-            logger_config['level'] = 'DEBUG'
+            logger_config['level'] = 'DEBUG' if DEV_VERBOSE_LOGGING else 'INFO'
 
         # Add debug and console handlers in development
         if USE_FILE_LOGGING and 'file_debug' not in logger_config['handlers']:

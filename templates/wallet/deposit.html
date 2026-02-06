@@ -64,6 +64,9 @@
               {% endfor %}
             </div>
           {% endif %}
+          {% if form.payment_method.help_text %}
+            <p class="form-help">{{ form.payment_method.help_text }}</p>
+          {% endif %}
         </div>
         
         <div class="form-actions">
@@ -78,7 +81,8 @@
 {% endblock %}
 
 {% block additional_scripts %}
-<script src="/static/scripts/wallet.js"></script>
+{% load static %}
+<script src="{% static 'scripts/wallet.js' %}"></script>
 {% endblock %}
 
 

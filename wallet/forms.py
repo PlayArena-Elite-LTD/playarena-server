@@ -1,5 +1,6 @@
 from django import forms
 from decimal import Decimal
+from django.conf import settings
 from .models import SavedPaymentMethod
 from .models import Deposit, Withdrawal
 
@@ -24,12 +25,47 @@ class DepositForm(forms.Form):
         choices=Deposit.PAYMENT_METHOD_CHOICES,
         widget=forms.Select(attrs={'class': 'form-control'}),
         label='Payment Method',
-        initial='OTHER'
+        initial='PESAPAL'
     )
     
     def __init__(self, *args, **kwargs):
         self.user = kwargs.pop('user', None)
         super().__init__(*args, **kwargs)
+
+        # Show only active deposit methods for now (Pesapal + optional manual bank transfer).
+        choices = []
+        pesapal_mock = bool(getattr(settings, "PESAPAL_MOCK_MODE", False))
+        pesapal_ready = bool(
+            (getattr(settings, "PESAPAL_CONSUMER_KEY", "") or "").strip()
+            and (getattr(settings, "PESAPAL_CONSUMER_SECRET", "") or "").strip()
+        )
+        if pesapal_ready or pesapal_mock:
+            choices.append(("PESAPAL", "Pesapal"))
+        choices.append(("BANK_TRANSFER", "Bank Transfer"))
+        self.fields["payment_method"].choices = choices
+
+        if pesapal_mock:
+            self.fields["payment_method"].help_text = (
+                "Pesapal is running in MOCK mode (dev-only). Deposits will auto-complete without contacting Pesapal."
+            )
+            self.fields["payment_method"].initial = "PESAPAL"
+            return
+
+        if pesapal_ready and not (getattr(settings, "PESAPAL_IPN_ID", "") or "").strip():
+            public_base = (getattr(settings, "PUBLIC_BASE_URL", "") or "").strip()
+            extra = (
+                " Tip: set PUBLIC_BASE_URL to your ngrok/Cloudflare Tunnel URL so IPN auto-registration can work."
+                if public_base == ""
+                else ""
+            )
+            self.fields["payment_method"].help_text = (
+                "Pesapal needs an IPN notification_id (PESAPAL_IPN_ID). "
+                "If it's not set, deposits will fail until you register the IPN URL in Pesapal and set PESAPAL_IPN_ID."
+                + extra
+            )
+
+        if not pesapal_ready:
+            self.fields["payment_method"].initial = "BANK_TRANSFER"
         
     def clean_amount(self):
         """Additional validation for deposit amount"""
@@ -124,8 +160,6 @@ class WithdrawalForm(forms.Form):
         payment_method_limits = {
             'BANK_TRANSFER': {'max': Decimal('50000.00'), 'daily': Decimal('100000.00')},
             'MOBILE_MONEY': {'max': Decimal('10000.00'), 'daily': Decimal('50000.00')},
-            'PAYPAL': {'max': Decimal('20000.00'), 'daily': Decimal('50000.00')},
-            'STRIPE': {'max': Decimal('20000.00'), 'daily': Decimal('50000.00')},
             'OTHER': {'max': Decimal('10000.00'), 'daily': Decimal('25000.00')},
         }
         
@@ -206,13 +240,19 @@ class WithdrawalForm(forms.Form):
     def __init__(self, *args, **kwargs):
         self.user = kwargs.pop('user', None)
         super().__init__(*args, **kwargs)
+
+        # Show only active withdrawal methods for now.
+        self.fields['payment_method'].choices = [
+            ('BANK_TRANSFER', 'Bank Transfer'),
+            ('MOBILE_MONEY', 'Mobile Money'),
+        ]
         
         # Populate saved payment methods for this user
         if self.user:
             saved_methods = SavedPaymentMethod.objects.filter(
                 user=self.user,
                 is_active=True,
-                payment_method_type__in=[choice[0] for choice in Withdrawal.PAYMENT_METHOD_CHOICES]
+                payment_method_type__in=[choice[0] for choice in self.fields['payment_method'].choices]
             ).order_by('-is_default', '-created_at')
             
             self.fields['saved_payment_method'].queryset = saved_methods

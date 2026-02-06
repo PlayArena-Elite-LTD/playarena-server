@@ -15,10 +15,41 @@ import logging
 import requests
 from decimal import Decimal
 from typing import Dict, Optional, Any
+from urllib.parse import urlparse
+import ipaddress
 from django.conf import settings
 from django.utils import timezone
 
+from wallet.pesapal_service import get_pesapal_client, PesapalClient
+from wallet.payment_debug import payment_debug_enabled, mask_secret
+
 logger = logging.getLogger(__name__)
+
+
+def _is_local_or_private_url(url: str) -> bool:
+    """
+    Best-effort check: is this URL clearly not publicly reachable?
+
+    Pesapal IPN registration requires a publicly reachable URL. Localhost, loopback,
+    0.0.0.0, and RFC1918 private IPs won't work.
+    """
+    try:
+        host = (urlparse(url).hostname or "").strip().lower()
+    except Exception:
+        return False
+
+    if not host:
+        return False
+
+    if host in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
+        return True
+
+    try:
+        ip = ipaddress.ip_address(host)
+        return bool(ip.is_private or ip.is_loopback or ip.is_link_local)
+    except Exception:
+        # Not an IP address (domain). Assume it *might* be public.
+        return False
 
 
 class PaymentManager:
@@ -26,14 +57,18 @@ class PaymentManager:
     Unified payment gateway manager for processing deposits and withdrawals.
     
     Supports multiple payment gateways:
-    - Paystack
-    - Flutterwave
+    - Pesapal (active)
+    - Paystack (kept for future)
+    - Flutterwave (kept for future)
     - Bank Transfer (manual processing)
     - Mobile Money
     """
     
     def __init__(self):
         """Initialize PaymentManager with gateway configurations"""
+        # Pesapal configuration
+        self._refresh_pesapal_config()
+
         # Paystack configuration
         self.paystack_secret_key = getattr(settings, 'PAYSTACK_SECRET_KEY', None)
         self.paystack_public_key = getattr(settings, 'PAYSTACK_PUBLIC_KEY', None)
@@ -46,8 +81,33 @@ class PaymentManager:
         
         # General settings
         self.test_mode = getattr(settings, 'PAYMENT_GATEWAY_TEST_MODE', True)
+
+    def _refresh_pesapal_config(self) -> None:
+        """
+        Refresh Pesapal configuration from Django settings.
+
+        This avoids stale configuration if env vars are loaded after the PaymentManager
+        singleton is created (common in local dev).
+        """
+        self.pesapal_consumer_key = (getattr(settings, 'PESAPAL_CONSUMER_KEY', '') or '').strip()
+        self.pesapal_consumer_secret = (getattr(settings, 'PESAPAL_CONSUMER_SECRET', '') or '').strip()
+        self.pesapal_ipn_id = (getattr(settings, 'PESAPAL_IPN_ID', '') or '').strip()
+        self.pesapal_currency = (getattr(settings, 'PESAPAL_CURRENCY', 'KES') or 'KES')
+        if payment_debug_enabled():
+            logger.info(
+                "[PAYMENT_DEBUG] pesapal_config: key=%s secret=%s ipn_id=%s currency=%s",
+                mask_secret(self.pesapal_consumer_key),
+                mask_secret(self.pesapal_consumer_secret),
+                (self.pesapal_ipn_id or "(not set)"),
+                self.pesapal_currency,
+            )
     
-    def initialize_deposit(self, deposit, callback_url: Optional[str] = None) -> Dict[str, Any]:
+    def initialize_deposit(
+        self,
+        deposit,
+        callback_url: Optional[str] = None,
+        ipn_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Initialize a deposit payment through the appropriate payment gateway.
         
@@ -70,14 +130,10 @@ class PaymentManager:
         payment_method = deposit.payment_method
         
         try:
-            if payment_method == 'STRIPE':
-                return self._initialize_stripe_deposit(deposit, callback_url)
-            elif payment_method == 'MOBILE_MONEY':
-                return self._initialize_mobile_money_deposit(deposit, callback_url)
+            if payment_method == 'PESAPAL':
+                return self._initialize_pesapal_deposit(deposit, callback_url, ipn_url=ipn_url)
             elif payment_method == 'BANK_TRANSFER':
                 return self._initialize_bank_transfer_deposit(deposit, callback_url)
-            elif payment_method == 'PAYPAL':
-                return self._initialize_paypal_deposit(deposit, callback_url)
             else:
                 return {
                     'success': False,
@@ -121,10 +177,6 @@ class PaymentManager:
                 return self._process_bank_transfer(withdrawal)
             elif payment_method == 'MOBILE_MONEY':
                 return self._process_mobile_money(withdrawal)
-            elif payment_method == 'PAYPAL':
-                return self._process_paypal(withdrawal)
-            elif payment_method == 'STRIPE':
-                return self._process_stripe(withdrawal)
             else:
                 return {
                     'success': False,
@@ -173,31 +225,248 @@ class PaymentManager:
     
     def _process_mobile_money(self, withdrawal) -> Dict[str, Any]:
         """
-        Process mobile money withdrawal via Paystack or Flutterwave.
-        
-        Priority: Paystack > Flutterwave
+        Process mobile money withdrawal.
+
+        Currently handled as manual processing in this project.
+        (Paystack/Flutterwave transfer integrations are kept for future rollout.)
         """
-        # Try Paystack first if configured
-        if self.paystack_secret_key:
-            result = self._process_paystack_transfer(withdrawal)
-            if result['success']:
-                return result
-            # If Paystack fails, try Flutterwave as fallback
-            if self.flutterwave_secret_key:
-                logger.info(f'Paystack failed for withdrawal {withdrawal.id}, trying Flutterwave')
-                return self._process_flutterwave_transfer(withdrawal)
-            return result
-        
-        # Try Flutterwave if Paystack not configured
-        if self.flutterwave_secret_key:
-            return self._process_flutterwave_transfer(withdrawal)
-        
-        # No gateway configured
+        transaction_id = f"MM_{withdrawal.id}_{int(timezone.now().timestamp())}"
+        return {
+            'success': True,
+            'transaction_id': transaction_id,
+            'gateway_response': {
+                'status': 'pending',
+                'message': 'Mobile money withdrawal queued for manual processing.',
+                'transaction_id': transaction_id,
+                'gateway': 'manual_mobile_money',
+                'processed_at': timezone.now().isoformat()
+            },
+            'failure_reason': None
+        }
+
+    def _initialize_pesapal_deposit(
+        self,
+        deposit,
+        callback_url: Optional[str],
+        ipn_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Initialize a deposit via Pesapal.
+        """
+        # Ensure we always use current settings
+        self._refresh_pesapal_config()
+
+        # Dev-only: allow mocking Pesapal (no external API calls).
+        # This is useful when credentials/IPN are not set up yet.
+        if bool(getattr(settings, "PESAPAL_MOCK_MODE", False)):
+            if not callback_url:
+                return {
+                    'success': False,
+                    'authorization_url': None,
+                    'payment_reference': None,
+                    'gateway_response': {'status': 'error', 'message': 'Missing callback_url'},
+                    'failure_reason': 'callback_url is required for Pesapal'
+                }
+
+            mock_tracking_id = f"MOCK_{deposit.id}_{int(timezone.now().timestamp())}"
+            joiner = "&" if "?" in str(callback_url) else "?"
+            redirect_url = f"{callback_url}{joiner}OrderTrackingId={mock_tracking_id}"
+            return {
+                'success': True,
+                'authorization_url': redirect_url,
+                'payment_reference': mock_tracking_id,
+                'gateway_response': {
+                    'status': 'mock',
+                    'message': 'Mock Pesapal mode enabled (deposit auto-completes on callback).',
+                    'redirect_url': redirect_url,
+                    'order_tracking_id': mock_tracking_id,
+                },
+                'failure_reason': None,
+            }
+
+        if not self.pesapal_consumer_key or not self.pesapal_consumer_secret:
+            return {
+                'success': False,
+                'authorization_url': None,
+                'payment_reference': None,
+                'gateway_response': {'status': 'error', 'message': 'Pesapal not configured'},
+                'failure_reason': 'Pesapal consumer key/secret not configured'
+            }
+
+        pesapal_ipn_id = str(self.pesapal_ipn_id or '').strip()
+        ipn_url_str = (str(ipn_url).strip() if ipn_url else "")
+        if not pesapal_ipn_id and ipn_url_str:
+            # Convenience: attempt to auto-register IPN (requires a publicly reachable URL).
+            if _is_local_or_private_url(ipn_url_str):
+                if payment_debug_enabled():
+                    logger.info("[PAYMENT_DEBUG] skipping IPN auto-register (local/private url): ipn_url=%s", ipn_url_str)
+            else:
+                try:
+                    client: PesapalClient = get_pesapal_client()
+                    if payment_debug_enabled():
+                        logger.info("[PAYMENT_DEBUG] attempting IPN auto-register: ipn_url=%s", ipn_url_str)
+                    reg = client.register_ipn(ipn_url=ipn_url_str, notification_type='GET')
+                    reg_data = reg.get('data', reg) if isinstance(reg, dict) else {}
+                    pesapal_ipn_id = (
+                        reg_data.get('ipn_id')
+                        or reg_data.get('ipnId')
+                        or reg_data.get('notification_id')
+                        or reg_data.get('id')
+                        or ''
+                    )
+                    pesapal_ipn_id = str(pesapal_ipn_id).strip()
+                    if pesapal_ipn_id:
+                        logger.info(f'Pesapal IPN auto-registered. Set PESAPAL_IPN_ID={pesapal_ipn_id}')
+                    elif payment_debug_enabled():
+                        logger.info("[PAYMENT_DEBUG] IPN auto-register response did not contain an id: %s", reg)
+                except Exception as e:
+                    logger.warning(f'Pesapal IPN auto-registration failed: {str(e)}')
+
+        if not pesapal_ipn_id:
+            ipn_hint = ""
+            if ipn_url_str:
+                if _is_local_or_private_url(ipn_url_str):
+                    ipn_hint = (
+                        f" Current IPN URL is {ipn_url_str} which is not publicly reachable."
+                        " Set PUBLIC_BASE_URL to a public domain (ngrok/Cloudflare Tunnel), then try again."
+                    )
+                else:
+                    ipn_hint = f" Current IPN URL: {ipn_url_str}."
+            return {
+                'success': False,
+                'authorization_url': None,
+                'payment_reference': None,
+                'gateway_response': {'status': 'error', 'message': 'Pesapal IPN not configured'},
+                'failure_reason': (
+                    'Missing PESAPAL_IPN_ID (notification_id). '
+                    'Expose your server publicly and register IPN URL /wallet/webhooks/pesapal/ in Pesapal, '
+                    'or set PESAPAL_IPN_ID manually.'
+                    + ipn_hint
+                    + (
+                        f' You can also run: python manage.py register_pesapal_ipn --url "{ipn_url_str}"'
+                        if ipn_url_str and not _is_local_or_private_url(ipn_url_str)
+                        else ""
+                    )
+                )
+            }
+
+        if not callback_url:
+            return {
+                'success': False,
+                'authorization_url': None,
+                'payment_reference': None,
+                'gateway_response': {'status': 'error', 'message': 'Missing callback_url'},
+                'failure_reason': 'callback_url is required for Pesapal'
+            }
+
+        merchant_reference = f'DEP_{deposit.id}_{int(timezone.now().timestamp())}'
+        description = f'Deposit for {deposit.user.username}'
+
+        try:
+            client: PesapalClient = get_pesapal_client()
+            resp = client.submit_order(
+                merchant_reference=merchant_reference,
+                amount=str(deposit.amount),
+                currency=self.pesapal_currency,
+                description=description,
+                callback_url=callback_url,
+                notification_id=str(pesapal_ipn_id),
+                email=deposit.user.email,
+                first_name=getattr(deposit.user, 'first_name', None) or None,
+                last_name=getattr(deposit.user, 'last_name', None) or None,
+            )
+
+            data = resp.get('data', resp) if isinstance(resp, dict) else {}
+            redirect_url = (
+                data.get('redirect_url')
+                or data.get('redirectUrl')
+                or data.get('redirectURL')
+                or data.get('link')
+            )
+            order_tracking_id = (
+                data.get('order_tracking_id')
+                or data.get('orderTrackingId')
+                or data.get('order_trackingid')
+                or data.get('orderTrackingID')
+            )
+
+            if not redirect_url or not order_tracking_id:
+                return {
+                    'success': False,
+                    'authorization_url': None,
+                    'payment_reference': None,
+                    'gateway_response': resp,
+                    'failure_reason': 'Pesapal response missing redirect_url/order_tracking_id'
+                }
+
+            return {
+                'success': True,
+                'authorization_url': redirect_url,
+                'payment_reference': str(order_tracking_id),
+                'gateway_response': resp,
+                'failure_reason': None
+            }
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f'Pesapal API error for deposit {deposit.id}: {str(e)}', exc_info=True)
+            return {
+                'success': False,
+                'authorization_url': None,
+                'payment_reference': None,
+                'gateway_response': {'status': 'error', 'error': str(e)},
+                'failure_reason': f'Pesapal API error: {str(e)}'
+            }
+        except Exception as e:
+            logger.error(f'Error initializing Pesapal deposit {deposit.id}: {str(e)}', exc_info=True)
+            return {
+                'success': False,
+                'authorization_url': None,
+                'payment_reference': None,
+                'gateway_response': {'status': 'error', 'error': str(e)},
+                'failure_reason': f'Processing error: {str(e)}'
+            }
+
+    def _initialize_bank_transfer_deposit(self, deposit, callback_url: Optional[str]) -> Dict[str, Any]:
+        """
+        Initialize a bank transfer deposit (manual processing).
+        """
+        payment_reference = f'BANKDEP_{deposit.id}_{int(timezone.now().timestamp())}'
+        return {
+            'success': True,
+            'authorization_url': None,
+            'payment_reference': payment_reference,
+            'gateway_response': {
+                'status': 'pending',
+                'reference': payment_reference,
+                'gateway': 'bank_transfer'
+            },
+            'failure_reason': None
+        }
+
+    def _initialize_paypal_deposit(self, deposit, callback_url: Optional[str]) -> Dict[str, Any]:
+        """
+        Initialize a PayPal deposit (not yet implemented).
+        """
+        logger.warning(f'PayPal deposit processing not yet implemented for deposit {deposit.id}')
         return {
             'success': False,
-            'transaction_id': None,
-            'gateway_response': {'status': 'error', 'message': 'No mobile money gateway configured'},
-            'failure_reason': 'Mobile money payment gateway not configured'
+            'authorization_url': None,
+            'payment_reference': None,
+            'gateway_response': {'status': 'error', 'message': 'PayPal integration not yet available'},
+            'failure_reason': 'PayPal deposit processing is not yet implemented'
+        }
+
+    def _initialize_stripe_deposit(self, deposit, callback_url: Optional[str]) -> Dict[str, Any]:
+        """
+        Initialize a Stripe deposit (not yet implemented).
+        """
+        logger.warning(f'Stripe deposit processing not yet implemented for deposit {deposit.id}')
+        return {
+            'success': False,
+            'authorization_url': None,
+            'payment_reference': None,
+            'gateway_response': {'status': 'error', 'message': 'Stripe integration not yet available'},
+            'failure_reason': 'Stripe deposit processing is not yet implemented'
         }
     
     def _process_paypal(self, withdrawal) -> Dict[str, Any]:

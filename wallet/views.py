@@ -6,15 +6,39 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django_ratelimit.decorators import ratelimit
 from django.db import transaction
+from django.conf import settings
 from decimal import Decimal
 import json
 import logging
+import time
+from urllib.parse import urljoin
 
 from .models import Wallet, Transaction, Deposit, Withdrawal, SavedPaymentMethod
 from .forms import DepositForm, WithdrawalForm
 from .payment_method_forms import SavedPaymentMethodForm, DeletePaymentMethodForm
+from wallet.payment_debug import payment_debug_enabled, mask_secret
 
 logger = logging.getLogger(__name__)
+
+
+def _build_public_url(request, path_or_url: str) -> str:
+    """
+    Build an absolute URL for external services (e.g. Pesapal callback/IPN).
+
+    If `settings.PUBLIC_BASE_URL` is set, we join it with the provided path.
+    Otherwise we fall back to `request.build_absolute_uri(...)`.
+    """
+    if not path_or_url:
+        return path_or_url
+    if str(path_or_url).startswith(("http://", "https://")):
+        return str(path_or_url)
+
+    public_base = (getattr(settings, "PUBLIC_BASE_URL", "") or "").strip()
+    if public_base:
+        return urljoin(public_base.rstrip("/") + "/", str(path_or_url).lstrip("/"))
+
+    return request.build_absolute_uri(str(path_or_url))
+
 
 @login_required
 def wallet_view(request):
@@ -53,8 +77,17 @@ def deposit_view(request):
         form = DepositForm(request.POST, user=request.user)
         if form.is_valid():
             try:
+                t0 = time.perf_counter()
                 amount = form.cleaned_data['amount']
                 payment_method = form.cleaned_data['payment_method']
+
+                if payment_debug_enabled():
+                    logger.info(
+                        "[PAYMENT_DEBUG] deposit_submit: user=%s amount=%s method=%s",
+                        request.user.username,
+                        str(amount),
+                        payment_method,
+                    )
                 
                 # Create Deposit instance (validation happens in clean())
                 deposit = Deposit(
@@ -90,14 +123,44 @@ def deposit_view(request):
                 
                 # Build callback URL for payment completion
                 from django.urls import reverse
-                callback_url = request.build_absolute_uri(reverse('wallet'))
+                if payment_method == 'PESAPAL':
+                    callback_url = _build_public_url(request, reverse('pesapal_callback'))
+                    ipn_url = _build_public_url(request, reverse('pesapal_ipn'))
+                else:
+                    callback_url = _build_public_url(request, reverse('wallet'))
+                    ipn_url = None
+
+                if payment_debug_enabled():
+                    logger.info(
+                        "[PAYMENT_DEBUG] urls: callback=%s ipn=%s",
+                        callback_url,
+                        ipn_url,
+                    )
+                    logger.info(
+                        "[PAYMENT_DEBUG] settings: PESAPAL_KEY=%s PESAPAL_SECRET=%s PESAPAL_BASE_URL=%s PESAPAL_IPN_ID=%s",
+                        mask_secret(getattr(settings, "PESAPAL_CONSUMER_KEY", "")),
+                        mask_secret(getattr(settings, "PESAPAL_CONSUMER_SECRET", "")),
+                        getattr(settings, "PESAPAL_BASE_URL", ""),
+                        (getattr(settings, "PESAPAL_IPN_ID", "") or "(not set)"),
+                    )
                 
                 # Initialize payment
-                payment_result = payment_manager.initialize_deposit(deposit, callback_url)
+                payment_result = payment_manager.initialize_deposit(deposit, callback_url, ipn_url=ipn_url)
+
+                if payment_debug_enabled():
+                    dt_ms = int((time.perf_counter() - t0) * 1000)
+                    logger.info(
+                        "[PAYMENT_DEBUG] init_result (%sms): success=%s failure_reason=%s has_auth_url=%s",
+                        dt_ms,
+                        payment_result.get("success"),
+                        payment_result.get("failure_reason"),
+                        bool(payment_result.get("authorization_url")),
+                    )
                 
                 if payment_result['success']:
                     # Update deposit with transaction reference
                     deposit.transaction_id = payment_result.get('payment_reference')
+                    deposit.gateway_response = payment_result.get('gateway_response') or {}
                     deposit.save()
                     
                     # If authorization URL is provided, redirect to payment gateway
@@ -117,6 +180,8 @@ def deposit_view(request):
                 else:
                     # Payment initialization failed
                     deposit.status = 'FAILED'
+                    deposit.failure_reason = payment_result.get('failure_reason', 'Unknown error')
+                    deposit.gateway_response = payment_result.get('gateway_response') or {}
                     deposit.save()
                     
                     # Audit log: Deposit failed
@@ -259,8 +324,51 @@ def withdraw_view(request):
                     f"User: {request.user.username}, Amount: ${amount}, "
                     f"IP: {ip_address}, Suspicious: {suspicious}"
                 )
-                
-                messages.success(request, f'Withdrawal request of ${amount:.2f} created successfully. Processing...')
+
+                # Auto-process withdrawals if enabled (no admin intervention).
+                if bool(getattr(settings, "WALLET_AUTO_PROCESS_WITHDRAWALS", True)):
+                    from wallet.notifications import (
+                        notify_withdrawal_processing,
+                        notify_withdrawal_completed,
+                        notify_withdrawal_failed,
+                    )
+                    from wallet.payment_manager import get_payment_manager
+                    from wallet.utils import process_withdrawal_and_debit_wallet
+
+                    # Mark as processing for UX/notifications.
+                    Withdrawal.objects.filter(id=withdrawal.id).update(status='PROCESSING')
+                    withdrawal.refresh_from_db()
+                    notify_withdrawal_processing(withdrawal)
+
+                    payment_manager = get_payment_manager()
+                    gateway_result = payment_manager.process_withdrawal(withdrawal)
+
+                    if gateway_result.get("success"):
+                        debit_result = process_withdrawal_and_debit_wallet(withdrawal, gateway_result=gateway_result)
+                        withdrawal.refresh_from_db()
+                        if debit_result.get("success"):
+                            notify_withdrawal_completed(withdrawal)
+                            messages.success(
+                                request,
+                                f'Withdrawal of ${amount:.2f} completed successfully.'
+                            )
+                        else:
+                            notify_withdrawal_failed(withdrawal, debit_result.get("message", "Withdrawal failed"))
+                            messages.error(
+                                request,
+                                f'Withdrawal could not be completed: {debit_result.get("message", "Unknown error")}'
+                            )
+                    else:
+                        # Gateway/initiation failed: mark failed.
+                        withdrawal.status = 'FAILED'
+                        withdrawal.failure_reason = gateway_result.get("failure_reason") or "Withdrawal processing failed"
+                        withdrawal.gateway_response = gateway_result.get("gateway_response") or {}
+                        withdrawal.save(update_fields=['status', 'failure_reason', 'gateway_response'])
+                        notify_withdrawal_failed(withdrawal, withdrawal.failure_reason)
+                        messages.error(request, f'Withdrawal failed: {withdrawal.failure_reason}')
+                else:
+                    messages.success(request, f'Withdrawal request of ${amount:.2f} created successfully. Processing...')
+
                 return redirect('wallet')
             except Exception as e:
                 # Handle validation errors from Withdrawal model

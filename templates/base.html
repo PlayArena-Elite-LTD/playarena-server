@@ -1,12 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    {% load static %}
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{% block title %} PlayArena Elite {% endblock %}</title>
-    <link rel="stylesheet" href="/static/styles/base.css">
-    <link rel="stylesheet" href="/static/styles/style.css">
-    <link rel="stylesheet" href="/static/styles/auth.css">
+    <link rel="icon" href="{% static 'favicon.svg' %}" type="image/svg+xml">
+    <link rel="stylesheet" href="{% static 'styles/base.css' %}">
+    <link rel="stylesheet" href="{% static 'styles/style.css' %}">
+    <link rel="stylesheet" href="{% static 'styles/auth.css' %}">
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -246,8 +248,8 @@
     </main>
     
     {% include 'includes/modal.html' %}
-    <script src="/static/scripts/script.js"></script>
-    <script src="/static/scripts/modal.js"></script>
+    <script src="{% static 'scripts/script.js' %}"></script>
+    <script src="{% static 'scripts/modal.js' %}"></script>
     {% block additional_scripts %}{% endblock %}
 </body>
 </html>

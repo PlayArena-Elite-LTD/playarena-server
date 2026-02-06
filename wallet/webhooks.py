@@ -17,12 +17,14 @@ import hashlib
 import logging
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_http_methods
 from django.db import transaction
 from django.conf import settings
 from django.utils import timezone
+from django.contrib import messages
 
 from wallet.models import Deposit, Withdrawal, Transaction, Wallet
+from wallet.pesapal_service import get_pesapal_client, PesapalClient
 from wallet.notifications import (
     notify_deposit_completed,
     notify_deposit_failed,
@@ -91,6 +93,179 @@ def verify_flutterwave_signature(request):
     
     # Use constant-time comparison to prevent timing attacks
     return hmac.compare_digest(signature, expected_signature)
+
+
+@transaction.atomic
+def _complete_deposit(deposit: Deposit, completed_via: str, gateway_payload: dict):
+    # Idempotency
+    if deposit.status == 'COMPLETED':
+        return False
+
+    deposit.status = 'COMPLETED'
+    deposit.completed_at = timezone.now()
+    deposit.gateway_response = gateway_payload or {}
+    deposit.failure_reason = None
+    deposit.save()
+
+    wallet = deposit.wallet
+    wallet.balance += deposit.amount
+    wallet.save()
+
+    Transaction.objects.create(
+        wallet=wallet,
+        amount=deposit.amount,
+        transaction_type='DEPOSIT',
+        description=f"Deposit of ${deposit.amount} via {deposit.get_payment_method_display()}",
+    )
+
+    notify_deposit_completed(deposit)
+
+    from audit.utils import log_action
+    log_action(
+        action='deposit_completed',
+        user=deposit.user,
+        details={
+            'deposit_id': deposit.id,
+            'amount': str(deposit.amount),
+            'payment_method': deposit.payment_method,
+            'transaction_id': deposit.transaction_id,
+            'completed_via': completed_via,
+            'new_balance': str(wallet.balance),
+        },
+    )
+    return True
+
+
+@transaction.atomic
+def _fail_deposit(deposit: Deposit, failed_via: str, reason: str, gateway_payload: dict):
+    if deposit.status in ('COMPLETED', 'FAILED', 'CANCELLED'):
+        return False
+
+    deposit.status = 'FAILED'
+    deposit.failure_reason = reason or 'Payment failed'
+    deposit.gateway_response = gateway_payload or {}
+    deposit.save()
+
+    notify_deposit_failed(deposit, reason=deposit.failure_reason)
+
+    from audit.utils import log_action
+    log_action(
+        action='deposit_failed',
+        user=deposit.user,
+        details={
+            'deposit_id': deposit.id,
+            'amount': str(deposit.amount),
+            'payment_method': deposit.payment_method,
+            'transaction_id': deposit.transaction_id,
+            'failure_reason': deposit.failure_reason,
+            'failed_via': failed_via,
+        },
+    )
+    return True
+
+
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+def pesapal_ipn(request):
+    """
+    Pesapal IPN endpoint.
+
+    Pesapal commonly hits this endpoint with query params that include an order tracking ID.
+    We then query Pesapal for the definitive transaction status and update our Deposit.
+    """
+    order_tracking_id = (
+        request.GET.get('OrderTrackingId')
+        or request.GET.get('orderTrackingId')
+        or request.GET.get('order_tracking_id')
+        or request.POST.get('OrderTrackingId')
+        or request.POST.get('orderTrackingId')
+        or request.POST.get('order_tracking_id')
+    )
+
+    if not order_tracking_id:
+        return JsonResponse({'status': 'error', 'message': 'Missing OrderTrackingId'}, status=400)
+
+    deposit = Deposit.objects.filter(transaction_id=str(order_tracking_id)).first()
+    if not deposit:
+        # Keep response 200 so Pesapal doesn't retry endlessly for unknown refs.
+        logger.warning(f'Pesapal IPN: deposit not found for tracking id {order_tracking_id}')
+        return JsonResponse({'status': 'ok', 'message': 'Deposit not found'}, status=200)
+
+    # Dev-only mock flow: treat tracking IDs with MOCK_ prefix as completed.
+    if str(order_tracking_id).startswith("MOCK_") and bool(getattr(settings, "PESAPAL_MOCK_MODE", False)):
+        _complete_deposit(deposit, completed_via='pesapal_ipn_mock', gateway_payload={'mock': True, 'order_tracking_id': order_tracking_id})
+        return JsonResponse({'status': 'ok'})
+
+    try:
+        client = get_pesapal_client()
+        status_resp = client.get_transaction_status(str(order_tracking_id))
+        normalized, raw_desc = PesapalClient.interpret_status(status_resp)
+
+        if normalized == 'COMPLETED':
+            _complete_deposit(deposit, completed_via='pesapal_ipn', gateway_payload=status_resp)
+            return JsonResponse({'status': 'ok'})
+
+        if normalized == 'FAILED':
+            _fail_deposit(deposit, failed_via='pesapal_ipn', reason=raw_desc or 'Payment failed', gateway_payload=status_resp)
+            return JsonResponse({'status': 'ok'})
+
+        return JsonResponse({'status': 'ok', 'message': f'Payment {normalized}'})
+
+    except Exception as e:
+        logger.error(f'Pesapal IPN error for {order_tracking_id}: {str(e)}', exc_info=True)
+        # Return 200 to prevent aggressive retries on transient problems; logs capture details.
+        return JsonResponse({'status': 'ok', 'message': 'Processed'})
+
+
+@require_http_methods(["GET"])
+def pesapal_callback(request):
+    """
+    User redirect/callback after payment on Pesapal side.
+
+    This is NOT trusted alone; we still query Pesapal for status, and IPN is the authoritative path.
+    """
+    order_tracking_id = (
+        request.GET.get('OrderTrackingId')
+        or request.GET.get('orderTrackingId')
+        or request.GET.get('order_tracking_id')
+    )
+    if not order_tracking_id:
+        messages.info(request, 'Payment started. Waiting for confirmation...')
+        from django.shortcuts import redirect
+        return redirect('wallet')
+
+    deposit = Deposit.objects.filter(transaction_id=str(order_tracking_id)).first()
+    if not deposit:
+        messages.info(request, 'Payment received. If your wallet does not update shortly, contact support.')
+        from django.shortcuts import redirect
+        return redirect('wallet')
+
+    # Dev-only mock flow: treat tracking IDs with MOCK_ prefix as completed.
+    if str(order_tracking_id).startswith("MOCK_") and bool(getattr(settings, "PESAPAL_MOCK_MODE", False)):
+        _complete_deposit(deposit, completed_via='pesapal_callback_mock', gateway_payload={'mock': True, 'order_tracking_id': order_tracking_id})
+        messages.success(request, 'Deposit completed successfully (mock).')
+        from django.shortcuts import redirect
+        return redirect('wallet')
+
+    try:
+        client = get_pesapal_client()
+        status_resp = client.get_transaction_status(str(order_tracking_id))
+        normalized, raw_desc = PesapalClient.interpret_status(status_resp)
+
+        if normalized == 'COMPLETED':
+            _complete_deposit(deposit, completed_via='pesapal_callback', gateway_payload=status_resp)
+            messages.success(request, 'Deposit completed successfully.')
+        elif normalized == 'FAILED':
+            _fail_deposit(deposit, failed_via='pesapal_callback', reason=raw_desc or 'Payment failed', gateway_payload=status_resp)
+            messages.error(request, 'Deposit failed.')
+        else:
+            messages.info(request, 'Payment is processing. Your wallet will update once confirmed.')
+
+    except Exception:
+        messages.info(request, 'Payment is processing. Your wallet will update once confirmed.')
+
+    from django.shortcuts import redirect
+    return redirect('wallet')
 
 
 @csrf_exempt
