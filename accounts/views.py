@@ -49,9 +49,32 @@ class CustomLoginView(LoginView):
         return render(request, 'maintenance.html')
     
 def logout_view(request):
-    logout(request)
+    """
+    Enhanced logout view that completely clears the session.
+    This ensures admins are fully logged out and cannot access user accounts.
+    """
+    # Store message before logout (since logout clears session)
+    from django.contrib import messages
     messages.success(request, 'You have been logged out successfully.')
-    return redirect('login')
+    
+    # Logout the user (this also flushes the session internally)
+    logout(request)
+    
+    # Create a response to ensure cookies are cleared
+    response = redirect('login')
+    
+    # Explicitly delete session cookie to ensure it's removed from browser
+    # This prevents any session persistence after logout
+    # Get session cookie name from settings (default is 'sessionid')
+    from django.conf import settings
+    session_cookie_name = getattr(settings, 'SESSION_COOKIE_NAME', 'sessionid')
+    response.delete_cookie(
+        session_cookie_name,
+        path=settings.SESSION_COOKIE_PATH if hasattr(settings, 'SESSION_COOKIE_PATH') else '/',
+        domain=settings.SESSION_COOKIE_DOMAIN if hasattr(settings, 'SESSION_COOKIE_DOMAIN') else None
+    )
+    
+    return response
     
 @login_required
 def dashboard(request):

@@ -182,6 +182,41 @@ class AdminLoginView(LoginView):
 # Override admin login view
 admin.site.login = AdminLoginView.as_view()
 
+
+def admin_logout_view(request):
+    """
+    Custom admin logout view that ensures complete session clearing.
+    This prevents admins from staying logged in after logout.
+    """
+    from django.contrib.auth import logout
+    from django.contrib import messages
+    from django.shortcuts import redirect
+    from django.conf import settings
+    
+    # Store message before logout (since logout clears session)
+    messages.success(request, 'You have been logged out successfully.')
+    
+    # Logout the user (this also flushes the session internally)
+    logout(request)
+    
+    # Create a response to ensure cookies are cleared
+    response = redirect('admin:login')
+    
+    # Explicitly delete session cookie to ensure it's removed from browser
+    # This prevents any session persistence after logout
+    session_cookie_name = getattr(settings, 'SESSION_COOKIE_NAME', 'sessionid')
+    response.delete_cookie(
+        session_cookie_name,
+        path=getattr(settings, 'SESSION_COOKIE_PATH', '/'),
+        domain=getattr(settings, 'SESSION_COOKIE_DOMAIN', None)
+    )
+    
+    return response
+
+
+# Override admin logout view
+admin.site.logout = admin_logout_view
+
 # Export admin_site alias for compatibility
 admin_site = admin.site
 
