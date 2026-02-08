@@ -120,7 +120,8 @@
 </div>
 
       <!-- Evidence Upload Section -->
-      {% if match.status == 'JOINED' and (request.user == match.creator or request.user == match.joiner) %}
+      {% if match.status == 'JOINED' %}
+      {% if request.user == match.creator or request.user == match.joiner %}
       <div class="match-detail-card">
         <div class="match-detail-card-header">
           <h3 class="match-detail-card-title">Upload Evidence</h3>
@@ -195,6 +196,7 @@
           </form>
         </div>
       </div>
+      {% endif %}
       {% endif %}
       
       <!-- Evidence Display Section -->

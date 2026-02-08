@@ -166,7 +166,7 @@ def complete_deposit_and_credit_wallet(deposit):
 
 
 @transaction.atomic
-def process_withdrawal_and_debit_wallet(withdrawal):
+def process_withdrawal_and_debit_wallet(withdrawal, gateway_result: dict | None = None):
     """
     Securely process a withdrawal and debit the wallet balance
     
@@ -245,6 +245,12 @@ def process_withdrawal_and_debit_wallet(withdrawal):
                 f"Insufficient balance for withdrawal {withdrawal.id} - "
                 f"Required: ${withdrawal.amount}, Available: ${wallet.balance}"
             )
+            # Mark as failed so it doesn't sit pending forever.
+            withdrawal.status = 'FAILED'
+            withdrawal.failure_reason = (
+                f'Insufficient balance. Required: ${withdrawal.amount}, Available: ${wallet.balance}'
+            )
+            withdrawal.save(update_fields=['status', 'failure_reason'])
             return {
                 'success': False,
                 'wallet_debited': False,
@@ -253,8 +259,18 @@ def process_withdrawal_and_debit_wallet(withdrawal):
                 'message': f'Insufficient balance. Required: ${withdrawal.amount}, Available: ${wallet.balance}'
             }
         
+        gateway_result = gateway_result or {}
+
         # Update withdrawal status
         withdrawal.status = 'COMPLETED'
+        # Record gateway identifiers (if provided)
+        txid = gateway_result.get('transaction_id') or gateway_result.get('transfer_code') or None
+        if txid:
+            withdrawal.transaction_id = str(txid)
+            withdrawal.gateway_transaction_id = str(txid)
+        if gateway_result.get('gateway_response') is not None:
+            withdrawal.gateway_response = gateway_result.get('gateway_response') or {}
+        withdrawal.failure_reason = None
         
         # Debit wallet balance
         wallet.balance -= withdrawal.amount
@@ -268,7 +284,7 @@ def process_withdrawal_and_debit_wallet(withdrawal):
         )
         
         # Save both atomically
-        withdrawal.save(update_fields=['status'])
+        withdrawal.save(update_fields=['status', 'transaction_id', 'gateway_transaction_id', 'gateway_response', 'failure_reason'])
         wallet.save(update_fields=['balance'])
         
         # Audit log: Withdrawal completed

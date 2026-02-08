@@ -182,9 +182,12 @@ class Deposit(models.Model):
     ]
     
     PAYMENT_METHOD_CHOICES = [
-        ('STRIPE', 'Stripe'),
-        ('PAYPAL', 'PayPal'),
-        ('MOBILE_MONEY', 'Mobile Money'),
+        ('PESAPAL', 'Pesapal'),
+        # Legacy values (kept to avoid breaking existing rows / admin edits)
+        ('ZYNELPAY', 'Zynel Pay (legacy)'),
+        ('PAYPAL', 'PayPal (legacy)'),
+        ('STRIPE', 'Stripe (legacy)'),
+        ('MOBILE_MONEY', 'Mobile Money (legacy)'),
         ('BANK_TRANSFER', 'Bank Transfer'),
         ('OTHER', 'Other'),
     ]
@@ -351,8 +354,10 @@ class Withdrawal(models.Model):
     PAYMENT_METHOD_CHOICES = [
         ('BANK_TRANSFER', 'Bank Transfer'),
         ('MOBILE_MONEY', 'Mobile Money'),
-        ('PAYPAL', 'PayPal'),
-        ('STRIPE', 'Stripe'),
+        # Legacy values (kept to avoid breaking existing rows / admin edits)
+        ('ZYNELPAY', 'Zynel Pay (legacy)'),
+        ('PAYPAL', 'PayPal (legacy)'),
+        ('STRIPE', 'Stripe (legacy)'),
         ('OTHER', 'Other'),
     ]
     
@@ -365,8 +370,6 @@ class Withdrawal(models.Model):
     PAYMENT_METHOD_LIMITS = {
         'BANK_TRANSFER': {'max': Decimal('50000.00'), 'daily': Decimal('100000.00')},
         'MOBILE_MONEY': {'max': Decimal('10000.00'), 'daily': Decimal('50000.00')},
-        'PAYPAL': {'max': Decimal('20000.00'), 'daily': Decimal('50000.00')},
-        'STRIPE': {'max': Decimal('20000.00'), 'daily': Decimal('50000.00')},
         'OTHER': {'max': Decimal('10000.00'), 'daily': Decimal('25000.00')},
     }
     
@@ -550,8 +553,10 @@ class SavedPaymentMethod(models.Model):
     PAYMENT_METHOD_TYPES = [
         ('BANK_TRANSFER', 'Bank Transfer'),
         ('MOBILE_MONEY', 'Mobile Money'),
-        ('PAYPAL', 'PayPal'),
-        ('STRIPE', 'Stripe Card'),
+        # Legacy values (kept to avoid breaking existing rows / admin edits)
+        ('ZYNELPAY', 'Zynel Pay (legacy)'),
+        ('PAYPAL', 'PayPal (legacy)'),
+        ('STRIPE', 'Stripe Card (legacy)'),
         ('OTHER', 'Other'),
     ]
     
