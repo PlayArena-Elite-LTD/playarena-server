@@ -16,80 +16,52 @@ class MatchAdmin(admin.ModelAdmin):
         'joining_code',
         'created_at',
     )
+    list_filter = (
+        'game',
+        'amount',
+        'status',
+        'privacy',
+        'device',
+        'created_at',
+    )
+    search_fields = (
+        'creator__username',
+        'joiner__username',
+        'joining_code',
+    )
+    readonly_fields = ('joining_code', 'winnings', 'created_at')
+
+    fieldsets = (
+        (None, {
+            'fields': ('creator', 'joiner', 'game', 'device', 'privacy', 'amount')
+        }),
+        ('Auto-generated Fields', {
+            'fields': ('joining_code', 'winnings', 'status', 'created_at')
+        }),
+    )
 
 
 @admin.register(Evidence)
 class EvidenceAdmin(admin.ModelAdmin):
-    """Admin interface for Evidence model with security-focused defaults."""
-
-    list_display = (
-        'id',
-        'match',
-        'user',
-        'file_type',
-        'uploaded_at',
-        'is_verified',
-        'file_size_mb_display',
-    )
-
-    list_filter = (
-        'file_type',
-        'is_verified',
-        'uploaded_at',
-        'match__game',
-    )
-
-    search_fields = (
-        'match__id',
-        'match__creator__username',
-        'match__joiner__username',
-        'user__username',
-        'description',
-        'ip_address',
-        'user_agent',
-    )
-
-    readonly_fields = (
-        'match',
-        'user',
-        'file',
-        'file_size',
-        'file_hash',
-        'ip_address',
-        'user_agent',
-        'uploaded_at',
-    )
-
+    """Admin interface for Evidence model"""
+    list_display = ('id', 'match', 'user', 'file_type', 'uploaded_at', 'is_verified')
+    list_filter = ('file_type', 'is_verified', 'uploaded_at')
+    search_fields = ('match__joining_code', 'user__username', 'description')
+    readonly_fields = ('uploaded_at', 'file_size', 'file_hash', 'ip_address', 'user_agent')
+    date_hierarchy = 'uploaded_at'
+    
     fieldsets = (
         ('Evidence Info', {
-            'fields': (
-                'match',
-                'user',
-                'file',
-                'file_type',
-                'uploaded_at',
-                'description',
-            )
+            'fields': ('match', 'user', 'file', 'file_type', 'description')
         }),
-        ('Security Metadata', {
-            'fields': (
-                'file_size',
-                'file_hash',
-                'ip_address',
-                'user_agent',
-            )
+        ('Security Info', {
+            'fields': ('file_size', 'file_hash', 'ip_address', 'user_agent'),
+            'classes': ('collapse',)
         }),
         ('Verification', {
-            'fields': (
-                'is_verified',
-                'verified_by',
-                'verified_at',
-            )
+            'fields': ('is_verified', 'verified_by', 'verified_at')
+        }),
+        ('Timestamps', {
+            'fields': ('uploaded_at',)
         }),
     )
-
-    def file_size_mb_display(self, obj):
-        """Human-readable file size for admin list."""
-        return f"{obj.file_size_mb:.2f} MB" if obj.file_size else "0 MB"
-
-    file_size_mb_display.short_description = "File Size"

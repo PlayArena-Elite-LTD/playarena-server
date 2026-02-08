@@ -4,9 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{% block title %} PlayArena Elite {% endblock %}</title>
-    <link rel="stylesheet" href="/static/styles/base.css">
-    <link rel="stylesheet" href="/static/styles/style.css">
-    <link rel="stylesheet" href="/static/styles/auth.css">
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'styles/base.css' %}">
+    <link rel="stylesheet" href="{% static 'styles/style.css' %}">
+    <link rel="stylesheet" href="{% static 'styles/auth.css' %}">
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -130,13 +131,21 @@
     {% block additional_styles %}{% endblock %}
   </head>
 <body>
+    <!-- Skip to main content for accessibility -->
+    <a href="#hero" class="skip-to-main" aria-label="Skip to main content">Skip to main content</a>
     <!-- Header -->
     <header class="header" id="header">
       <div class="overlay" id="overlay"></div>
       <nav class="nav container">
-        <a href="#" class="nav-brand">
-          Play<span>Arena</span>
-        </a>
+        <div class="nav-brand-container">
+          <a href="#" class="nav-brand">
+            Play<span>Arena</span>
+          </a>
+          <span class="nav-trust-badge">
+            <i class="fas fa-lock"></i>
+            <span>Secure</span>
+          </span>
+        </div>
         
         {% block nav %}
             {% if user.is_authenticated %}
@@ -241,13 +250,14 @@
       </nav>
     </header>
     
-    <main>
+    <a href="#main-content" class="skip-to-main">Skip to main content</a>
+    <main id="main-content">
         {% block content %}{% endblock %}
     </main>
     
     {% include 'includes/modal.html' %}
-    <script src="/static/scripts/script.js"></script>
-    <script src="/static/scripts/modal.js"></script>
+    <script src="{% static 'scripts/script.js' %}"></script>
+    <script src="{% static 'scripts/modal.js' %}"></script>
     {% block additional_scripts %}{% endblock %}
 </body>
 </html>

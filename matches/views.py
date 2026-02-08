@@ -3,33 +3,17 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import transaction
 from django.utils import timezone
-from django.http import HttpResponseNotAllowed, JsonResponse, FileResponse, Http404
-from django.core.exceptions import ValidationError
-from django.core.paginator import Paginator
+from django.http import HttpResponseNotAllowed, JsonResponse
 from decimal import Decimal
 from django_ratelimit.decorators import ratelimit
 import logging
-import os
 
-from .forms import MatchCreationForm, JoinMatchForm, EvidenceUploadForm
-from .models import Match, MatchResult, Evidence
+from .forms import MatchCreationForm, JoinMatchForm
+from .models import Match, MatchResult
 from wallet.models import Wallet, Transaction
 from alert.models import Notification
 
 logger = logging.getLogger('django_ratelimit')
-
-
-def _get_client_ip(request):
-    """Get client IP address from request"""
-    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-    if x_forwarded_for:
-        ip = x_forwarded_for.split(',')[0]
-    else:
-        ip = request.META.get('REMOTE_ADDR')
-    return ip
-
-# Alias for backward compatibility
-get_client_ip = _get_client_ip
 
 @login_required
 @transaction.atomic
@@ -48,49 +32,18 @@ def create_match(request):
             # Deduct match amount from user's wallet
             wallet = request.user.wallet
             match_amount = form.cleaned_data['amount']
-
-            # Capture old balance for audit purposes
-            old_balance = wallet.balance
             
             wallet.balance -= Decimal(match_amount)
-            wallet.save(update_fields=['balance'])
+            wallet.save()
             
             # Now record the transaction with the saved match
-            transaction_record = Transaction.objects.create(
+            Transaction.objects.create(
                 wallet=wallet,
                 amount=-Decimal(match_amount),
                 transaction_type='MATCH_CREATION',
                 description=f"Created {match.get_game_display()} match for ${match_amount}",
                 related_match=match
             )
-
-            # Audit log: match created
-            try:
-                from audit.utils import log_action, get_user_agent
-
-                log_action(
-                    action='match_created',
-                    user=request.user,
-                    details={
-                        'match_id': match.id,
-                        'game': match.game,
-                        'device': match.device,
-                        'amount': str(match.amount),
-                        'creator_id': request.user.id,
-                        'creator_username': request.user.username,
-                        'joining_code': match.joining_code,
-                        'wallet_id': wallet.id,
-                        'old_balance': str(old_balance),
-                        'new_balance': str(wallet.balance),
-                        'transaction_id': transaction_record.id,
-                    },
-                    request=request,
-                )
-            except Exception as e:
-                logger.error(
-                    f"Failed to create audit log for match {match.id} creation: {e}",
-                    exc_info=True,
-                )
             
             messages.success(request, f"Match created successfully! Your match code is {match.joining_code}")
             return redirect('match_detail', match_id=match.id)
@@ -134,48 +87,17 @@ def join_match(request):
             match.save()
             
             # Then deduct match amount from user's wallet
-            old_balance = wallet.balance
             wallet.balance -= Decimal(match.amount)
-            wallet.save(update_fields=['balance'])
+            wallet.save()
             
             # Record transaction
-            transaction_record = Transaction.objects.create(
+            Transaction.objects.create(
                 wallet=wallet,
                 amount=-Decimal(match.amount),
                 transaction_type='MATCH_JOINING',
                 description=f"Joined {match.get_game_display()} match against {match.creator.username} for ${match.amount}",
                 related_match=match
             )
-
-            # Audit log: match joined
-            try:
-                from audit.utils import log_action
-
-                log_action(
-                    action='match_joined',
-                    user=request.user,
-                    details={
-                        'match_id': match.id,
-                        'game': match.game,
-                        'device': match.device,
-                        'amount': str(match.amount),
-                        'creator_id': match.creator.id,
-                        'creator_username': match.creator.username,
-                        'joiner_id': request.user.id,
-                        'joiner_username': request.user.username,
-                        'joining_code': match.joining_code,
-                        'wallet_id': wallet.id,
-                        'old_balance': str(old_balance),
-                        'new_balance': str(wallet.balance),
-                        'transaction_id': transaction_record.id,
-                    },
-                    request=request,
-                )
-            except Exception as e:
-                logger.error(
-                    f"Failed to create audit log for match {match.id} joining by user {request.user.id}: {e}",
-                    exc_info=True,
-                )
             
             # Create notification for the match creator
             Notification.objects.create(
@@ -316,71 +238,26 @@ def submit_match_result(request, match_id):
     # Get or create match result
     match_result, created = MatchResult.objects.get_or_create(match=match)
     
-    # Handle evidence upload if provided (optional)
-    evidence_uploaded = False
-    if 'file' in request.FILES:
-        evidence_form = EvidenceUploadForm(request.POST, request.FILES, match=match, user=request.user)
-        if evidence_form.is_valid():
-            try:
-                file = evidence_form.cleaned_data['file']
-                file_type = evidence_form.cleaned_data['file_type']
-                description = evidence_form.cleaned_data.get('description', '').strip()
-                
-                # Create Evidence instance
-                Evidence.objects.create(
-                    match=match,
-                    user=request.user,
-                    file=file,
-                    file_type=file_type,
-                    description=description if description else None
-                )
-                evidence_uploaded = True
-            except Exception as e:
-                logger.error(f"Error uploading evidence for match {match_id} by user {request.user.id}: {str(e)}")
-                # Don't fail the result submission if evidence upload fails
-                messages.warning(request, "Your result was submitted, but there was an error uploading evidence. You can upload evidence separately if needed.")
-        else:
-            # Evidence validation failed, but don't block result submission
-            messages.warning(request, "Your result was submitted, but the evidence file could not be processed. You can upload evidence separately if needed.")
-    
     # Determine if user is creator or joiner and check if they've already submitted
     is_creator = (request.user == match.creator)
     
+    # Lock check: Prevent resubmission if user has already submitted in current round
     if is_creator:
-        if match_result.creator_submission:
-            messages.error(request, "You have already submitted your result for this match.")
+        # Check if creator has already submitted in the current round
+        if match_result.creator_submission and match_result.creator_submission_time:
+            # Additional check: if submission was made in round 2, it's locked
+            if match_result.submission_round == 2:
+                messages.error(request, "You have already submitted your result for this match. Results cannot be changed once submitted.")
+                return redirect('match_detail', match_id=match_id)
+            # For round 1, only allow resubmission if explicitly reset for round 2
+            # But if submission_time exists, it means they've submitted and it's locked
+            messages.error(request, "You have already submitted your result for this match. Results cannot be changed once submitted.")
             return redirect('match_detail', match_id=match_id)
         
-        # Save creator's submission
+        # Save creator's submission - LOCK IT
         match_result.creator_submission = submission
         match_result.creator_submission_time = timezone.now()
         match_result.save()
-
-        # Audit log: creator result submission
-        try:
-            from audit.utils import log_action, get_user_agent
-
-            log_action(
-                action='match_result_submitted',
-                user=request.user,
-                details={
-                    'match_id': match.id,
-                    'user_id': request.user.id,
-                    'username': request.user.username,
-                    'role': 'creator',
-                    'submission': submission,
-                    'submission_round': match_result.submission_round,
-                    'submission_time': match_result.creator_submission_time.isoformat(),
-                    'ip_address': _get_client_ip(request),
-                    'user_agent': get_user_agent(request),
-                },
-                request=request,
-            )
-        except Exception as e:
-            logger.error(
-                f"Failed to create audit log for match {match.id} creator submission: {e}",
-                exc_info=True,
-            )
         
         # Check if joiner has submitted
         if not match_result.joiner_submission:
@@ -389,46 +266,24 @@ def submit_match_result(request, match_id):
                 user=match.joiner,
                 message=f"Your opponent {match.creator.username} has submitted their result for the {match.get_game_display()} match (${match.amount}). Please submit your result as soon as possible."
             )
-            success_msg = "Your result has been submitted. Waiting for your opponent to submit their result."
-            if evidence_uploaded:
-                success_msg += " Evidence has been uploaded."
-            messages.success(request, success_msg)
+            messages.success(request, "Your result has been submitted. Waiting for your opponent to submit their result.")
             return redirect('match_detail', match_id=match_id)
     else:  # User is joiner
-        if match_result.joiner_submission:
-            messages.error(request, "You have already submitted your result for this match.")
+        # Check if joiner has already submitted in the current round
+        if match_result.joiner_submission and match_result.joiner_submission_time:
+            # Additional check: if submission was made in round 2, it's locked
+            if match_result.submission_round == 2:
+                messages.error(request, "You have already submitted your result for this match. Results cannot be changed once submitted.")
+                return redirect('match_detail', match_id=match_id)
+            # For round 1, only allow resubmission if explicitly reset for round 2
+            # But if submission_time exists, it means they've submitted and it's locked
+            messages.error(request, "You have already submitted your result for this match. Results cannot be changed once submitted.")
             return redirect('match_detail', match_id=match_id)
         
-        # Save joiner's submission
+        # Save joiner's submission - LOCK IT
         match_result.joiner_submission = submission
         match_result.joiner_submission_time = timezone.now()
         match_result.save()
-
-        # Audit log: joiner result submission
-        try:
-            from audit.utils import log_action, get_user_agent
-
-            log_action(
-                action='match_result_submitted',
-                user=request.user,
-                details={
-                    'match_id': match.id,
-                    'user_id': request.user.id,
-                    'username': request.user.username,
-                    'role': 'joiner',
-                    'submission': submission,
-                    'submission_round': match_result.submission_round,
-                    'submission_time': match_result.joiner_submission_time.isoformat(),
-                    'ip_address': _get_client_ip(request),
-                    'user_agent': get_user_agent(request),
-                },
-                request=request,
-            )
-        except Exception as e:
-            logger.error(
-                f"Failed to create audit log for match {match.id} joiner submission: {e}",
-                exc_info=True,
-            )
         
         # Check if creator has submitted
         if not match_result.creator_submission:
@@ -437,10 +292,7 @@ def submit_match_result(request, match_id):
                 user=match.creator,
                 message=f"Your opponent {match.joiner.username} has submitted their result for the {match.get_game_display()} match (${match.amount}). Please submit your result as soon as possible."
             )
-            success_msg = "Your result has been submitted. Waiting for your opponent to submit their result."
-            if evidence_uploaded:
-                success_msg += " Evidence has been uploaded."
-            messages.success(request, success_msg)
+            messages.success(request, "Your result has been submitted. Waiting for your opponent to submit their result.")
             return redirect('match_detail', match_id=match_id)
     
     # If we reach here, both users have submitted
@@ -540,7 +392,9 @@ def submit_match_result(request, match_id):
     # Inconsistent submissions
     else:
         if match_result.submission_round == 1:
-            # Reset submissions for round 2
+            # Reset submissions for round 2 - but mark that round 1 submissions were locked
+            # Only reset if both users submitted (which they have at this point)
+            # This allows one more chance, but once submitted in round 2, it's permanently locked
             match_result.creator_submission = None
             match_result.creator_submission_time = None
             match_result.joiner_submission = None
@@ -548,23 +402,15 @@ def submit_match_result(request, match_id):
             match_result.submission_round = 2
             match_result.save()
             
-            # Notify both users (round 1 disagreement)
+            # Notify both users
             Notification.objects.create(
                 user=match.creator,
-                message=(
-                    f"Result disagreement detected for your {match.get_game_display()} match "
-                    f"against {match.joiner.username} for ${match.amount}. "
-                    "Both players must submit their results again (final attempt)."
-                ),
+                message=f"There was a disagreement in the result for your {match.get_game_display()} match against {match.joiner.username} for ${match.amount}. You have one more chance to submit the correct result."
             )
             
             Notification.objects.create(
                 user=match.joiner,
-                message=(
-                    f"Result disagreement detected for your {match.get_game_display()} match "
-                    f"against {match.creator.username} for ${match.amount}. "
-                    "Both players must submit their results again (final attempt)."
-                ),
+                message=f"There was a disagreement in the result for your {match.get_game_display()} match against {match.creator.username} for ${match.amount}. You have one more chance to submit the correct result."
             )
             
             messages.warning(request, "There was a disagreement with the match results. Both players must submit again with accurate results.")
@@ -579,179 +425,27 @@ def submit_match_result(request, match_id):
             try:
                 # Assuming the Dispute model exists in the panel app
                 from panel.models import Dispute
-                dispute = Dispute.objects.create(
+                Dispute.objects.create(
                     match=match,
                     status='OPEN'
                 )
-
-                # Audit log: dispute created
-                try:
-                    from audit.utils import log_action, get_user_agent
-
-                    log_action(
-                        action='dispute_created',
-                        user=request.user,
-                        details={
-                            'dispute_id': dispute.id,
-                            'match_id': match.id,
-                            'creator_id': match.creator.id,
-                            'creator_username': match.creator.username,
-                            'joiner_id': match.joiner.id if match.joiner else None,
-                            'joiner_username': match.joiner.username if match.joiner else None,
-                            'match_amount': str(match.amount),
-                            'match_game': match.game,
-                            'match_device': match.device,
-                            'submission_round': match_result.submission_round,
-                            'ip_address': _get_client_ip(request),
-                            'user_agent': get_user_agent(request),
-                        },
-                        request=request,
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"Failed to create audit log for dispute creation on match {match.id}: {e}",
-                        exc_info=True,
-                    )
             except ImportError:
                 # If the model doesn't exist yet, just log it
                 print(f"Match {match_id} has been marked as disputed and requires admin intervention.")
             
-            # Notify both users (match moved to dispute)
+            # Notify both users
             Notification.objects.create(
                 user=match.creator,
-                message=(
-                    f"Your {match.get_game_display()} match against {match.joiner.username} "
-                    f"for ${match.amount} has been marked as DISPUTED after conflicting results. "
-                    "Support staff will review the evidence and notify you of the outcome."
-                ),
+                message=f"Your {match.get_game_display()} match against {match.joiner.username} for ${match.amount} has been marked as disputed and will be reviewed by support."
             )
             
             Notification.objects.create(
                 user=match.joiner,
-                message=(
-                    f"Your {match.get_game_display()} match against {match.creator.username} "
-                    f"for ${match.amount} has been marked as DISPUTED after conflicting results. "
-                    "Support staff will review the evidence and notify you of the outcome."
-                ),
+                message=f"Your {match.get_game_display()} match against {match.creator.username} for ${match.amount} has been marked as disputed and will be reviewed by support."
             )
             
             messages.error(request, "Match has been marked as disputed due to conflicting results and will be reviewed by support.")
             return redirect('match_detail', match_id=match_id)
-
-
-@login_required
-@transaction.atomic
-@ratelimit(key='user', rate='10/h', method='POST', block=True)
-def upload_evidence(request, match_id):
-    """
-    Handle evidence file uploads for match results.
-    
-    Security features:
-    - Rate limiting (10 uploads per hour per user)
-    - IP address tracking
-    - User agent tracking
-    - File type and size validation
-    - Access control (only match participants can upload)
-    
-    POST: Upload evidence file
-    Returns: JSON response with upload result
-    """
-    if request.method != 'POST':
-        return JsonResponse({'success': False, 'error': 'Only POST method allowed'}, status=405)
-    
-    # Get match and verify user is a participant
-    match = get_object_or_404(Match, id=match_id)
-    
-    # Security: Only match participants can upload evidence
-    if request.user != match.creator and request.user != match.joiner:
-        return JsonResponse({
-            'success': False,
-            'error': 'You are not a participant in this match.'
-        }, status=403)
-    
-    # Security: Only allow uploads for matches in JOINED or COMPLETED status
-    if match.status not in ['JOINED', 'COMPLETED', 'DISPUTED']:
-        return JsonResponse({
-            'success': False,
-            'error': f'Cannot upload evidence for a match with status: {match.get_status_display()}'
-        }, status=400)
-    
-    # Create form with match and user context
-    form = EvidenceUploadForm(request.POST, request.FILES, match=match, user=request.user)
-    
-    if form.is_valid():
-        try:
-            file = form.cleaned_data['file']
-            file_type = form.cleaned_data['file_type']
-            description = form.cleaned_data.get('description', '')
-            
-            # Security: Capture IP address and user agent
-            ip_address = _get_client_ip(request)
-            user_agent = request.META.get('HTTP_USER_AGENT', '')[:500]  # Limit length
-            
-            # Create Evidence instance
-            evidence = Evidence(
-                match=match,
-                user=request.user,
-                file=file,
-                file_type=file_type,
-                description=description,
-                file_size=file.size,
-                ip_address=ip_address,
-                user_agent=user_agent
-            )
-            
-            # Save (validation and hash generation happen in save method)
-            try:
-                evidence.save()
-            except ValidationError as ve:
-                # Handle model validation errors
-                errors = {}
-                if hasattr(ve, 'error_dict'):
-                    for field, field_errors in ve.error_dict.items():
-                        errors[field] = [str(err) for err in field_errors]
-                else:
-                    errors['__all__'] = [str(ve)]
-                
-                return JsonResponse({
-                    'success': False,
-                    'errors': errors
-                }, status=400)
-            
-            logger.info(
-                f"Evidence uploaded successfully: match_id={match_id}, "
-                f"user={request.user.username}, file_type={file_type}, "
-                f"file_size={file.size}"
-            )
-            
-            return JsonResponse({
-                'success': True,
-                'evidence_id': evidence.id,
-                'file_url': evidence.file.url,
-                'file_type': file_type,
-                'file_size_mb': evidence.file_size_mb,
-                'message': 'Evidence uploaded successfully'
-            })
-            
-        except Exception as e:
-            logger.error(
-                f"Error uploading evidence for match {match_id}: {str(e)}",
-                exc_info=True
-            )
-            return JsonResponse({
-                'success': False,
-                'error': f'Error uploading evidence: {str(e)}'
-            }, status=500)
-    else:
-        # Return form errors
-        errors = {}
-        for field, field_errors in form.errors.items():
-            errors[field] = field_errors[0] if field_errors else 'Invalid value'
-        
-        return JsonResponse({
-            'success': False,
-            'errors': errors
-        }, status=400)
 
 
 @login_required
@@ -765,50 +459,31 @@ def match_detail(request, match_id):
             messages.error(request, "You don't have permission to view this match.")
             return redirect('dashboard')
         
-        # Get all evidence for this match
-        evidence_list = Evidence.objects.filter(match=match).order_by('-uploaded_at')
+        # Get match result to check submission status
+        try:
+            match_result = MatchResult.objects.get(match=match)
+            # Check if current user has already submitted
+            is_creator = (request.user == match.creator)
+            if is_creator:
+                user_has_submitted = bool(match_result.creator_submission and match_result.creator_submission_time)
+                user_submission = match_result.creator_submission
+            else:
+                user_has_submitted = bool(match_result.joiner_submission and match_result.joiner_submission_time)
+                user_submission = match_result.joiner_submission
+        except MatchResult.DoesNotExist:
+            match_result = None
+            user_has_submitted = False
+            user_submission = None
         
         context = {
             'match': match,
-            'username': request.user.username,
-            'evidence_list': evidence_list,
+            'match_result': match_result,
+            'user_has_submitted': user_has_submitted,
+            'user_submission': user_submission,
+            'username': request.user.username
         }
         
         return render(request, 'matches/match_detail.html', context)
-        
-    except Match.DoesNotExist:
-        messages.error(request, "The requested match is not available.")
-        return redirect('my_matches')
-
-
-@login_required
-def evidence_gallery(request, match_id):
-    """Display evidence gallery for a match"""
-    try:
-        match = Match.objects.get(id=match_id)
-        
-        # Check if user is allowed to view this match
-        if match.privacy == 'PRIVATE' and request.user != match.creator and request.user != match.joiner:
-            messages.error(request, "You don't have permission to view this match.")
-            return redirect('dashboard')
-        
-        # Get all evidence for this match
-        evidence_list = Evidence.objects.filter(match=match).order_by('-uploaded_at')
-        
-        # Separate images and videos for better organization
-        images = [e for e in evidence_list if e.file_type == 'IMAGE']
-        videos = [e for e in evidence_list if e.file_type == 'VIDEO']
-        
-        context = {
-            'match': match,
-            'username': request.user.username,
-            'evidence_list': evidence_list,
-            'images': images,
-            'videos': videos,
-            'total_count': evidence_list.count(),
-        }
-        
-        return render(request, 'matches/evidence_gallery.html', context)
         
     except Match.DoesNotExist:
         messages.error(request, "The requested match is not available.")
@@ -842,279 +517,3 @@ def available_matches(request):
     }
     
     return render(request, 'matches/available_matches.html', context)
-
-
-@login_required
-@ratelimit(key='user', rate='30/h', method='GET', block=True)
-def get_evidence(request, evidence_id):
-    """
-    Retrieve evidence file with access control.
-    
-    Security features:
-    - Only match participants or support staff can view evidence
-    - Rate limiting (30 requests/hour per user)
-    - Access logging
-    - Proper file serving with security headers
-    
-    GET: Retrieve evidence file
-    Returns: FileResponse with evidence file
-    """
-    evidence = get_object_or_404(Evidence, id=evidence_id)
-    match = evidence.match
-    
-    # Security: Check if user has permission to view evidence
-    is_participant = (request.user == match.creator or request.user == match.joiner)
-    is_support_staff = getattr(request.user, 'is_support_staff', False)
-    
-    if not (is_participant or is_support_staff):
-        logger.warning(
-            f"Unauthorized evidence access attempt: evidence_id={evidence_id}, "
-            f"user={request.user.username}, ip={_get_client_ip(request)}"
-        )
-        return JsonResponse({
-            'success': False,
-            'error': 'You do not have permission to view this evidence.'
-        }, status=403)
-    
-    # Security: Check if file exists
-    if not evidence.file or not os.path.exists(evidence.file.path):
-        logger.error(f"Evidence file not found: evidence_id={evidence_id}, path={evidence.file.path if evidence.file else 'None'}")
-        raise Http404("Evidence file not found")
-    
-    # Log access
-    logger.info(
-        f"Evidence accessed: evidence_id={evidence_id}, user={request.user.username}, "
-        f"match_id={match.id}, ip={_get_client_ip(request)}"
-    )
-    
-    # Serve file with appropriate headers
-    response = FileResponse(
-        evidence.file.open('rb'),
-        content_type=f"{'image' if evidence.is_image else 'video'}/{evidence.file.name.split('.')[-1]}"
-    )
-    
-    # Security: Set appropriate headers
-    response['Content-Disposition'] = f'inline; filename="{os.path.basename(evidence.file.name)}"'
-    response['X-Content-Type-Options'] = 'nosniff'
-    response['Cache-Control'] = 'private, max-age=3600'  # Cache for 1 hour
-    
-    return response
-
-
-@login_required
-@ratelimit(key='user', rate='30/h', method='GET', block=True)
-def download_evidence(request, evidence_id):
-    """
-    Download evidence file with access control.
-    
-    Security features:
-    - Only match participants or support staff can download evidence
-    - Rate limiting (30 requests/hour per user)
-    - Access logging
-    - Force download with appropriate headers
-    
-    GET: Download evidence file
-    Returns: FileResponse with evidence file (download)
-    """
-    evidence = get_object_or_404(Evidence, id=evidence_id)
-    match = evidence.match
-    
-    # Security: Check if user has permission to download evidence
-    is_participant = (request.user == match.creator or request.user == match.joiner)
-    is_support_staff = getattr(request.user, 'is_support_staff', False)
-    
-    if not (is_participant or is_support_staff):
-        logger.warning(
-            f"Unauthorized evidence download attempt: evidence_id={evidence_id}, "
-            f"user={request.user.username}, ip={_get_client_ip(request)}"
-        )
-        return JsonResponse({
-            'success': False,
-            'error': 'You do not have permission to download this evidence.'
-        }, status=403)
-    
-    # Security: Check if file exists
-    if not evidence.file or not os.path.exists(evidence.file.path):
-        logger.error(f"Evidence file not found: evidence_id={evidence_id}, path={evidence.file.path if evidence.file else 'None'}")
-        raise Http404("Evidence file not found")
-    
-    # Log access
-    logger.info(
-        f"Evidence downloaded: evidence_id={evidence_id}, user={request.user.username}, "
-        f"match_id={match.id}, ip={_get_client_ip(request)}"
-    )
-    
-    # Serve file with download headers
-    response = FileResponse(
-        evidence.file.open('rb'),
-        content_type='application/octet-stream'
-    )
-    
-    # Security: Force download
-    filename = os.path.basename(evidence.file.name)
-    response['Content-Disposition'] = f'attachment; filename="{filename}"'
-    response['X-Content-Type-Options'] = 'nosniff'
-    
-    return response
-
-
-@login_required
-@ratelimit(key='user', rate='60/h', method='GET', block=True)
-def list_evidence(request, match_id):
-    """
-    List all evidence for a match with access control.
-    
-    Security features:
-    - Only match participants or support staff can list evidence
-    - Rate limiting (60 requests/hour per user)
-    - Pagination support
-    - Optional filtering by user
-    
-    GET Parameters:
-    - user_id (optional): Filter evidence by user
-    - page (optional): Page number for pagination
-    - per_page (optional): Items per page (default: 20, max: 100)
-    
-    Returns: JSON response with evidence list
-    """
-    match = get_object_or_404(Match, id=match_id)
-    
-    # Security: Check if user has permission to list evidence
-    is_participant = (request.user == match.creator or request.user == match.joiner)
-    is_support_staff = getattr(request.user, 'is_support_staff', False)
-    
-    if not (is_participant or is_support_staff):
-        logger.warning(
-            f"Unauthorized evidence list attempt: match_id={match_id}, "
-            f"user={request.user.username}, ip={_get_client_ip(request)}"
-        )
-        return JsonResponse({
-            'success': False,
-            'error': 'You do not have permission to view evidence for this match.'
-        }, status=403)
-    
-    # Get evidence queryset
-    evidence_queryset = Evidence.objects.filter(match=match).select_related('user', 'verified_by')
-    
-    # Optional: Filter by user
-    user_id = request.GET.get('user_id')
-    if user_id:
-        try:
-            evidence_queryset = evidence_queryset.filter(user_id=user_id)
-        except ValueError:
-            return JsonResponse({
-                'success': False,
-                'error': 'Invalid user_id parameter.'
-            }, status=400)
-    
-    # Pagination
-    per_page = min(int(request.GET.get('per_page', 20)), 100)  # Max 100 per page
-    page_number = request.GET.get('page', 1)
-    
-    paginator = Paginator(evidence_queryset, per_page)
-    try:
-        page = paginator.page(page_number)
-    except Exception:
-        return JsonResponse({
-            'success': False,
-            'error': 'Invalid page number.'
-        }, status=400)
-    
-    # Serialize evidence data
-    evidence_list = []
-    for evidence in page.object_list:
-        evidence_list.append({
-            'id': evidence.id,
-            'user': {
-                'id': evidence.user.id,
-                'username': evidence.user.username
-            },
-            'file_type': evidence.file_type,
-            'file_url': evidence.file.url if evidence.file else None,
-            'file_size': evidence.file_size,
-            'file_size_mb': round(evidence.file_size_mb, 2) if evidence.file_size else 0,
-            'description': evidence.description,
-            'uploaded_at': evidence.uploaded_at.isoformat(),
-            'is_verified': evidence.is_verified,
-            'verified_by': {
-                'id': evidence.verified_by.id,
-                'username': evidence.verified_by.username
-            } if evidence.verified_by else None,
-            'verified_at': evidence.verified_at.isoformat() if evidence.verified_at else None,
-        })
-    
-    # Log access
-    logger.info(
-        f"Evidence list accessed: match_id={match_id}, user={request.user.username}, "
-        f"count={len(evidence_list)}, ip={_get_client_ip(request)}"
-    )
-    
-    return JsonResponse({
-        'success': True,
-        'match_id': match_id,
-        'evidence': evidence_list,
-        'pagination': {
-            'page': page.number,
-            'per_page': per_page,
-            'total_pages': paginator.num_pages,
-            'total_count': paginator.count,
-            'has_next': page.has_next(),
-            'has_previous': page.has_previous(),
-        }
-    })
-
-
-@login_required
-@transaction.atomic
-@ratelimit(key='user', rate='10/h', method='POST', block=True)
-def delete_evidence(request, evidence_id):
-    """
-    Allow a user to delete their own evidence while the match is still active
-    (JOINED or DISPUTED). This supports Day 9: evidence deletion before/around
-    result submission.
-    
-    Security features:
-    - Rate limiting (10 deletions per hour per user)
-    - Ownership verification (only uploader can delete)
-    - Status validation (only before match completion)
-    - Atomic transactions
-    """
-    if request.method != 'POST':
-        return HttpResponseNotAllowed(['POST'])
-
-    evidence = get_object_or_404(Evidence, id=evidence_id)
-    match = evidence.match
-
-    # Security: Only the uploader can delete their own evidence
-    if request.user != evidence.user:
-        logger.warning(
-            f"Unauthorized evidence deletion attempt: evidence_id={evidence_id}, "
-            f"user={request.user.username}, owner={evidence.user.username}, "
-            f"ip={_get_client_ip(request)}"
-        )
-        messages.error(request, "You don't have permission to delete this evidence.")
-        return redirect('match_detail', match_id=match.id)
-
-    # Security: Only allow deletion while match is still under review/play
-    if match.status not in ['JOINED', 'DISPUTED']:
-        logger.warning(
-            f"Evidence deletion attempted for completed match: evidence_id={evidence_id}, "
-            f"match_id={match.id}, match_status={match.status}, "
-            f"user={request.user.username}, ip={_get_client_ip(request)}"
-        )
-        messages.error(
-            request,
-            f"Cannot delete evidence for a match with status '{match.get_status_display()}'."
-        )
-        return redirect('match_detail', match_id=match.id)
-
-    # Log deletion for audit trail
-    logger.info(
-        f"Evidence deleted: evidence_id={evidence_id}, match_id={match.id}, "
-        f"user={request.user.username}, file_type={evidence.file_type}, "
-        f"ip={_get_client_ip(request)}"
-    )
-    
-    evidence.delete()
-    messages.success(request, "Evidence deleted successfully.")
-    return redirect('match_detail', match_id=match.id)

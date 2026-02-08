@@ -162,4 +162,37 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Footer date
   document.getElementById("current-year").textContent = new Date().getFullYear();
+
+  /*=============== FADE-IN ON SCROLL ===============*/
+  // Professional fade-in animation for sections and cards
+  const observerOptions = {
+    threshold: 0.1,
+    rootMargin: '0px 0px -50px 0px'
+  };
+
+  const fadeInObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+        // Stop observing once animated
+        fadeInObserver.unobserve(entry.target);
+      }
+    });
+  }, observerOptions);
+
+  // Observe all sections for fade-in
+  const sections = document.querySelectorAll('.section');
+  sections.forEach(section => {
+    section.classList.add('section-fade-in');
+    fadeInObserver.observe(section);
+  });
+
+  // Observe cards for staggered fade-in
+  const cards = document.querySelectorAll('.about-card, .trust-badge, .trust-indicator, .pricing-benefit, .games-category');
+  cards.forEach((card, index) => {
+    card.classList.add('card-fade-in');
+    // Add slight delay for staggered effect
+    card.style.transitionDelay = `${index * 0.1}s`;
+    fadeInObserver.observe(card);
+  });
 });

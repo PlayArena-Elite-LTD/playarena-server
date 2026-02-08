@@ -1,130 +1,243 @@
-{% extends "admin/base_site.html" %}
+{% extends "admin/base.html" %}
 {% load i18n static %}
 
 {% block extrastyle %}
 {{ block.super }}
+<link rel="stylesheet" type="text/css" href="{% static 'styles/admin_custom.css' %}">
 <style>
-  .breadcrumbs {
-    display: none;
-  }
-
-  .admin-login {
-    max-width: 420px;
-    margin: 2.5rem auto;
-    background: var(--admin-surface);
-    border-radius: 16px;
-    padding: 2.5rem;
-    box-shadow: 0 0 24px rgba(34, 211, 238, 0.18);
-  }
-
-  .admin-login p {
-    color: var(--admin-muted);
-    margin: 0 0 0.75rem;
-    line-height: 1.5;
-  }
-
-  .admin-login .helper {
-    color: var(--admin-muted);
-    font-size: 0.9rem;
-    margin-bottom: 1.75rem;
-  }
-
-  .admin-login label {
-    display: block;
-    margin-bottom: 0.5rem;
-    color: var(--admin-text);
-    font-weight: 600;
-  }
-
-  .admin-login input {
-    width: 100%;
-    padding: 0.75rem 0.9rem;
-    border-radius: 10px;
-    border: 1px solid var(--admin-border);
-    background: rgba(15, 23, 42, 0.7);
-    color: var(--admin-text);
-  }
-
-  .admin-login input::placeholder {
-    color: rgba(226, 232, 240, 0.6);
-  }
-
-  .admin-login input:focus {
-    outline: none;
-    border-color: rgba(34, 211, 238, 0.6);
-    box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.2);
-  }
-
-  .admin-login form {
-    display: grid;
-    gap: 1rem;
-  }
-
-  .admin-login .form-row {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-  }
-
-  .admin-login .submit-row {
-    margin-top: 0.25rem;
-  }
-
-  .admin-login .submit-row input {
-    width: 100%;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-  }
-
-  .admin-login .errornote,
-  .admin-login .errorlist li {
-    background: rgba(244, 114, 182, 0.12);
-    border: 1px solid rgba(244, 114, 182, 0.35);
-    color: #f8fafc;
-    padding: 0.6rem 0.85rem;
-    border-radius: 10px;
-  }
-
-  .admin-login .errornote {
-    margin-bottom: 1rem;
-  }
-
-  @media (max-width: 640px) {
-    .admin-login {
-      padding: 2rem 1.75rem;
+    .login-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 20px;
     }
-  }
+    
+    .login-box {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        padding: 40px;
+        width: 100%;
+        max-width: 400px;
+    }
+    
+    .login-header {
+        text-align: center;
+        margin-bottom: 30px;
+    }
+    
+    .login-logo {
+        font-size: 48px;
+        margin-bottom: 10px;
+    }
+    
+    .login-title {
+        font-size: 24px;
+        font-weight: 700;
+        color: #2d3748;
+        margin: 0 0 8px 0;
+    }
+    
+    .login-subtitle {
+        font-size: 14px;
+        color: #718096;
+        margin: 0;
+    }
+    
+    .login-form {
+        margin-top: 30px;
+    }
+    
+    .form-group {
+        margin-bottom: 20px;
+    }
+    
+    .form-group label {
+        display: block;
+        font-weight: 600;
+        color: #2d3748;
+        margin-bottom: 8px;
+        font-size: 14px;
+    }
+    
+    .form-group input {
+        width: 100%;
+        padding: 12px 16px;
+        border: 2px solid #e2e8f0;
+        border-radius: 8px;
+        font-size: 14px;
+        transition: all 0.3s ease;
+        box-sizing: border-box;
+    }
+    
+    .form-group input:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+    
+    .errorlist {
+        list-style: none;
+        padding: 0;
+        margin: 8px 0 0 0;
+    }
+    
+    .errorlist li {
+        color: #f56565;
+        font-size: 13px;
+        padding: 4px 0;
+    }
+    
+    .login-button {
+        width: 100%;
+        padding: 14px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: #fff;
+        border: none;
+        border-radius: 8px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        margin-top: 10px;
+    }
+    
+    .login-button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+    }
+    
+    .login-button:active {
+        transform: translateY(0);
+    }
+    
+    .login-footer {
+        text-align: center;
+        margin-top: 24px;
+        padding-top: 24px;
+        border-top: 1px solid #e2e8f0;
+    }
+    
+    .login-footer a {
+        color: #667eea;
+        text-decoration: none;
+        font-size: 14px;
+        font-weight: 500;
+    }
+    
+    .login-footer a:hover {
+        text-decoration: underline;
+    }
+    
+    .messages {
+        list-style: none;
+        padding: 0;
+        margin: 0 0 20px 0;
+    }
+    
+    .messages li {
+        padding: 12px 16px;
+        border-radius: 8px;
+        margin-bottom: 10px;
+        font-size: 14px;
+    }
+    
+    .messages .error {
+        background: #fed7d7;
+        color: #c53030;
+        border-left: 4px solid #f56565;
+    }
+    
+    .messages .success {
+        background: #c6f6d5;
+        color: #22543d;
+        border-left: 4px solid #48bb78;
+    }
+    
+    .messages .info {
+        background: #bee3f8;
+        color: #2c5282;
+        border-left: 4px solid #4299e1;
+    }
 </style>
 {% endblock %}
 
-{% block breadcrumbs %}{% endblock %}
-{% block content_title %}{% endblock %}
+{% block bodyclass %}login{% endblock %}
+
+{% block usertools %}{% endblock %}
+
+{% block nav-global %}{% endblock %}
 
 {% block content %}
-<div class="admin-login">
-  <p>{% trans "Secure access for PlayArena staff." %}</p>
-  <div class="helper">{% trans "Use your staff credentials to continue." %}</div>
-
-  {% if form.errors %}
-    <p class="errornote">{% trans "Please correct the errors below." %}</p>
-  {% endif %}
-
-  <form action="{{ app_path }}" method="post" id="login-form">
-    {% csrf_token %}
-    <div class="form-row">
-      <label for="id_username">{% trans "Username" %}</label>
-      {{ form.username }}
-      {{ form.username.errors }}
+<div class="login-container">
+    <div class="login-box">
+        <div class="login-header">
+            <div class="login-logo">🎮</div>
+            <h1 class="login-title">PlayyArena Admin</h1>
+            <p class="login-subtitle">Sign in to your admin account</p>
+        </div>
+        
+        {% if messages %}
+        <ul class="messages">
+            {% for message in messages %}
+            <li class="{{ message.tags }}">{{ message }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+        
+        {% if form.errors and not form.non_field_errors %}
+        <ul class="messages">
+            <li class="error">Please correct the errors below.</li>
+        </ul>
+        {% endif %}
+        
+        {% if form.non_field_errors %}
+        <ul class="messages">
+            {% for error in form.non_field_errors %}
+            <li class="error">{{ error }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+        
+        <form method="post" class="login-form" id="login-form">
+            {% csrf_token %}
+            
+            <div class="form-group">
+                <label for="{{ form.username.id_for_label }}">{{ form.username.label }}</label>
+                {{ form.username }}
+                {% if form.username.errors %}
+                <ul class="errorlist">
+                    {% for error in form.username.errors %}
+                    <li>{{ error }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+            
+            <div class="form-group">
+                <label for="{{ form.password.id_for_label }}">{{ form.password.label }}</label>
+                {{ form.password }}
+                {% if form.password.errors %}
+                <ul class="errorlist">
+                    {% for error in form.password.errors %}
+                    <li>{{ error }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+            
+            {% url 'admin:index' as admin_index_url %}
+            <input type="hidden" name="next" value="{{ next|default:admin_index_url }}">
+            
+            <button type="submit" class="login-button">Sign In</button>
+        </form>
+        
+        <div class="login-footer">
+            <a href="{% url 'index' %}">← Back to Site</a>
+        </div>
     </div>
-    <div class="form-row">
-      <label for="id_password">{% trans "Password" %}</label>
-      {{ form.password }}
-      {{ form.password.errors }}
-    </div>
-    <input type="hidden" name="next" value="{{ next }}">
-    <div class="submit-row">
-      <input type="submit" value="{% trans "Access Admin" %}">
-    </div>
-  </form>
 </div>
 {% endblock %}
+

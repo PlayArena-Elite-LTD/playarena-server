@@ -4,7 +4,6 @@ from django.contrib.auth import authenticate, login, logout, get_user_model
 from django.contrib.auth.decorators import login_required
 from datetime import datetime
 from django.contrib.auth.views import LoginView
-from django.utils.decorators import method_decorator
 from django.contrib.auth.forms import AuthenticationForm
 from django.core import signing
 from django.core.mail import send_mail, EmailMultiAlternatives
@@ -24,45 +23,8 @@ User = get_user_model()
 
 @ratelimit(key='ip', rate='3/h', method='POST', block=True)
 def pre_signup(request):
-    if request.method == 'POST':
-        form = PreSignupForm(request.POST)
-        if form.is_valid():
-            email = form.cleaned_data['email']
-            
-            # Check if email already exists before sending link
-            if User.objects.filter(email=email).exists():
-                messages.error(request, f"An account with email {email} already exists.")
-                return render(request, 'registration/pre_signup.html', {'form': form})
-            
-            # Create token
-            token = signing.dumps(email) 
-            signup_url = request.build_absolute_uri(reverse('signup') + f'?token={token}')
-            
-            # Improved email content with HTML
-            subject = 'Your Manduna Registration Link'
-            html_content = render_to_string('emails/signup_email.html', {
-                'signup_url': signup_url,
-                'expiry_hours': 24,
-            })
-            text_content = strip_tags(html_content)
-            
-            # Send email with error handling
-            try:
-                email_msg = EmailMultiAlternatives(
-                    subject, 
-                    text_content, 
-                    'admin@playarena.com', 
-                    [email]
-                )
-                email_msg.attach_alternative(html_content, "text/html")
-                email_msg.send()
-                return redirect('pre_signup_done')
-            except Exception as e:
-                messages.error(request, "Failed to send verification email. Please try again.")
-                return render(request, 'registration/pre_signup.html', {'form': form})
-    else:
-        form = PreSignupForm()
-    return render(request, 'registration/pre_signup.html', {'form': form})
+    # Show maintenance page instead of pre-signup
+    return render(request, 'maintenance.html')
 
 def pre_signup_done(request):
     return render(request, 'registration/pre_signup_done.html')
@@ -70,45 +32,21 @@ def pre_signup_done(request):
 
 @ratelimit(key='ip', rate='3/h', method='POST', block=True)
 def signup(request):
-    initial = {}
-    if 'token' in request.GET:
-        token = request.GET['token']
-        try:
-            email = signing.loads(token, max_age=86400)  # 24 hours
-            initial['email'] = email
-            
-            # Check if email already exists before form processing
-            if User.objects.filter(email=email).exists():
-                return render(request, 'registration/pre_signup_email_exists.html', {'email': email})
-                
-        except signing.BadSignature:
-            return render(request, 'registration/pre_signup_email_error.html')
-        except signing.SignatureExpired:
-            return render(request, 'registration/pre_signup_email_expired.html')
-    else:
-        return redirect('pre_signup')
-        
-    form = CustomUserCreationForm(request.POST or None, initial=initial)
-    if form.is_valid():
-        user = form.save()
-        login(request, user)
-        messages.success(request, 'Account created successfully, welcome!')
-        return redirect('profile_edit')
-    return render(request, 'registration/signup.html', {'form': form})
+    # Show maintenance page instead of signup
+    return render(request, 'maintenance.html')
 
-@method_decorator(ratelimit(key='ip', rate='5/15m', method='POST', block=True), name='dispatch')
 class CustomLoginView(LoginView):
     authentication_form = EmailOrUsernameAuthenticationForm
-    template_name = 'registration/login.html'
+    template_name = 'maintenance.html'
+    
+    @ratelimit(key='ip', rate='5/15m', method='POST', block=True)
+    def post(self, request, *args, **kwargs):
+        """Apply rate limiting to login POST requests"""
+        return render(request, 'maintenance.html')
     
     def dispatch(self, request, *args, **kwargs):
-        # Check if user is already authenticated
-        if request.user.is_authenticated:
-            # Redirect to dashboard
-            return redirect('dashboard')  # Use your dashboard URL name here
-        
-        # Otherwise, proceed with normal login flow
-        return super().dispatch(request, *args, **kwargs)
+        # Show maintenance page instead of login
+        return render(request, 'maintenance.html')
     
 def logout_view(request):
     logout(request)
