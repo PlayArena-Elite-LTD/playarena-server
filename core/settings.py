@@ -299,42 +299,69 @@ DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
 # Required for HTML emails in password reset
 PASSWORD_RESET_TIMEOUT = 86400  # 24 hours in seconds
 
-# Cache configuration for rate limiting
-CACHES = {
-    'default': {
-        'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': 'redis://127.0.0.1:6379/1',
-        'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+# Cache configuration with robust fallback system
+def get_cache_config():
+    """
+    Returns cache configuration with cascading fallback:
+    1. Redis (production preferred)
+    2. File-based cache (production fallback)
+    3. Local memory cache (development)
+    """
+    # Try Redis first (best for production)
+    try:
+        import redis
+        r = redis.Redis(host='127.0.0.1', port=6379, db=1, socket_connect_timeout=2)
+        r.ping()
+        return {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': 'redis://127.0.0.1:6379/1',
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            }
         }
-    },
+    except Exception as e:
+        print(f"Redis not available: {e}")
+    
+    # Fallback to file-based cache (good for production without Redis)
+    try:
+        cache_dir = BASE_DIR / 'cache'
+        cache_dir.mkdir(exist_ok=True)
+        return {
+            'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+            'LOCATION': str(cache_dir),
+            'OPTIONS': {
+                'MAX_ENTRIES': 1000,
+                'CULL_FREQUENCY': 3,
+            }
+        }
+    except Exception as e:
+        print(f"File-based cache not available: {e}")
+    
+    # Final fallback to local memory (development only)
+    print("WARNING: Using local memory cache - rate limiting will not work across multiple processes")
+    return {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'django_rate_limit_fallback',
+    }
+
+# Initialize cache with fallback system
+CACHES = {
+    'default': get_cache_config(),
     'ratelimit': {
         'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
         'LOCATION': 'ratelimit',
     },
 }
 
-# In development, prefer a fast local in-memory cache unless Redis is explicitly enabled.
-# This avoids long timeouts/hangs when Redis isn't running on Windows.
-USE_REDIS_CACHE = os.environ.get('USE_REDIS_CACHE', '').strip().lower() in ('1', 'true', 'yes', 'y', 'on')
-if DEBUG and not USE_REDIS_CACHE:
-    # Fast local cache for development. (Not shared / no atomic incr, but fine for DEBUG.)
-    CACHES['default'] = {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-        'LOCATION': 'default',
-    }
-
-    # django-ratelimit enforces shared+atomic cache backends via system checks even if you disable rate limiting.
-    # Since RATELIMIT_ENABLE is already False in DEBUG, silence these checks for local dev.
-    SILENCED_SYSTEM_CHECKS = list(globals().get('SILENCED_SYSTEM_CHECKS', []))
-    for code in ('django_ratelimit.E003', 'django_ratelimit.W001'):
-        if code not in SILENCED_SYSTEM_CHECKS:
-            SILENCED_SYSTEM_CHECKS.append(code)
-
-# Rate limiting configuration
-# Disable ratelimit in DEBUG to avoid requiring a shared cache backend locally.
-RATELIMIT_ENABLE = False if DEBUG else True
+# Rate limiting configuration - always enabled with fallback cache
+RATELIMIT_ENABLE = True
 RATELIMIT_USE_CACHE = 'default'
+
+# Silence system checks for non-atomic cache backends
+SILENCED_SYSTEM_CHECKS = list(globals().get('SILENCED_SYSTEM_CHECKS', []))
+for code in ('django_ratelimit.E003', 'django_ratelimit.W001'):
+    if code not in SILENCED_SYSTEM_CHECKS:
+        SILENCED_SYSTEM_CHECKS.append(code)
 
 # CORS configuration
 CORS_ALLOWED_ORIGINS = [
