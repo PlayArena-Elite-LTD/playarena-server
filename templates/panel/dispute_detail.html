@@ -76,17 +76,15 @@
                         {% for evidence in creator_evidence %}
                         <div class="evidence-comparison-item">
                             {% if evidence.file_type == 'IMAGE' %}
-                            <div class="evidence-comparison-image" onclick="openLightbox('{{ evidence.file.url }}', '{{ evidence.user.username }}', '{{ evidence.description|default:"" }}')">
-                                <img src="{{ evidence.file.url }}" alt="Evidence" class="evidence-thumb">
-                                <div class="evidence-thumb-overlay">
-                                    <i class="fas fa-search-plus"></i>
-                                </div>
+                            <div class="evidence-comparison-image">
+                                <a href="{{ evidence.file.url }}" target="_blank">
+                                    <img src="{{ evidence.file.url }}" alt="Evidence" class="evidence-thumb">
+                                </a>
                             </div>
                             {% elif evidence.file_type == 'VIDEO' %}
                             <div class="evidence-comparison-video">
                                 <video controls class="evidence-video-thumb">
                                     <source src="{{ evidence.file.url }}" type="video/mp4">
-                                    <source src="{{ evidence.file.url }}" type="video/quicktime">
                                 </video>
                             </div>
                             {% endif %}
@@ -104,6 +102,7 @@
                     </div>
                 </div>
                 
+                {% if match.joiner %}
                 <div class="evidence-comparison-column">
                     <div class="evidence-comparison-header">
                         <h6>{{ match.joiner.username }}'s Evidence</h6>
@@ -113,17 +112,15 @@
                         {% for evidence in joiner_evidence %}
                         <div class="evidence-comparison-item">
                             {% if evidence.file_type == 'IMAGE' %}
-                            <div class="evidence-comparison-image" onclick="openLightbox('{{ evidence.file.url }}', '{{ evidence.user.username }}', '{{ evidence.description|default:"" }}')">
-                                <img src="{{ evidence.file.url }}" alt="Evidence" class="evidence-thumb">
-                                <div class="evidence-thumb-overlay">
-                                    <i class="fas fa-search-plus"></i>
-                                </div>
+                            <div class="evidence-comparison-image">
+                                <a href="{{ evidence.file.url }}" target="_blank">
+                                    <img src="{{ evidence.file.url }}" alt="Evidence" class="evidence-thumb">
+                                </a>
                             </div>
                             {% elif evidence.file_type == 'VIDEO' %}
                             <div class="evidence-comparison-video">
                                 <video controls class="evidence-video-thumb">
                                     <source src="{{ evidence.file.url }}" type="video/mp4">
-                                    <source src="{{ evidence.file.url }}" type="video/quicktime">
                                 </video>
                             </div>
                             {% endif %}
@@ -140,6 +137,7 @@
                         {% endfor %}
                     </div>
                 </div>
+                {% endif %}
             </div>
         </div>
         {% endif %}
@@ -165,17 +163,15 @@
                     </div>
                     <div class="evidence-list-content">
                         {% if evidence.file_type == 'IMAGE' %}
-                        <div class="evidence-list-image" onclick="openLightbox('{{ evidence.file.url }}', '{{ evidence.user.username }}', '{{ evidence.description|default:"" }}')">
-                            <img src="{{ evidence.file.url }}" alt="Evidence" class="evidence-list-thumb">
-                            <div class="evidence-list-overlay">
-                                <i class="fas fa-search-plus"></i>
-                            </div>
+                        <div class="evidence-list-image">
+                            <a href="{{ evidence.file.url }}" target="_blank">
+                                <img src="{{ evidence.file.url }}" alt="Evidence" class="evidence-list-thumb">
+                            </a>
                         </div>
                         {% elif evidence.file_type == 'VIDEO' %}
                         <div class="evidence-list-video">
                             <video controls class="evidence-list-video-player">
                                 <source src="{{ evidence.file.url }}" type="video/mp4">
-                                <source src="{{ evidence.file.url }}" type="video/quicktime">
                             </video>
                         </div>
                         {% endif %}
@@ -185,25 +181,6 @@
                         <i class="fas fa-comment"></i> {{ evidence.description|truncatewords:15 }}
                     </div>
                     {% endif %}
-
-                    <!-- Staff-only internal notes -->
-                    <div class="evidence-list-staff-notes">
-                        <form action="{% url 'update_evidence_notes' evidence.id %}" method="post">
-                            {% csrf_token %}
-                            <label for="staff-notes-{{ evidence.id }}" class="staff-notes-label">
-                                <i class="fas fa-sticky-note"></i> Staff Notes
-                            </label>
-                            <textarea id="staff-notes-{{ evidence.id }}"
-                                      name="staff_notes"
-                                      class="form-control staff-notes-textarea"
-                                      rows="2"
-                                      placeholder="Add internal notes for this evidence (visible only to support staff)...">{% if evidence.staff_notes %}{{ evidence.staff_notes }}{% endif %}</textarea>
-                            <button type="submit" class="panel-btn panel-btn-secondary staff-notes-save-btn">
-                                Save Notes
-                            </button>
-                        </form>
-                    </div>
-
                     <div class="evidence-list-footer">
                         <span class="evidence-list-time">{{ evidence.uploaded_at|date:"M d, Y H:i" }}</span>
                         <a href="{{ evidence.file.url }}" download class="evidence-download-btn" title="Download Evidence">
@@ -267,186 +244,8 @@
         </div>
     </div>
 
-    <!-- Evidence Overview -->
-    <div class="panel-section">
-        <h4 class="panel-section-title">Match Evidence</h4>
-
-        {% if evidence_list %}
-        <div class="evidence-grid">
-            <!-- Creator Evidence -->
-            <div class="evidence-column">
-                <h5 class="evidence-column-title">Evidence from {{ match.creator.username }}</h5>
-                {% if creator_evidence %}
-                <ul class="evidence-list">
-                    {% for evidence in creator_evidence %}
-                    <li class="evidence-item">
-                        <div class="evidence-meta">
-                            <span class="evidence-type badge badge-pill badge-info">
-                                {{ evidence.get_file_type_display }}
-                            </span>
-                            <span class="evidence-date">
-                                {{ evidence.uploaded_at|date:"M d, Y h:i A" }}
-                            </span>
-                            <span class="evidence-size">
-                                {{ evidence.file_size_mb|floatformat:2 }} MB
-                            </span>
-                            {% if evidence.is_verified %}
-                            <span class="evidence-verified badge badge-pill badge-success">
-                                Verified
-                            </span>
-                            {% endif %}
-                        </div>
-                        <div class="evidence-preview">
-                            {% if evidence.is_image %}
-                            <a href="{% url 'get_evidence' evidence.id %}" target="_blank" rel="noopener noreferrer">
-                                <img src="{{ evidence.file.url }}" alt="Evidence image"
-                                     class="evidence-thumbnail" loading="lazy">
-                            </a>
-                            {% else %}
-                            <video src="{{ evidence.file.url }}" controls class="evidence-video" preload="metadata">
-                                Your browser does not support the video tag.
-                            </video>
-                            {% endif %}
-                        </div>
-                        <div class="evidence-actions">
-                            <a href="{% url 'get_evidence' evidence.id %}" target="_blank"
-                               class="panel-btn panel-btn-secondary">
-                                View
-                            </a>
-                            <a href="{% url 'download_evidence' evidence.id %}"
-                               class="panel-btn panel-btn-secondary">
-                                Download
-                            </a>
-                        </div>
-                        {% if evidence.description %}
-                        <div class="evidence-description">
-                            {{ evidence.description }}
-                        </div>
-                        {% endif %}
-                    </li>
-                    {% endfor %}
-                </ul>
-                {% else %}
-                <div class="panel-empty">
-                    <p>No evidence submitted by {{ match.creator.username }}.</p>
-                </div>
-                {% endif %}
-            </div>
-
-            <!-- Joiner Evidence -->
-            {% if match.joiner %}
-            <div class="evidence-column">
-                <h5 class="evidence-column-title">Evidence from {{ match.joiner.username }}</h5>
-                {% if joiner_evidence %}
-                <ul class="evidence-list">
-                    {% for evidence in joiner_evidence %}
-                    <li class="evidence-item">
-                        <div class="evidence-meta">
-                            <span class="evidence-type badge badge-pill badge-info">
-                                {{ evidence.get_file_type_display }}
-                            </span>
-                            <span class="evidence-date">
-                                {{ evidence.uploaded_at|date:"M d, Y h:i A" }}
-                            </span>
-                            <span class="evidence-size">
-                                {{ evidence.file_size_mb|floatformat:2 }} MB
-                            </span>
-                            {% if evidence.is_verified %}
-                            <span class="evidence-verified badge badge-pill badge-success">
-                                Verified
-                            </span>
-                            {% endif %}
-                        </div>
-                        <div class="evidence-preview">
-                            {% if evidence.is_image %}
-                            <a href="{% url 'get_evidence' evidence.id %}" target="_blank" rel="noopener noreferrer">
-                                <img src="{{ evidence.file.url }}" alt="Evidence image"
-                                     class="evidence-thumbnail" loading="lazy">
-                            </a>
-                            {% else %}
-                            <video src="{{ evidence.file.url }}" controls class="evidence-video" preload="metadata">
-                                Your browser does not support the video tag.
-                            </video>
-                            {% endif %}
-                        </div>
-                        <div class="evidence-actions">
-                            <a href="{% url 'get_evidence' evidence.id %}" target="_blank"
-                               class="panel-btn panel-btn-secondary">
-                                View
-                            </a>
-                            <a href="{% url 'download_evidence' evidence.id %}"
-                               class="panel-btn panel-btn-secondary">
-                                Download
-                            </a>
-                        </div>
-                        {% if evidence.description %}
-                        <div class="evidence-description">
-                            {{ evidence.description }}
-                        </div>
-                        {% endif %}
-                    </li>
-                    {% endfor %}
-                </ul>
-                {% else %}
-                <div class="panel-empty">
-                    <p>No evidence submitted by {{ match.joiner.username }}.</p>
-                </div>
-                {% endif %}
-            </div>
-            {% endif %}
-        </div>
-        {% else %}
-        <div class="panel-empty">
-            <p>No evidence has been submitted for this match yet.</p>
-        </div>
-        {% endif %}
-    </div>
-
-    <!-- Escalation Controls & Info -->
-    <div class="panel-section">
-        <h4 class="panel-section-title">Escalation</h4>
-
-        {% if dispute.status == "PENDING" and dispute.assigned_to == request.user %}
-        <form action="{% url 'escalate_dispute' dispute.id %}" method="post"
-              class="escalation-form"
-              data-confirm="Are you sure you want to escalate this dispute for further review?"
-              data-confirm-title="Escalate Dispute"
-              data-confirm-button="Escalate">
-            {% csrf_token %}
-            <div class="form-group">
-                <label for="escalation_reason">Escalation Reason (optional):</label>
-                <textarea name="escalation_reason"
-                          id="escalation_reason"
-                          class="form-control"
-                          rows="2"
-                          placeholder="Describe why this dispute needs to be escalated..."></textarea>
-            </div>
-            <div class="panel-actions">
-                <button type="submit" class="panel-btn panel-btn-warning">
-                    Escalate Dispute
-                </button>
-            </div>
-        </form>
-        {% endif %}
-
-        {% if dispute.status == "ESCALATED" %}
-        <div class="escalation-info">
-            <p><strong>Status:</strong> Escalated</p>
-            {% if dispute.escalated_by %}
-            <p><strong>Escalated By:</strong> {{ dispute.escalated_by.username }}</p>
-            {% endif %}
-            {% if dispute.escalated_at %}
-            <p><strong>Escalated At:</strong> {{ dispute.escalated_at|date:"M d, Y h:i A" }}</p>
-            {% endif %}
-            {% if dispute.escalation_reason %}
-            <p><strong>Escalation Reason:</strong> {{ dispute.escalation_reason }}</p>
-            {% endif %}
-        </div>
-        {% endif %}
-    </div>
-
-    <!-- Resolution Form (only for assigned staff and if not resolved) -->
-    {% if dispute.status != "RESOLVED" and dispute.assigned_to == request.user %}
+    <!-- Resolution Form (if not resolved) -->
+    {% if dispute.status != "RESOLVED" %}
     <div class="panel-section">
         <h4 class="panel-section-title">Resolve Dispute</h4>
         <form action="{% url 'resolve_dispute' dispute.id %}" method="post" class="resolution-form"
@@ -493,48 +292,4 @@
     {% endif %}
     
 </div>
-
-<!-- Lightbox for Evidence -->
-<div id="dispute-lightbox" class="evidence-lightbox" style="display: none;">
-  <div class="lightbox-overlay" onclick="closeDisputeLightbox()"></div>
-  <div class="lightbox-content">
-    <button class="lightbox-close" onclick="closeDisputeLightbox()">
-      <i class="fas fa-times"></i>
-    </button>
-    <img id="dispute-lightbox-image" src="" alt="Evidence" class="lightbox-image">
-    <div class="lightbox-caption">
-      <div class="lightbox-uploader" id="dispute-lightbox-uploader"></div>
-      <div class="lightbox-description" id="dispute-lightbox-description"></div>
-    </div>
-  </div>
-</div>
-
-<script>
-  function openLightbox(imageUrl, uploader, description) {
-    const lightbox = document.getElementById('dispute-lightbox');
-    const lightboxImage = document.getElementById('dispute-lightbox-image');
-    const lightboxUploader = document.getElementById('dispute-lightbox-uploader');
-    const lightboxDescription = document.getElementById('dispute-lightbox-description');
-    
-    lightboxImage.src = imageUrl;
-    lightboxUploader.textContent = 'Uploaded by: ' + uploader;
-    lightboxDescription.textContent = description || '';
-    
-    lightbox.style.display = 'flex';
-    document.body.style.overflow = 'hidden';
-  }
-  
-  function closeDisputeLightbox() {
-    const lightbox = document.getElementById('dispute-lightbox');
-    lightbox.style.display = 'none';
-    document.body.style.overflow = '';
-  }
-  
-  // Close on Escape key
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') {
-      closeDisputeLightbox();
-    }
-  });
-</script>
 {% endblock %}

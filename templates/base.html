@@ -132,13 +132,21 @@
     {% block additional_styles %}{% endblock %}
   </head>
 <body>
+    <!-- Skip to main content for accessibility -->
+    <a href="#hero" class="skip-to-main" aria-label="Skip to main content">Skip to main content</a>
     <!-- Header -->
     <header class="header" id="header">
       <div class="overlay" id="overlay"></div>
       <nav class="nav container">
-        <a href="#" class="nav-brand">
-          Play<span>Arena</span>
-        </a>
+        <div class="nav-brand-container">
+          <a href="#" class="nav-brand">
+            Play<span>Arena</span>
+          </a>
+          <span class="nav-trust-badge">
+            <i class="fas fa-lock"></i>
+            <span>Secure</span>
+          </span>
+        </div>
         
         {% block nav %}
             {% if user.is_authenticated %}
@@ -243,7 +251,8 @@
       </nav>
     </header>
     
-    <main>
+    <a href="#main-content" class="skip-to-main">Skip to main content</a>
+    <main id="main-content">
         {% block content %}{% endblock %}
     </main>
     

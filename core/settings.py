@@ -11,7 +11,6 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
-from datetime import timedelta
 import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -48,7 +47,8 @@ if _dotenv_path.exists():
 SECRET_KEY = 'django-insecure-k=zcyj&f3bu3yfofrlw=w7nf-aarhrl1vxj^dsuofxh+ko0d5d'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# Use environment variable for production, default to True for development
+DEBUG = os.environ.get('DEBUG', 'True').lower() == 'true'
 
 def _split_csv_env(name: str, default: list[str]) -> list[str]:
     raw = os.environ.get(name)
@@ -77,36 +77,14 @@ _default_csrf_trusted = [
 ]
 CSRF_TRUSTED_ORIGINS = _split_csv_env("DJANGO_CSRF_TRUSTED_ORIGINS", _default_csrf_trusted)
 
-# Sentry configuration (only in production)
-SENTRY_DSN = os.environ.get('SENTRY_DSN')
-SENTRY_ENVIRONMENT = os.environ.get('SENTRY_ENVIRONMENT', 'production')
-SENTRY_RELEASE = os.environ.get('SENTRY_RELEASE')
-
-if not DEBUG and SENTRY_DSN:
-    import sentry_sdk
-    from sentry_sdk.integrations.django import DjangoIntegration
-
-    def _sentry_before_send(event, hint):
-        """
-        Scrub potentially sensitive fields before sending to Sentry.
-        """
-        request = event.get('request', {})
-        data = request.get('data')
-        if isinstance(data, dict):
-            for key in ['password', 'token', 'authorization', 'card_number', 'account_details']:
-                if key in data:
-                    data[key] = '[Filtered]'
-        return event
-
-    sentry_sdk.init(
-        dsn=SENTRY_DSN,
-        integrations=[DjangoIntegration()],
-        environment=SENTRY_ENVIRONMENT,
-        release=SENTRY_RELEASE,
-        send_default_pii=False,
-        traces_sample_rate=0.0,  # Disable performance tracing by default
-        before_send=_sentry_before_send,
-    )
+# Security headers for production
+if not DEBUG:
+    SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'False').lower() == 'true'
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    X_FRAME_OPTIONS = 'DENY'
 
 # Application definition
 
@@ -117,19 +95,13 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'django_ratelimit',
-    'corsheaders',
+    'django_ratelimit',  # Rate limiting package
     'accounts',
     'wallet',
     'matches',
     'alert',
     'messenger',
     'panel',
-    'audit',
-    'rest_framework',
-    'rest_framework_simplejwt',
-    'drf_spectacular',
-    'api',
 ]
 
 AUTH_USER_MODEL = 'accounts.CustomUser'
@@ -137,12 +109,12 @@ AUTH_USER_MODEL = 'accounts.CustomUser'
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
+    'core.middleware.RateLimitMessageMiddleware',  # Custom middleware for rate limit messages
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
@@ -158,7 +130,6 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
-                'core.context_processors.environment_label',
                 'alert.context_processors.notification_count',
                 'messenger.context_processors.unread_messages_count',
                 'panel.context_processors.open_dispute_count',
@@ -179,125 +150,6 @@ DATABASES = {
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
-
-
-# Password validation
-# https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
-
-AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-        'OPTIONS': {
-            'min_length': 10,
-        }
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
-]
-
-AUTHENTICATION_BACKENDS = [
-    'accounts.backends.EmailOrUsernameModelBackend',
-    #'django.contrib.auth.backends.ModelBackend',  # Keep the default backend as fallback
-]
-
-
-# Internationalization
-# https://docs.djangoproject.com/en/5.2/topics/i18n/
-
-LANGUAGE_CODE = 'en-us'
-
-TIME_ZONE = 'Africa/Harare'
-
-USE_I18N = True
-
-USE_TZ = True
-
-
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/5.2/howto/static-files/
-
-STATIC_URL = 'static/'
-STATICFILES_DIRS = [BASE_DIR / 'static']  
-STATIC_ROOT = BASE_DIR / 'staticfiles'
-
-# Media files (User uploaded files)
-# https://docs.djangoproject.com/en/5.2/topics/files/
-MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
-
-# Static file serving.
-# https://whitenoise.readthedocs.io/en/stable/django.html#add-compression-and-caching-support
-STORAGES = {
-    "default": {
-        "BACKEND": "django.core.files.storage.FileSystemStorage",
-    },
-    "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
-    },
-}
-
-# In development, avoid manifest-based static storage unless you run `collectstatic`.
-# This prevents missing static assets / 404s and `Missing staticfiles manifest entry` errors.
-if DEBUG:
-    STORAGES["staticfiles"]["BACKEND"] = "django.contrib.staticfiles.storage.StaticFilesStorage"
-
-# Media files (User-uploaded files)
-# https://docs.djangoproject.com/en/5.2/topics/files/
-MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
-
-# File storage configuration
-# Development: Use local file system storage (configured in STORAGES above)
-# Production: Configure S3 or Cloudinary by updating STORAGES['default']
-
-# Evidence upload configuration
-# File size limits (in bytes)
-MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB
-MAX_VIDEO_SIZE = 50 * 1024 * 1024  # 50MB
-
-# Allowed file types (MIME types)
-ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
-ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/x-msvideo']
-
-# Allowed file extensions (for additional validation)
-ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
-ALLOWED_VIDEO_EXTENSIONS = ['.mp4', '.mov', '.avi']
-
-# Default primary key field type
-# https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
-
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
-# Authentication settings
-LOGIN_URL = 'login'
-LOGIN_REDIRECT_URL = 'dashboard'
-LOGOUT_REDIRECT_URL = 'login'
-
-# Email settings
-#EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend" 
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = "smtp.gmail.com"
-EMAIL_PORT = "587"  # It's recommended to keep this as a string or int depending on how your email backend handles it
-EMAIL_HOST_USER = "lucadev1435@gmail.com"
-EMAIL_HOST_PASSWORD = "yrvx rrvl ndvc hmps"
-EMAIL_USE_TLS = True
-EMAIL_USE_SSL = False
-
-# Admin email alerts (used by logging handlers)
-ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL')
-ADMINS = [('Admin', ADMIN_EMAIL)] if ADMIN_EMAIL else []
-SERVER_EMAIL = os.environ.get('SERVER_EMAIL', EMAIL_HOST_USER)
-DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
-
-# Required for HTML emails in password reset
-PASSWORD_RESET_TIMEOUT = 86400  # 24 hours in seconds
 
 # Cache configuration with robust fallback system
 def get_cache_config():
@@ -363,6 +215,111 @@ for code in ('django_ratelimit.E003', 'django_ratelimit.W001'):
     if code not in SILENCED_SYSTEM_CHECKS:
         SILENCED_SYSTEM_CHECKS.append(code)
 
+# Password validation
+# https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
+
+AUTH_PASSWORD_VALIDATORS = [
+    {
+        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+    },
+]
+
+AUTHENTICATION_BACKENDS = [
+    'accounts.backends.EmailOrUsernameModelBackend',
+    #'django.contrib.auth.backends.ModelBackend',  # Keep the default backend as fallback
+]
+
+
+# Internationalization
+# https://docs.djangoproject.com/en/5.2/topics/i18n/
+
+LANGUAGE_CODE = 'en-us'
+
+TIME_ZONE = 'Africa/Harare'
+
+USE_I18N = True
+
+USE_TZ = True
+
+
+# Static files (CSS, JavaScript, Images)
+# https://docs.djangoproject.com/en/5.2/howto/static-files/
+
+STATIC_URL = 'static/'
+STATICFILES_DIRS = [BASE_DIR / 'static']  
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# Static file serving with WhiteNoise for production
+# https://whitenoise.readthedocs.io/en/stable/django.html#add-compression-and-caching-support
+STORAGES = {
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
+
+# In development, avoid manifest-based static storage unless you run `collectstatic`.
+# This prevents missing static assets / 404s and `Missing staticfiles manifest entry` errors.
+if DEBUG:
+    STORAGES["staticfiles"]["BACKEND"] = "django.contrib.staticfiles.storage.StaticFilesStorage"
+
+# Media files (User-uploaded files)
+# https://docs.djangoproject.com/en/5.2/topics/files/
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+# File storage configuration
+# Development: Use local file system storage (configured in STORAGES above)
+# Production: Configure S3 or Cloudinary by updating STORAGES['default']
+
+# Evidence upload configuration
+# File size limits (in bytes)
+MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB
+MAX_VIDEO_SIZE = 50 * 1024 * 1024  # 50MB
+
+# Allowed file types (MIME types)
+ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/x-msvideo']
+
+# Allowed file extensions (for additional validation)
+ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
+ALLOWED_VIDEO_EXTENSIONS = ['.mp4', '.mov', '.avi']
+
+# Default primary key field type
+# https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
+
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Authentication settings
+LOGIN_URL = 'login'
+LOGIN_REDIRECT_URL = 'dashboard'
+LOGOUT_REDIRECT_URL = 'login'
+
+# Admin authentication settings
+# Admin login will redirect staff users to admin dashboard
+# Non-staff users will be redirected to regular dashboard
+
+# Email settings
+#EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend" 
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = "smtp.gmail.com"
+EMAIL_PORT = "587"  # It's recommended to keep this as a string or int depending on how your email backend handles it
+EMAIL_HOST_USER = "lucadev1435@gmail.com"
+EMAIL_HOST_PASSWORD = "yrvx rrvl ndvc hmps"
+EMAIL_USE_TLS = True
+EMAIL_USE_SSL = False
+
+# Required for HTML emails in password reset
+PASSWORD_RESET_TIMEOUT = 86400  # 24 hours in seconds
+
 # CORS configuration
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
@@ -412,339 +369,59 @@ WALLET_AUTO_PROCESS_WITHDRAWALS = True
 
 # Payment Gateway Settings
 # Test mode: Set to False in production
-PAYMENT_GATEWAY_TEST_MODE = os.environ.get('PAYMENT_GATEWAY_TEST_MODE', 'true').strip().lower() in (
-    '1', 'true', 'yes', 'y', 'on'
-)
+PAYMENT_TEST_MODE = True
 
-# Pesapal Configuration (active gateway)
-#
-# Expected env vars:
-# - PESAPAL_CONSUMER_KEY
-# - PESAPAL_CONSUMER_SECRET
-# - PESAPAL_BASE_URL (sandbox example: https://cybqa.pesapal.com/pesapalv3)
-# - PESAPAL_IPN_ID (notification_id used when submitting orders)
-PESAPAL_CONSUMER_KEY = os.environ.get('PESAPAL_CONSUMER_KEY', '')
-PESAPAL_CONSUMER_SECRET = os.environ.get('PESAPAL_CONSUMER_SECRET', '')
-PESAPAL_BASE_URL = os.environ.get('PESAPAL_BASE_URL', 'https://cybqa.pesapal.com/pesapalv3')
-PESAPAL_IPN_ID = os.environ.get('PESAPAL_IPN_ID', '')
-PESAPAL_CURRENCY = os.environ.get('PESAPAL_CURRENCY', os.environ.get('DEFAULT_PAYMENT_CURRENCY', 'KES'))
+# Admin email alerts (used by logging handlers)
+ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL')
+ADMINS = [('Admin', ADMIN_EMAIL)] if ADMIN_EMAIL else []
+SERVER_EMAIL = os.environ.get('SERVER_EMAIL', EMAIL_HOST_USER)
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
 
-# Dev-only: enable a mock Pesapal flow (no external calls; auto-completes deposits).
-# This is intentionally gated by DEBUG to avoid accidental production enablement.
-PESAPAL_MOCK_MODE = (
-    DEBUG
-    and os.environ.get("PESAPAL_MOCK_MODE", "").strip().lower() in ("1", "true", "yes", "y", "on")
-)
-
-# Optional: public base URL used to build callback/IPN URLs when running behind a tunnel/proxy.
-# Example (ngrok): https://abcd-1234.ngrok-free.app
-# If empty, we fall back to request.build_absolute_uri(...)
-PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '').strip()
-
-# If `PUBLIC_BASE_URL` is set, trust it for CSRF in dev/proxy scenarios.
-if PUBLIC_BASE_URL:
-    try:
-        from urllib.parse import urlparse
-
-        _pub_origin = urlparse(PUBLIC_BASE_URL).scheme + "://" + urlparse(PUBLIC_BASE_URL).netloc
-        if _pub_origin not in CSRF_TRUSTED_ORIGINS:
-            CSRF_TRUSTED_ORIGINS.append(_pub_origin)
-    except Exception:
-        pass
-
-# Allow overrides if Pesapal changes paths (or if your base URL includes /api already)
-PESAPAL_AUTH_ENDPOINT = os.environ.get('PESAPAL_AUTH_ENDPOINT', '/api/Auth/RequestToken')
-PESAPAL_SUBMIT_ORDER_ENDPOINT = os.environ.get('PESAPAL_SUBMIT_ORDER_ENDPOINT', '/api/Transactions/SubmitOrderRequest')
-PESAPAL_TXN_STATUS_ENDPOINT = os.environ.get('PESAPAL_TXN_STATUS_ENDPOINT', '/api/Transactions/GetTransactionStatus')
-PESAPAL_REGISTER_IPN_ENDPOINT = os.environ.get('PESAPAL_REGISTER_IPN_ENDPOINT', '/api/URLSetup/RegisterIPN')
-
-# Paystack Configuration
-# Get keys from: https://dashboard.paystack.com/#/settings/developer
-PAYSTACK_SECRET_KEY = os.environ.get('PAYSTACK_SECRET_KEY', '')
-PAYSTACK_PUBLIC_KEY = os.environ.get('PAYSTACK_PUBLIC_KEY', '')
-PAYSTACK_BASE_URL = 'https://api.paystack.co'  # Use 'https://api.paystack.co' for production
-
-# Flutterwave Configuration
-# Get keys from: https://dashboard.flutterwave.com/settings/apis
-FLUTTERWAVE_SECRET_KEY = os.environ.get('FLUTTERWAVE_SECRET_KEY', '')
-FLUTTERWAVE_PUBLIC_KEY = os.environ.get('FLUTTERWAVE_PUBLIC_KEY', '')
-FLUTTERWAVE_BASE_URL = 'https://api.flutterwave.com/v3'
-FLUTTERWAVE_WEBHOOK_URL = os.environ.get('FLUTTERWAVE_WEBHOOK_URL', None)  # Optional webhook URL
-
-# Logging Configuration
-# Create logs directory if it doesn't exist
-LOGS_DIR = BASE_DIR / 'logs'
-LOGS_DIR.mkdir(exist_ok=True)
-# Avoid Windows file lock issues with autoreload by only enabling
-# file logging in the main process during DEBUG.
-USE_FILE_LOGGING = (not DEBUG) or (os.environ.get('RUN_MAIN') == 'true')
-
+# Logging configuration
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
-    'filters': {
-        'require_debug_false': {
-            '()': 'django.utils.log.RequireDebugFalse',
-        },
-    },
     'formatters': {
         'verbose': {
             'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
             'style': '{',
-            'datefmt': '%Y-%m-%d %H:%M:%S',
         },
         'simple': {
-            'format': '{levelname} {asctime} {message}',
+            'format': '{levelname} {message}',
             'style': '{',
-            'datefmt': '%Y-%m-%d %H:%M:%S',
-        },
-        'detailed': {
-            'format': '{levelname} {asctime} {name} {pathname}:{lineno} {funcName}() {message}',
-            'style': '{',
-            'datefmt': '%Y-%m-%d %H:%M:%S',
         },
     },
     'handlers': {
-        # File handlers for different log levels
-        'file_info': {
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': str(LOGS_DIR / 'info.log'),
-            'maxBytes': 10 * 1024 * 1024,  # 10MB (will be fine-tuned in task 22)
-            'backupCount': 5,  # Keep 5 backup files (will be fine-tuned in task 23)
-            'level': 'INFO',
-            'formatter': 'verbose',
-            'encoding': 'utf-8',
-        },
-        'file_error': {
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': str(LOGS_DIR / 'error.log'),
-            'maxBytes': 10 * 1024 * 1024,  # 10MB
-            'backupCount': 5,  # Keep 5 backup files
-            'level': 'ERROR',
-            'formatter': 'detailed',
-            'encoding': 'utf-8',
-        },
-        'file_debug': {
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': str(LOGS_DIR / 'debug.log'),
-            'maxBytes': 10 * 1024 * 1024,  # 10MB
-            'backupCount': 3,  # Keep fewer debug backups
-            'level': 'DEBUG',
-            'formatter': 'detailed',
-            'encoding': 'utf-8',
-        },
-        'file_django': {
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': str(LOGS_DIR / 'django.log'),
-            'maxBytes': 10 * 1024 * 1024,  # 10MB
-            'backupCount': 5,  # Keep 5 backup files
-            'level': 'INFO',
-            'formatter': 'verbose',
-            'encoding': 'utf-8',
-        },
         'console': {
             'class': 'logging.StreamHandler',
-            'level': 'DEBUG' if DEBUG else 'INFO',
             'formatter': 'simple',
-            'stream': 'ext://sys.stdout',
         },
-        'mail_admins': {
-            'class': 'django.utils.log.AdminEmailHandler',
-            'level': 'ERROR',
-            'filters': ['require_debug_false'],
-            'include_html': True,
-        },
-        'mail_admins_critical': {
-            'class': 'django.utils.log.AdminEmailHandler',
-            'level': 'CRITICAL',
-            'filters': ['require_debug_false'],
-            'include_html': True,
-        },
-    },
-    'loggers': {
-        # Django framework loggers
-        'django': {
-            'handlers': ['file_django', 'file_error'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-        # Django autoreloader can be VERY noisy when root logging is DEBUG.
-        'django.utils.autoreload': {
-            'handlers': ['console'],
-            'level': 'WARNING',
-            'propagate': False,
-        },
-        # SQL query logging can be extremely noisy/sluggish on Windows.
-        # Enable it only when explicitly needed via env var.
-        'django.db.backends': {
-            'handlers': ['console'],
-            'level': 'DEBUG' if os.environ.get('DJANGO_SQL_DEBUG', '').strip().lower() in ('1', 'true', 'yes', 'y', 'on') else 'WARNING',
-            'propagate': False,
-        },
-        'django.request': {
-            'handlers': ['file_django', 'file_error', 'mail_admins', 'mail_admins_critical'],
-            'level': 'ERROR',
-            'propagate': False,
-        },
-        'django.security': {
-            'handlers': ['file_django', 'file_error'],
-            'level': 'WARNING',
-            'propagate': False,
-        },
-        # Application loggers
-        'accounts': {
-            'handlers': ['file_info', 'file_error'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-        'wallet': {
-            'handlers': ['file_info', 'file_error'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-        'matches': {
-            'handlers': ['file_info', 'file_error'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-        'panel': {
-            'handlers': ['file_info', 'file_error'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-        'messenger': {
-            'handlers': ['file_info', 'file_error'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-        'alert': {
-            'handlers': ['file_info', 'file_error'],
-            'level': 'INFO',
-            'propagate': False,
+        'file': {
+            'class': 'logging.FileHandler',
+            'filename': BASE_DIR / 'logs' / 'django.log',
+            'formatter': 'verbose',
         },
     },
     'root': {
-        'level': 'WARNING',
-        'handlers': ['file_info', 'file_error', 'mail_admins', 'mail_admins_critical'],
+        'handlers': ['console', 'file'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'django_ratelimit': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
     },
 }
 
-# Log Level Configuration
-# Configure log levels based on environment (DEBUG mode)
-# This ensures appropriate verbosity for development vs production
-
-# Loggers that should maintain their specific levels regardless of environment
-# These are security and error-critical loggers that should not be overridden
-PROTECTED_LOGGER_LEVELS = {
-    'django.request': 'ERROR',      # Only log request errors
-    'django.security': 'WARNING',   # Security warnings are important
-    'django.db.backends': LOGGING['loggers']['django.db.backends']['level'],  # Preserve SQL verbosity choice
-    'django.utils.autoreload': 'WARNING',
-}
-
-# Application loggers that can be adjusted based on environment
-APPLICATION_LOGGERS = ['accounts', 'wallet', 'matches', 'panel', 'messenger', 'alert']
-
-if DEBUG:
-    # Development environment: keep logs readable/fast by default.
-    # Enable full debug logging only if explicitly requested.
-    DEV_VERBOSE_LOGGING = os.environ.get('DJANGO_VERBOSE_LOGGING', '').strip().lower() in ('1', 'true', 'yes', 'y', 'on')
-    LOGGING['root']['level'] = 'DEBUG' if DEV_VERBOSE_LOGGING else 'INFO'
-    if USE_FILE_LOGGING and 'file_debug' not in LOGGING['root']['handlers']:
-        LOGGING['root']['handlers'].append('file_debug')
-    if 'console' not in LOGGING['root']['handlers']:
-        LOGGING['root']['handlers'].append('console')
-
-    # Set application loggers to DEBUG for detailed development logging
-    # Preserve protected logger levels (django.request, django.security)
-    for logger_name, logger_config in LOGGING['loggers'].items():
-        # Only adjust application loggers, preserve Django framework logger levels
-        if logger_name in APPLICATION_LOGGERS:
-            logger_config['level'] = 'DEBUG' if DEV_VERBOSE_LOGGING else 'INFO'
-        # Protected loggers keep their configured levels
-        elif logger_name in PROTECTED_LOGGER_LEVELS:
-            logger_config['level'] = PROTECTED_LOGGER_LEVELS[logger_name]
-        # Django logger can be DEBUG in development
-        elif logger_name == 'django':
-            logger_config['level'] = 'DEBUG' if DEV_VERBOSE_LOGGING else 'INFO'
-
-        # Add debug and console handlers in development
-        if USE_FILE_LOGGING and 'file_debug' not in logger_config['handlers']:
-            logger_config['handlers'].append('file_debug')
-        if 'console' not in logger_config['handlers']:
-            logger_config['handlers'].append('console')
-
-    if not USE_FILE_LOGGING:
-        # Avoid duplicate file handlers in the autoreloader process on Windows.
-        for logger_config in LOGGING['loggers'].values():
-            logger_config['handlers'] = [
-                handler for handler in logger_config['handlers']
-                if not handler.startswith('file_')
-            ]
-            if 'console' not in logger_config['handlers']:
-                logger_config['handlers'].append('console')
-        LOGGING['root']['handlers'] = [
-            handler for handler in LOGGING['root']['handlers']
-            if not handler.startswith('file_')
-        ]
-        if 'console' not in LOGGING['root']['handlers']:
-            LOGGING['root']['handlers'].append('console')
-else:
-    # Production environment: Less verbose, security-focused logging
-    LOGGING['root']['level'] = 'INFO'
-    
-    # Application loggers use INFO level in production
-    # Preserve protected logger levels
-    for logger_name, logger_config in LOGGING['loggers'].items():
-        # Set application loggers to INFO
-        if logger_name in APPLICATION_LOGGERS:
-            if logger_config['level'] == 'DEBUG':
-                logger_config['level'] = 'INFO'
-        # Protected loggers keep their configured levels
-        elif logger_name in PROTECTED_LOGGER_LEVELS:
-            logger_config['level'] = PROTECTED_LOGGER_LEVELS[logger_name]
-        
-        # Remove debug handler in production
-        if 'file_debug' in logger_config['handlers']:
-            logger_config['handlers'].remove('file_debug')
-        # Remove console handler in production (optional - can be enabled if needed)
-        if 'console' in logger_config['handlers']:
-            logger_config['handlers'].remove('console')
-
-REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-    ),
-    'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.IsAuthenticated',
-    ),
-    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
-    'DEFAULT_THROTTLE_CLASSES': [
-        'rest_framework.throttling.AnonRateThrottle',
-        'rest_framework.throttling.UserRateThrottle'
-    ],
-    'DEFAULT_THROTTLE_RATES': {
-        'anon': '100/hour',
-        'user': '1000/hour',
-        'auth': '10/minute',  # For authentication endpoints
-    }
-}
-
-SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
-    'AUTH_HEADER_TYPES': ('Bearer',),
-}
-
-# DRF Spectacular Settings (Swagger/OpenAPI)
-SPECTACULAR_SETTINGS = {
-    'TITLE': 'PlayyArena API',
-    'DESCRIPTION': 'Complete API documentation for PlayyArena gaming platform',
-    'VERSION': '1.0.0',
-    'SERVE_INCLUDE_SCHEMA': False,
-    'COMPONENT_SPLIT_REQUEST': True,
-    'SCHEMA_PATH_PREFIX': '/api/',
-    'AUTHENTICATION_WHITELIST': [
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-    ],
-}
+# Create logs directory if it doesn't exist
+import logging
+logging_config = LOGGING
+log_dir = BASE_DIR / 'logs'
+log_dir.mkdir(exist_ok=True)

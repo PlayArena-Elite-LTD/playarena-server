@@ -20,18 +20,6 @@
     
     <div class="match-detail-container">
       <!-- Match Info Card -->
-      <div class="match-detail-card">
-        <div class="match-detail-card-header">
-          <h3 class="match-detail-card-title">{{ match.get_game_display }}</h3>
-          <span class="match-card-badge match-amount">${{ match.amount }}</span>
-        </div>
-        
-        <div class="match-detail-content">
-          <div class="match-detail-info">
-            <div class="match-detail-row">
-              <span class="match-detail-label">Platform:</span>
-              <span class="match-detail-value">{{ match.get_device_display }}</span>
-            </div>
             <div class="match-detail-row">
               <span class="match-detail-label">Privacy:</span>
               <span class="match-detail-value">{{ match.get_privacy_display }}</span>
@@ -315,34 +303,44 @@
         
         {% if match.status == 'JOINED' %}
   {% if request.user == match.creator or request.user == match.joiner %}
-    <div class="match-result-buttons">
-      <form action="{% url 'submit_match_result' match.id %}" method="post"
-            data-confirm="Are you sure you want to submit that you WON this {{ match.get_game_display }} match against {% if request.user == match.joiner %}{{ match.creator.username }}{% else %}{{ match.joiner.username }}{% endif %}?"
-            data-confirm-title="Submit Match Result"
-            data-confirm-button="Submit">
-        {% csrf_token %}
-        <input type="hidden" name="submission" value="WON">
-        <button type="submit" class="match-result-button result-win">I Won</button>
-      </form>
-      
-      <form action="{% url 'submit_match_result' match.id %}" method="post"
-            data-confirm="Are you sure you want to submit that you LOST this {{ match.get_game_display }} match against {% if request.user == match.joiner %}{{ match.creator.username }}{% else %}{{ match.joiner.username }}{% endif %}?"
-            data-confirm-title="Submit Match Result"
-            data-confirm-button="Submit">
-        {% csrf_token %}
-        <input type="hidden" name="submission" value="LOST">
-        <button type="submit" class="match-result-button result-loss">I Lost</button>
-      </form>
-      
-      <form action="{% url 'submit_match_result' match.id %}" method="post"
-            data-confirm="Are you sure you want to submit that this {{ match.get_game_display }} match against {% if request.user == match.joiner %}{{ match.creator.username }}{% else %}{{ match.joiner.username }}{% endif %} ended in a DRAW?"
-            data-confirm-title="Submit Match Result"
-            data-confirm-button="Submit">
-        {% csrf_token %}
-        <input type="hidden" name="submission" value="DRAW">
-        <button type="submit" class="match-result-button result-draw">Draw</button>
-      </form>
-    </div>
+    {% if user_has_submitted %}
+      <div class="match-result-submitted">
+        <div class="match-result-message">
+          <i class="fas fa-lock"></i>
+          <span>You have already submitted your result: <strong>{{ user_submission }}</strong></span>
+        </div>
+        <p class="match-result-note">Results cannot be changed once submitted. Waiting for your opponent to submit their result.</p>
+      </div>
+    {% else %}
+      <div class="match-result-buttons">
+        <form action="{% url 'submit_match_result' match.id %}" method="post"
+              data-confirm="Are you sure you want to submit that you WON this {{ match.get_game_display }} match against {% if request.user == match.joiner %}{{ match.creator.username }}{% else %}{{ match.joiner.username }}{% endif %}?"
+              data-confirm-title="Submit Match Result"
+              data-confirm-button="Submit">
+          {% csrf_token %}
+          <input type="hidden" name="submission" value="WON">
+          <button type="submit" class="match-result-button result-win">I Won</button>
+        </form>
+        
+        <form action="{% url 'submit_match_result' match.id %}" method="post"
+              data-confirm="Are you sure you want to submit that you LOST this {{ match.get_game_display }} match against {% if request.user == match.joiner %}{{ match.creator.username }}{% else %}{{ match.joiner.username }}{% endif %}?"
+              data-confirm-title="Submit Match Result"
+              data-confirm-button="Submit">
+          {% csrf_token %}
+          <input type="hidden" name="submission" value="LOST">
+          <button type="submit" class="match-result-button result-loss">I Lost</button>
+        </form>
+        
+        <form action="{% url 'submit_match_result' match.id %}" method="post"
+              data-confirm="Are you sure you want to submit that this {{ match.get_game_display }} match against {% if request.user == match.joiner %}{{ match.creator.username }}{% else %}{{ match.joiner.username }}{% endif %} ended in a DRAW?"
+              data-confirm-title="Submit Match Result"
+              data-confirm-button="Submit">
+          {% csrf_token %}
+          <input type="hidden" name="submission" value="DRAW">
+          <button type="submit" class="match-result-button result-draw">Draw</button>
+        </form>
+      </div>
+    {% endif %}
   {% endif %}
 {% elif match.status == 'COMPLETED' %}
   <div class="match-result">

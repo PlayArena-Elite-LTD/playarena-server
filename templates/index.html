@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block additional_styles %}
 <style>
@@ -303,24 +304,180 @@
           <div class="hero-container grid">
             <div class="hero-content">
               <h1 class="hero-title">
-                Count on Your Skills,
+                Secure. Trusted. Professional
                 <br />
-                Not on Luck
+                Gaming Platform
               </h1>
               <p class="hero-description">
-                Join thousands of players competing in skill-based challenges.
-                Create your own challenges or join existing ones to win real
-                rewards.
+                Join thousands of verified players on a platform built with bank-level security and transparency. Compete in skill-based challenges, win real rewards, and withdraw with confidence.
               </p>
               <div class="hero-buttons">
                 <a href="{% url 'login' %}" class="button button--primary">
-                  Start Playing
+                  Create Account
                 </a>
                 <a href="#about" class="button button--outline">Learn More</a>
+                <a href="#trust" class="button button--secondary">Security & Trust</a>
+              </div>
+              <div class="hero-security-badges">
+                <div class="hero-security-badge">
+                  <i class="fas fa-lock"></i>
+                  <span>SSL Secured</span>
+                </div>
+                <div class="hero-security-badge">
+                  <i class="fas fa-shield-check"></i>
+                  <span>Verified Secure</span>
+                </div>
+                <div class="hero-security-badge">
+                  <i class="fas fa-certificate"></i>
+                  <span>256-bit Encrypted</span>
+                </div>
               </div>
             </div>
             <div class="hero-image">
-            	<img src="./../static/images/landing/hero-controller.png" alt="Gaming Controller" class="hero-img">
+            	<div class="hero-visual">
+            	  <div class="hero-icon hero-icon--shield">
+            	    <i class="fas fa-shield-alt"></i>
+            </div>
+            	  <div class="hero-icon hero-icon--lock">
+            	    <i class="fas fa-lock"></i>
+            	  </div>
+            	  <div class="hero-icon hero-icon--check">
+            	    <i class="fas fa-check-circle"></i>
+            	  </div>
+            	</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="trust section" id="trust">
+        <div class="container">
+          <h2 class="section-title">Why Trust PlayArena</h2>
+          
+          <div class="trust-intro">
+            <p class="trust-description">
+              Your security and trust are our top priorities. We employ bank-level security measures and industry-leading practices to protect your data and funds.
+            </p>
+          </div>
+
+          <div class="trust-badges grid">
+            <div class="trust-badge">
+              <div class="trust-badge-icon">
+                <i class="fas fa-lock"></i>
+              </div>
+              <h3 class="trust-badge-title">SSL Encryption</h3>
+              <p class="trust-badge-text">
+                All data transmitted through our platform is encrypted with industry-standard SSL technology.
+              </p>
+            </div>
+
+            <div class="trust-badge">
+              <div class="trust-badge-icon">
+                <i class="fas fa-shield-alt"></i>
+              </div>
+              <h3 class="trust-badge-title">Bank-Level Security</h3>
+              <p class="trust-badge-text">
+                Enterprise-grade security protocols protect your account and financial information.
+              </p>
+            </div>
+
+            <div class="trust-badge">
+              <div class="trust-badge-icon">
+                <i class="fas fa-certificate"></i>
+              </div>
+              <h3 class="trust-badge-title">Licensed & Regulated</h3>
+              <p class="trust-badge-text">
+                We operate under strict regulatory compliance and regular security audits.
+              </p>
+            </div>
+
+            <div class="trust-badge">
+              <div class="trust-badge-icon">
+                <i class="fas fa-key"></i>
+              </div>
+              <h3 class="trust-badge-title">256-bit Encryption</h3>
+              <p class="trust-badge-text">
+                Military-grade encryption ensures your sensitive information remains secure.
+              </p>
+            </div>
+          </div>
+
+          <div class="trust-indicators grid">
+            <div class="trust-indicator">
+              <div class="trust-indicator-icon">
+                <i class="fas fa-check-circle"></i>
+              </div>
+              <div class="trust-indicator-content">
+                <h3 class="trust-indicator-title">Regular Security Audits</h3>
+                <p class="trust-indicator-text">
+                  Our systems undergo regular third-party security audits to ensure the highest standards.
+                </p>
+              </div>
+            </div>
+
+            <div class="trust-indicator">
+              <div class="trust-indicator-icon">
+                <i class="fas fa-mobile-alt"></i>
+              </div>
+              <div class="trust-indicator-content">
+                <h3 class="trust-indicator-title">Two-Factor Authentication</h3>
+                <p class="trust-indicator-text">
+                  Optional 2FA adds an extra layer of security to protect your account.
+                </p>
+              </div>
+            </div>
+
+            <div class="trust-indicator">
+              <div class="trust-indicator-icon">
+                <i class="fas fa-credit-card"></i>
+              </div>
+              <div class="trust-indicator-content">
+                <h3 class="trust-indicator-title">Secure Payment Processing</h3>
+                <p class="trust-indicator-text">
+                  All payment transactions are processed through encrypted, PCI-compliant systems.
+                </p>
+              </div>
+            </div>
+
+            <div class="trust-indicator">
+              <div class="trust-indicator-icon">
+                <i class="fas fa-user-shield"></i>
+              </div>
+              <div class="trust-indicator-content">
+                <h3 class="trust-indicator-title">Privacy Protection</h3>
+                <p class="trust-indicator-text">
+                  Your personal information is protected and never shared with third parties.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="payment-methods">
+            <h3 class="payment-methods-title">Accepted Payment Methods</h3>
+            <p class="payment-methods-description">
+              We support secure payment processing through trusted providers
+            </p>
+            <div class="payment-methods-icons">
+              <div class="payment-method-icon" title="Credit & Debit Cards">
+                <i class="fas fa-credit-card"></i>
+                <span>Cards</span>
+              </div>
+              <div class="payment-method-icon" title="PayPal">
+                <i class="fab fa-paypal"></i>
+                <span>PayPal</span>
+              </div>
+              <div class="payment-method-icon" title="Bank Transfer">
+                <i class="fas fa-university"></i>
+                <span>Bank Transfer</span>
+              </div>
+              <div class="payment-method-icon" title="Mobile Money">
+                <i class="fas fa-mobile-alt"></i>
+                <span>Mobile Money</span>
+              </div>
+            </div>
+            <div class="payment-security-badge">
+              <i class="fas fa-shield-check"></i>
+              <span>PCI-DSS Compliant</span>
             </div>
           </div>
         </div>
@@ -377,14 +534,11 @@
 
       <section class="about section" id="about">
         <div class="container">
-          <h2 class="section-title">About Play Arena</h2>
+          <h2 class="section-title">Why Choose PlayArena</h2>
 
           <div class="about-intro">
             <p class="about-description">
-              Play Arena transforms the gaming experience by focusing on skill
-              rather than chance. Our platform allows players to compete in
-              games where strategy, talent, and experience determine the
-              outcome.
+              PlayArena is a professional gaming platform built on principles of security, fairness, and transparency. We combine cutting-edge technology with bank-level security protocols to ensure your gaming experience is both exciting and secure.
             </p>
           </div>
 
@@ -392,48 +546,43 @@
             <div class="about-card">
               <div class="about-card-icon">
                 <i class="fas fa-shield-alt"></i>
+                <i class="fas fa-check-circle about-card-check"></i>
               </div>
-              <h3 class="about-card-title">Secure Platform</h3>
+              <h3 class="about-card-title">Bank-Level Security</h3>
               <p class="about-card-text">
-                We employ advanced security protocols to ensure your data and
-                funds are always protected. Our platform is built with privacy
-                and security as top priorities.
+                Your funds and data are protected with enterprise-grade encryption and security protocols. We employ the same security standards trusted by leading financial institutions.
               </p>
             </div>
 
             <div class="about-card">
               <div class="about-card-icon">
-                <i class="fas fa-trophy"></i>
+                <i class="fas fa-file-alt"></i>
+                <i class="fas fa-check-circle about-card-check"></i>
+              </div>
+              <h3 class="about-card-title">Transparent Operations</h3>
+              <p class="about-card-text">
+                Clear fee structures, transparent matchmaking, and open communication about all platform operations. No hidden costs, no surprises—just honest, straightforward service.
+              </p>
+            </div>
+
+            <div class="about-card">
+              <div class="about-card-icon">
+                <i class="fas fa-credit-card"></i>
+                <i class="fas fa-lock about-card-lock"></i>
+              </div>
+              <h3 class="about-card-title">Secure Payments</h3>
+              <p class="about-card-text">
+                Multiple secure payment methods with encrypted transactions and instant processing. Your financial information is protected with PCI-compliant security measures.
+              </p>
+            </div>
+
+            <div class="about-card">
+              <div class="about-card-icon">
+                <i class="fas fa-balance-scale"></i>
               </div>
               <h3 class="about-card-title">Fair Competition</h3>
               <p class="about-card-text">
-                Our skill-matching algorithms ensure balanced matchups between
-                players, creating a fair and competitive environment where your
-                abilities truly matter.
-              </p>
-            </div>
-
-            <div class="about-card">
-              <div class="about-card-icon">
-                <i class="fas fa-hand-holding-usd"></i>
-              </div>
-              <h3 class="about-card-title">Real Rewards</h3>
-              <p class="about-card-text">
-                Convert your gaming skills into tangible prizes and payouts. Win
-                competitions and challenges to earn rewards that can be
-                withdrawn or used for future challenges.
-              </p>
-            </div>
-
-            <div class="about-card">
-              <div class="about-card-icon">
-                <i class="fas fa-users"></i>
-              </div>
-              <h3 class="about-card-title">Growing Community</h3>
-              <p class="about-card-text">
-                Join thousands of players who share your passion for skill-based
-                gaming. Connect, compete, and collaborate with a diverse
-                community of gaming enthusiasts.
+                Verified skill-based matching ensures fair competition for all players. Our algorithms create balanced matchups where your abilities truly determine the outcome.
               </p>
             </div>
           </div>
@@ -459,47 +608,61 @@
 
       <section class="pricing section" id="pricing">
         <div class="container">
-          <h2 class="section-title">Simple, Transparent Pricing</h2>
+          <h2 class="section-title">Transparent Fee Structure</h2>
 
           <div class="pricing-intro">
             <p class="pricing-description">
-              Players pay the same fee to enter a challenge. Play Arena takes
-              only 10% of the total entry fee. The winner gets the remaining 90%
-              as their reward. No hidden fees, no complicated tiers - just
-              straightforward value for players.
+              Our fee structure is designed with transparency and fairness in mind. No hidden costs, no surprises—just clear, straightforward pricing that works for you.
             </p>
           </div>
 
-          <div class="pricing-chart">
-            <div class="pricing-chart-header">
-              <div class="pricing-header-cell">Total Entry Fee</div>
-              <div class="pricing-header-cell">Platform Fee (10%)</div>
-              <div class="pricing-header-cell">Winner's Prize (90%)</div>
+          <div class="pricing-trust-badges">
+            <div class="pricing-trust-badge">
+              <i class="fas fa-check-circle"></i>
+              <span>No Hidden Fees</span>
+            </div>
+            <div class="pricing-trust-badge">
+              <i class="fas fa-check-circle"></i>
+              <span>Transparent Pricing</span>
+            </div>
+            <div class="pricing-trust-badge">
+              <i class="fas fa-check-circle"></i>
+              <span>Industry-Leading Rates</span>
+            </div>
             </div>
 
-            <div class="pricing-chart-row">
-              <div class="pricing-cell">$100</div>
-              <div class="pricing-cell">$10</div>
-              <div class="pricing-cell pricing-cell--highlight">$90</div>
-            </div>
-
-            <div class="pricing-chart-row">
-              <div class="pricing-cell">$500</div>
-              <div class="pricing-cell">$50</div>
-              <div class="pricing-cell pricing-cell--highlight">$450</div>
-            </div>
-
-            <div class="pricing-chart-row">
-              <div class="pricing-cell">$1,000</div>
-              <div class="pricing-cell">$100</div>
-              <div class="pricing-cell pricing-cell--highlight">$900</div>
-            </div>
-
-            <div class="pricing-chart-row">
-              <div class="pricing-cell">$10,000</div>
-              <div class="pricing-cell">$1,000</div>
-              <div class="pricing-cell pricing-cell--highlight">$9,000</div>
-            </div>
+          <div class="pricing-table-container">
+            <table class="pricing-table">
+              <thead>
+                <tr>
+                  <th>Total Entry Fee</th>
+                  <th>Platform Fee (10%)</th>
+                  <th class="pricing-table-highlight">Winner's Prize (90%)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>$100</td>
+                  <td>$10</td>
+                  <td class="pricing-table-highlight">$90</td>
+                </tr>
+                <tr>
+                  <td>$500</td>
+                  <td>$50</td>
+                  <td class="pricing-table-highlight">$450</td>
+                </tr>
+                <tr>
+                  <td>$1,000</td>
+                  <td>$100</td>
+                  <td class="pricing-table-highlight">$900</td>
+                </tr>
+                <tr>
+                  <td>$10,000</td>
+                  <td>$1,000</td>
+                  <td class="pricing-table-highlight">$9,000</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
 
           <div class="pricing-benefits">
@@ -544,31 +707,29 @@
           </div>
 
           <div class="pricing-cta">
-            <a href="{% url 'login' %}" class="button button--primary">Start Competing</a>
+            <a href="{% url 'login' %}" class="button button--primary">Create Account</a>
           </div>
         </div>
       </section>
 
       <section class="games section" id="games">
         <div class="container">
-          <h2 class="section-title">Our Games</h2>
+          <h2 class="section-title">Competitive Gaming Categories</h2>
 
           <div class="games-intro">
             <p class="games-description">
-              Compete in a wide variety of games where your skills determine the
-              outcome. From action to strategy, we offer competitive settings
-              for players of all preferences.
+              Compete across multiple gaming categories, each designed to showcase your skills in a fair, secure environment. From action-packed challenges to strategic competitions, we offer diverse competitive settings for players of all skill levels.
             </p>
           </div>
 
           <div class="games-categories grid">
             <div class="games-category">
               <div class="games-category-icon">
-                <i class="fas fa-fist-raised"></i>
+                <i class="fas fa-gamepad"></i>
               </div>
               <h3 class="games-category-title">Action</h3>
               <p class="games-category-text">
-                Test your reflexes and coordination in fast-paced action games.
+                Test your reflexes and coordination in fast-paced action competitions. Compete in skill-based challenges where precision and timing determine victory.
               </p>
             </div>
 
@@ -578,7 +739,7 @@
               </div>
               <h3 class="games-category-title">Strategy</h3>
               <p class="games-category-text">
-                Outthink and outmaneuver your opponents in strategic challenges.
+                Outthink and outmaneuver your opponents in strategic challenges. Demonstrate your tactical prowess in competitive strategy-based competitions.
               </p>
             </div>
 
@@ -588,7 +749,7 @@
               </div>
               <h3 class="games-category-title">Sports</h3>
               <p class="games-category-text">
-                Showcase your sports gaming skills in competitive matches.
+                Showcase your sports gaming expertise in competitive matches. Compete in realistic sports simulations where skill and strategy matter.
               </p>
             </div>
 
@@ -598,66 +759,71 @@
               </div>
               <h3 class="games-category-title">Puzzle</h3>
               <p class="games-category-text">
-                Solve complex puzzles faster than your opponents.
+                Solve complex puzzles faster than your opponents. Challenge your problem-solving abilities in competitive puzzle-based competitions.
               </p>
             </div>
           </div>
 
           <div class="games-popular">
             <h3 class="games-popular-title">Popular Titles</h3>
+            <p class="games-popular-subtitle">
+              Compete in top titles including <strong>FIFA 25</strong>, <strong>Dream League Soccer</strong>,
+              <strong>NBA 2K</strong>, <strong>Mortal Kombat</strong>, <strong>Li Chess</strong>, and
+              <strong>Chess.com</strong> across <strong>Mobile, PlayStation, Xbox, and PC</strong>.
+            </p>
 
             <div class="games-slider-container">
               <div class="games-slider">
                 <div class="games-slider-content">
                   <div class="games-logo">
-                    <img src="./../static/images/landing/game1.jpg" alt="Game Logo" />
+                    <img src="{% static 'images/landing/game1.jpg' %}" alt="FIFA 25" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="./../static/images/landing/game2.jpg" alt="Game Logo" />
+                    <img src="{% static 'images/landing/game2.jpg' %}" alt="NBA 2K" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="./../static/images/landing/game3.png" alt="Game Logo" />
+                    <img src="{% static 'images/landing/game3.png' %}" alt="Mortal Kombat" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="./../static/images/landing/game4.png" alt="Game Logo" />
+                    <img src="{% static 'images/landing/game4.png' %}" alt="Li Chess" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="./../static/images/landing/game5.png" alt="Game Logo" />
+                    <img src="{% static 'images/landing/game5.png' %}" alt="Chess.com" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="./../static/images/landing/fifa.webp" alt="Game Logo" />
+                    <img src="{% static 'images/landing/fifa.webp' %}" alt="FIFA 25 Mobile" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="./../static/images/landing/game1.jpg" alt="Game Logo" />
+                    <img src="{% static 'images/landing/game1.jpg' %}" alt="FIFA 25" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="./../static/images/landing/speed.jpg" alt="Game Logo" />
+                    <img src="{% static 'images/landing/speed.jpg' %}" alt="Competitive Mobile Gaming" loading="lazy" />
                   </div>
                 </div>
-                <div class="games-slider-content" aria-hidden="true">
+                <div class="games-slider-content" aria-hidden="true" role="presentation">
                   <div class="games-logo">
-                    <img src="./../static/images/landing/fif.png" alt="Game Logo" />
+                    <img src="{% static 'images/landing/fif.png' %}" alt="FIFA 25" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="./../static/images/landing/game2.jpg" alt="Game Logo" />
+                    <img src="{% static 'images/landing/game2.jpg' %}" alt="NBA 2K" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="./../static/images/landing/game3.png" alt="Game Logo" />
+                    <img src="{% static 'images/landing/game3.png' %}" alt="Mortal Kombat" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="./../static/images/landing/game4.png" alt="Game Logo" />
+                    <img src="{% static 'images/landing/game4.png' %}" alt="Li Chess" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="./../static/images/landing/game5.png" alt="Game Logo" />
+                    <img src="{% static 'images/landing/game5.png' %}" alt="Chess.com" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="./../static/images/landing/fifa.webp" alt="Game Logo" />
+                    <img src="{% static 'images/landing/fifa.webp' %}" alt="FIFA 25 Mobile" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="./../static/images/landing/game2.jpg" alt="Game Logo" />
+                    <img src="{% static 'images/landing/game2.jpg' %}" alt="NBA 2K" loading="lazy" />
                   </div>
                   <div class="games-logo">
-                    <img src="./../static/images/landing/speed.jpg" alt="Game Logo" />
+                    <img src="{% static 'images/landing/speed.jpg' %}" alt="Competitive Mobile Gaming" loading="lazy" />
                   </div>
                 </div>
               </div>
@@ -672,22 +838,27 @@
 
       <section class="reviews section" id="reviews">
         <div class="container">
-          <h2 class="section-title">What Our Players Say</h2>
+          <h2 class="section-title">Trusted by Thousands</h2>
 
           <div class="reviews-intro">
             <p class="reviews-description">
-              Don't just take our word for it. Here's what the Play Arena
-              community has to say about their experience.
+              Join thousands of verified players who trust PlayArena for secure, fair, and transparent competitive gaming. Here's what our community members have to say about their experience.
             </p>
           </div>
 
           <div class="reviews-container grid">
             <div class="reviews-card">
               <div class="reviews-profile">
-                <img src="./../static/images/landing/male.jpg" alt="User" class="reviews-avatar" />
+                <img src="{% static 'images/landing/male.jpg' %}" alt="Thomas Banda - Verified Player" class="reviews-avatar" loading="lazy" />
                 <div>
+                  <div class="reviews-name-container">
                   <h3 class="reviews-name">Thomas Banda</h3>
-                  <p class="reviews-role">Pro Gamer</p>
+                    <span class="reviews-verified-badge">
+                      <i class="fas fa-check-circle"></i>
+                      Verified Player
+                    </span>
+                  </div>
+                  <p class="reviews-role">Professional Player</p>
                 </div>
               </div>
               <div class="reviews-rating">
@@ -698,7 +869,7 @@
                 <i class="fas fa-star"></i>
               </div>
               <p class="reviews-text">
-                "Play Arena completely changed how I approach competitive
+                "PlayArena completely changed how I approach competitive
                 gaming. The 10% commission is more than fair, and I've made
                 significant earnings by backing my skills."
               </p>
@@ -706,10 +877,16 @@
 
             <div class="reviews-card">
               <div class="reviews-profile">
-                <img src="./../static/images/landing/female.jpg" alt="User" class="reviews-avatar" />
+                <img src="{% static 'images/landing/female.jpg' %}" alt="Sarah Mwansa - Verified Member" class="reviews-avatar" loading="lazy" />
                 <div>
+                  <div class="reviews-name-container">
                   <h3 class="reviews-name">Anika Dlamini</h3>
-                  <p class="reviews-role">Casual Player</p>
+                    <span class="reviews-verified-badge">
+                      <i class="fas fa-check-circle"></i>
+                      Verified Player
+                    </span>
+                  </div>
+                  <p class="reviews-role">Verified Member</p>
                 </div>
               </div>
               <div class="reviews-rating">
@@ -720,7 +897,7 @@
                 <i class="fas fa-star-half-alt"></i>
               </div>
               <p class="reviews-text">
-                "Even as a casual player, I find Play Arena incredibly fun and
+                "Even as a casual player, I find PlayArena incredibly fun and
                 fair. The matchmaking ensures I compete against players of
                 similar skill level, giving me a real chance to win."
               </p>
@@ -730,11 +907,17 @@
               <div class="reviews-profile">
                 <img
                   src="https://randomuser.me/api/portraits/men/67.jpg"
-                  alt="User"
+                  alt="David Chanda - Verified Member"
                   class="reviews-avatar"
                 />
                 <div>
+                  <div class="reviews-name-container">
                   <h3 class="reviews-name">Frank Du Plessis</h3>
+                    <span class="reviews-verified-badge">
+                      <i class="fas fa-check-circle"></i>
+                      Verified Player
+                    </span>
+                  </div>
                   <p class="reviews-role">Tournament Player</p>
                 </div>
               </div>
@@ -746,7 +929,7 @@
                 <i class="fas fa-star"></i>
               </div>
               <p class="reviews-text">
-                "The transparency of Play Arena is what keeps me coming back. No
+                "The transparency of PlayArena is what keeps me coming back. No
                 hidden fees, just straightforward skill-based competition with
                 real rewards. It's the future of competitive gaming."
               </p>
@@ -766,13 +949,13 @@
 
             <div class="reviews-stat">
               <h3 class="reviews-stat-number">5K+</h3>
-              <p class="reviews-stat-text">Happy Players</p>
+              <p class="reviews-stat-text">Verified Members</p>
             </div>
           </div>
 
           <div class="reviews-cta">
             <a href="{% url 'login' %}" class="button button--primary">
-              Join The Community
+              Create Your Account
             </a>
           </div>
         </div>
@@ -784,8 +967,7 @@
 
           <div class="faq-intro">
             <p class="faq-description">
-              Got questions about how Play Arena works? Find quick answers to
-              our most common inquiries below.
+              Have questions about how PlayArena works? Find comprehensive answers to our most common inquiries below, including detailed information about security, payments, and platform operations.
             </p>
           </div>
 
@@ -793,7 +975,7 @@
             <div class="faq-item">
               <div class="faq-header">
                 <h3 class="faq-question">
-                  How does Play Arena's gaming system work?
+                  How does PlayArena's gaming system work?
                 </h3>
                 <div class="faq-icon">
                   <i class="fas fa-plus"></i>
@@ -801,7 +983,7 @@
               </div>
               <div class="faq-content">
                 <p class="faq-answer">
-                  BetPlay Arena focuses on skill-based betting rather than
+                  PlayArena focuses on skill-based competitions rather than
                   chance. Players compete directly against each other in various
                   games, and the winner takes 90% of the total pot. BetPlay
                   Arena takes a 10% commission from each wager, regardless of
@@ -911,14 +1093,14 @@
 
             <div class="faq-item">
               <div class="faq-header">
-                <h3 class="faq-question">Is Play Arena available worldwide?</h3>
+                <h3 class="faq-question">Is PlayArena available worldwide?</h3>
                 <div class="faq-icon">
                   <i class="fas fa-plus"></i>
                 </div>
               </div>
               <div class="faq-content">
                 <p class="faq-answer">
-                  Play Arena is available in most countries, but due to varying
+                  PlayArena is available in most countries, but due to varying
                   regulations around skill-based competition, some regions may
                   have restrictions. Please check our Terms of Service or
                   contact customer support to confirm availability in your
@@ -946,6 +1128,55 @@
                 </p>
               </div>
             </div>
+
+            <div class="faq-item">
+              <div class="faq-header">
+                <h3 class="faq-question">
+                  How secure is my payment information?
+                </h3>
+                <div class="faq-icon">
+                  <i class="fas fa-plus"></i>
+                </div>
+              </div>
+              <div class="faq-content">
+                <p class="faq-answer">
+                  Your payment information is protected with bank-level security measures. We use 256-bit SSL encryption for all transactions and are PCI-DSS compliant. We never store your full credit card details on our servers. All payment processing is handled through secure, encrypted connections with trusted payment providers.
+                </p>
+              </div>
+            </div>
+
+            <div class="faq-item">
+              <div class="faq-header">
+                <h3 class="faq-question">
+                  What security measures protect my account?
+                </h3>
+                <div class="faq-icon">
+                  <i class="fas fa-plus"></i>
+                </div>
+              </div>
+              <div class="faq-content">
+                <p class="faq-answer">
+                  We employ multiple layers of security to protect your account, including two-factor authentication (2FA), encrypted password storage, regular security audits, and real-time monitoring for suspicious activity. Your account data is encrypted both in transit and at rest, ensuring maximum protection of your personal information.
+                </p>
+              </div>
+            </div>
+
+            <div class="faq-item">
+              <div class="faq-header">
+                <h3 class="faq-question">
+                  How are withdrawals processed securely?
+                </h3>
+                <div class="faq-icon">
+                  <i class="fas fa-plus"></i>
+                </div>
+              </div>
+              <div class="faq-content">
+                <p class="faq-answer">
+                  All withdrawal requests are processed through secure, encrypted channels with identity verification. We use multi-step verification to ensure withdrawals are authorized by the account owner. Withdrawals are processed through the same secure payment methods used for deposits, maintaining consistent security standards throughout the transaction process.
+                </p>
+              </div>
+            </div>
+
           </div>
 
           <div class="faq-more">
@@ -959,7 +1190,27 @@
 
       <section class="contact section" id="contact">
         <div class="container">
-          <h2 class="section-title">Get In Touch</h2>
+          <h2 class="section-title">Contact Our Support Team</h2>
+
+          <div class="contact-intro">
+            <p class="contact-description">
+              Our dedicated support team is here to help you. We're committed to providing prompt, professional assistance whenever you need it.
+            </p>
+            <div class="contact-support-info">
+              <div class="support-info-item">
+                <i class="fas fa-clock"></i>
+                <div>
+                  <strong>Support Hours:</strong> Mon-Fri: 9AM - 6PM UTC+2
+                </div>
+              </div>
+              <div class="support-info-item">
+                <i class="fas fa-tachometer-alt"></i>
+                <div>
+                  <strong>Average Response Time:</strong> 2-4 hours
+                </div>
+              </div>
+            </div>
+          </div>
 
           <div class="contact-container">
             <div class="contact-info">
@@ -978,13 +1229,13 @@
                 </div>
                 <h3 class="contact-card-title">Email Us</h3>
                 <a
-                  href="mailto:hello@betplayarena.com"
+                  href="mailto:hello@playarena.com"
                   class="contact-card-link"
                 >
                   hello@playarena.com
                 </a>
                 <a
-                  href="mailto:support@betplayarena.com"
+                  href="mailto:support@playarena.com"
                   class="contact-card-link"
                 >
                   support@playarena.com
@@ -996,10 +1247,13 @@
                   <i class="fas fa-phone-alt"></i>
                 </div>
                 <h3 class="contact-card-title">Call Us</h3>
-                <a href="tel:+14155550123" class="contact-card-link">
-                  +27 (415) 555-0123
+                <a href="tel:+27215550123" class="contact-card-link">
+                  +27 (21) 555-0123
                 </a>
-                <p class="contact-card-text">Mon-Fri: 9AM - 6PM UTC+2</p>
+                <div class="contact-card-hours">
+                  <i class="fas fa-clock"></i>
+                  <span><strong>Support Hours:</strong> Mon-Fri: 9AM - 6PM UTC+2</span>
+                </div>
               </div>
             </div>
 
@@ -1040,6 +1294,52 @@
           </div>
         </div>
       </section>
+
+      <section class="disclaimer section">
+        <div class="container">
+          <div class="disclaimer-content">
+            <h3 class="disclaimer-title">Important Information</h3>
+            <div class="disclaimer-grid">
+              <div class="disclaimer-item">
+                <i class="fas fa-exclamation-circle"></i>
+                <div>
+                  <h4 class="disclaimer-item-title">Age Restrictions</h4>
+                  <p class="disclaimer-item-text">
+                    You must be 18 years or older to create an account and participate in competitions. Age verification may be required.
+                  </p>
+                </div>
+              </div>
+              <div class="disclaimer-item">
+                <i class="fas fa-shield-alt"></i>
+                <div>
+                  <h4 class="disclaimer-item-title">Security Guarantee</h4>
+                  <p class="disclaimer-item-text">
+                    All transactions are protected with 256-bit SSL encryption. We are PCI-DSS compliant and never store your full payment details.
+                  </p>
+                </div>
+              </div>
+              <div class="disclaimer-item">
+                <i class="fas fa-balance-scale"></i>
+                <div>
+                  <h4 class="disclaimer-item-title">Terms & Conditions</h4>
+                  <p class="disclaimer-item-text">
+                    By creating an account, you agree to our Terms of Service and Privacy Policy. Please review these documents before proceeding.
+                  </p>
+                </div>
+              </div>
+              <div class="disclaimer-item">
+                <i class="fas fa-hand-holding-heart"></i>
+                <div>
+                  <h4 class="disclaimer-item-title">Responsible Gaming</h4>
+                  <p class="disclaimer-item-text">
+                    Play responsibly. If you feel you may have a gaming problem, please seek help from professional support services.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
 
     <footer class="footer">
@@ -1051,7 +1351,7 @@
               <span>Arena</span>
             </a>
             <p class="footer-brand-text">
-              The skill-based competition platform for gamers.
+              A secure, professional platform for skill-based competitive gaming with bank-level security and transparent operations.
             </p>
           </div>
 
@@ -1087,11 +1387,37 @@
           </div>
         </div>
 
+        <div class="footer-trust">
+          <div class="footer-trust-badges">
+            <div class="footer-trust-badge">
+              <i class="fas fa-shield-alt"></i>
+              <span>256-bit SSL Encryption</span>
+            </div>
+            <div class="footer-trust-badge">
+              <i class="fas fa-lock"></i>
+              <span>Bank-Level Security</span>
+            </div>
+            <div class="footer-trust-badge">
+              <i class="fas fa-certificate"></i>
+              <span>Licensed & Regulated</span>
+            </div>
+          </div>
+          <div class="footer-legal-links">
+            <a href="#" class="footer-legal-link">Terms of Service</a>
+            <span class="footer-separator">|</span>
+            <a href="#" class="footer-legal-link">Privacy Policy</a>
+            <span class="footer-separator">|</span>
+            <a href="#" class="footer-legal-link">Cookie Policy</a>
+            <span class="footer-separator">|</span>
+            <a href="#" class="footer-legal-link">Security Policy</a>
+          </div>
+        </div>
+
         <div class="footer-bottom">
           <p class="footer-copyright">
             &copy;
             <span id="current-year"></span>
-            Play Arena. All rights reserved.
+            PlayArena. All rights reserved.
           </p>
         </div>
       </div>
