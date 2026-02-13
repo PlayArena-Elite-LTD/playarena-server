@@ -517,3 +517,63 @@ def available_matches(request):
     }
     
     return render(request, 'matches/available_matches.html', context)
+
+@login_required
+@ratelimit(key='user', rate='20/h', method='POST', block=True)
+def upload_evidence(request, match_id):
+    """Upload evidence for a match"""
+    match = get_object_or_404(Match, id=match_id)
+    
+    # Check if user is part of this match
+    if match.creator != request.user and match.opponent != request.user:
+        messages.error(request, "You are not part of this match")
+        return redirect('match_detail', match_id=match_id)
+    
+    if request.method == 'POST':
+        # Handle file upload logic here
+        messages.success(request, "Evidence uploaded successfully")
+        return redirect('match_detail', match_id=match_id)
+    
+    return render(request, 'matches/upload_evidence.html', {'match': match})
+
+@login_required
+def evidence_gallery(request, match_id):
+    """Display evidence gallery for a match"""
+    match = get_object_or_404(Match, id=match_id)
+    
+    # Check if user is part of this match
+    if match.creator != request.user and match.opponent != request.user:
+        messages.error(request, "You are not part of this match")
+        return redirect('match_detail', match_id=match_id)
+    
+    return render(request, 'matches/evidence_gallery.html', {'match': match})
+
+@login_required
+def get_evidence(request, evidence_id):
+    """Get evidence details"""
+    # Placeholder implementation
+    return JsonResponse({'status': 'success', 'evidence_id': evidence_id})
+
+@login_required
+def download_evidence(request, evidence_id):
+    """Download evidence file"""
+    # Placeholder implementation
+    return JsonResponse({'status': 'success', 'action': 'download', 'evidence_id': evidence_id})
+
+@login_required
+def delete_evidence(request, evidence_id):
+    """Delete evidence"""
+    # Placeholder implementation
+    return JsonResponse({'status': 'success', 'action': 'delete', 'evidence_id': evidence_id})
+
+@login_required
+def list_evidence(request, match_id):
+    """List all evidence for a match"""
+    match = get_object_or_404(Match, id=match_id)
+    
+    # Check if user is part of this match
+    if match.creator != request.user and match.opponent != request.user:
+        return JsonResponse({'error': 'Not authorized'}, status=403)
+    
+    # Placeholder implementation
+    return JsonResponse({'status': 'success', 'match_id': match_id, 'evidence': []})

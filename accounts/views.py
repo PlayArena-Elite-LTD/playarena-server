@@ -23,31 +23,82 @@ User = get_user_model()
 
 @ratelimit(key='ip', rate='3/h', method='POST', block=True)
 def pre_signup(request):
-    # Show maintenance page instead of pre-signup
-    return render(request, 'maintenance.html')
+    """Handle pre-signup form to collect email before full registration"""
+    if request.method == 'POST':
+        form = PreSignupForm(request.POST)
+        if form.is_valid():
+            email = form.cleaned_data['email']
+            
+            # Generate signup token
+            token = signing.dumps(email, salt='pre-signup')
+            signup_url = request.build_absolute_uri(reverse('signup')) + f'?token={token}'
+            
+            # Send signup email
+            subject = 'Complete Your Registration - PlayArena'
+            html_content = render_to_string('registration/signup_email.html', {
+                'signup_url': signup_url,
+                'email': email
+            })
+            text_content = strip_tags(html_content)
+            
+            email_message = EmailMultiAlternatives(
+                subject,
+                text_content,
+                'noreply@playarena.com',
+                [email]
+            )
+            email_message.attach_alternative(html_content, "text/html")
+            email_message.send()
+            
+            return redirect('pre_signup_done')
+    else:
+        form = PreSignupForm()
+    
+    return render(request, 'registration/pre_signup.html', {'form': form})
 
 def pre_signup_done(request):
     return render(request, 'registration/pre_signup_done.html')
 
-
 @ratelimit(key='ip', rate='3/h', method='POST', block=True)
 def signup(request):
-    # Show maintenance page instead of signup
-    return render(request, 'maintenance.html')
+    """Handle user signup with token validation"""
+    token = request.GET.get('token')
+    
+    if not token:
+        messages.error(request, 'Invalid signup link. Please request a new one.')
+        return redirect('pre_signup')
+    
+    try:
+        email = signing.loads(token, salt='pre-signup', max_age=3600)  # 1 hour expiry
+    except signing.BadSignature:
+        messages.error(request, 'Invalid or expired signup link. Please request a new one.')
+        return redirect('pre_signup')
+    
+    if request.method == 'POST':
+        form = CustomUserCreationForm(request.POST)
+        if form.is_valid():
+            user = form.save(commit=False)
+            user.email = email
+            user.save()
+            
+            # Create profile
+            Profile.objects.create(user=user)
+            
+            messages.success(request, 'Account created successfully! You can now log in.')
+            return redirect('login')
+    else:
+        form = CustomUserCreationForm(initial={'email': email})
+    
+    return render(request, 'registration/signup.html', {'form': form, 'email': email})
 
 class CustomLoginView(LoginView):
     authentication_form = EmailOrUsernameAuthenticationForm
-    template_name = 'maintenance.html'
-    
-    @ratelimit(key='ip', rate='5/15m', method='POST', block=True)
-    def post(self, request, *args, **kwargs):
-        """Apply rate limiting to login POST requests"""
-        return render(request, 'maintenance.html')
+    template_name = 'registration/login.html'
     
     def dispatch(self, request, *args, **kwargs):
-        # Show maintenance page instead of login
-        return render(request, 'maintenance.html')
-    
+        """Normal dispatch without maintenance redirect"""
+        return super().dispatch(request, *args, **kwargs)
+
 def logout_view(request):
     """
     Enhanced logout view that completely clears the session.

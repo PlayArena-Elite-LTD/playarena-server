@@ -17,7 +17,7 @@ class DisputeAdmin(admin.ModelAdmin):
         'assigned_to',
         'created_at',
         'resolved_at',
-        'actions'
+        'action_links'
     ]
     list_filter = ['status', 'created_at', 'resolved_at', 'assigned_to']
     search_fields = [
@@ -77,20 +77,21 @@ class DisputeAdmin(admin.ModelAdmin):
     status_display.short_description = 'Status'
     status_display.admin_order_field = 'status'
     
-    def actions(self, obj):
+    def action_links(self, obj):
         """Display action links"""
         links = []
         
-        # Link to dispute detail page (panel view)
-        panel_url = reverse('dispute_detail', args=[obj.id])
-        links.append(f'<a href="{panel_url}" target="_blank" style="margin-right: 10px;">View Details</a>')
+        if obj.status == 'OPEN':
+            links.append(f'<a href="/panel/attend-dispute/{obj.id}/" class="button">Attend</a>')
+        elif obj.status in ['PENDING', 'ESCALATED']:
+            links.append(f'<a href="/panel/dispute/{obj.id}/" class="button">View Details</a>')
         
-        # Link to match in admin
-        match_url = reverse('admin:matches_match_change', args=[obj.match.id])
-        links.append(f'<a href="{match_url}">View Match</a>')
+        if obj.status != 'RESOLVED':
+            links.append(f'<a href="/panel/dispute/{obj.id}/escalate/" class="button">Escalate</a>')
         
         return format_html(''.join(links))
-    actions.short_description = 'Actions'
+    
+    action_links.short_description = 'Actions'
     
     def get_queryset(self, request):
         """Optimize queryset with select_related"""

@@ -1,4 +1,5 @@
 from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.utils import timezone
 from django.db import transaction
@@ -135,3 +136,70 @@ def resolve_dispute(request, dispute_id):
         return redirect('my_disputes')
     # On GET, redirect to dispute detail
     return redirect('dispute_detail', dispute_id=dispute_id)
+
+@login_required
+def dispute_stats(request):
+    """Display dispute statistics"""
+    from django.db.models import Count, Q
+    from panel.models import Dispute
+    
+    # Get dispute statistics
+    total_disputes = Dispute.objects.count()
+    open_disputes = Dispute.objects.filter(status='OPEN').count()
+    resolved_disputes = Dispute.objects.filter(status='RESOLVED').count()
+    
+    # Disputes by status
+    disputes_by_status = Dispute.objects.values('status').annotate(count=Count('id'))
+    
+    # Recent disputes
+    recent_disputes = Dispute.objects.order_by('-created_at')[:10]
+    
+    context = {
+        'total_disputes': total_disputes,
+        'open_disputes': open_disputes,
+        'resolved_disputes': resolved_disputes,
+        'disputes_by_status': disputes_by_status,
+        'recent_disputes': recent_disputes,
+    }
+    
+    return render(request, 'panel/dispute_stats.html', context)
+
+
+@support_staff_required
+@transaction.atomic
+def escalate_dispute(request, dispute_id):
+    """Escalate a dispute to higher level support"""
+    dispute = get_object_or_404(Dispute, id=dispute_id)
+    
+    if dispute.status == 'RESOLVED':
+        messages.error(request, "Cannot escalate a resolved dispute.")
+        return redirect('dispute_detail', dispute_id=dispute_id)
+    
+    # Mark as escalated
+    dispute.status = 'ESCALATED'
+    dispute.escalated_at = timezone.now()
+    dispute.save()
+    
+    messages.success(request, "Dispute has been escalated to senior support staff.")
+    return redirect('dispute_detail', dispute_id=dispute_id)
+
+
+@support_staff_required
+@transaction.atomic
+def update_evidence_notes(request, evidence_id):
+    """Update notes for evidence items"""
+    from matches.models import Evidence
+    
+    evidence = get_object_or_404(Evidence, id=evidence_id)
+    
+    if request.method == 'POST':
+        notes = request.POST.get('notes', '')
+        evidence.admin_notes = notes
+        evidence.save()
+        
+        return JsonResponse({
+            'status': 'success',
+            'notes': evidence.admin_notes
+        })
+    
+    return JsonResponse({'status': 'error', 'message': 'Invalid request'}, status=400)
