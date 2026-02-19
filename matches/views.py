@@ -5,7 +5,7 @@ from django.db import transaction
 from django.utils import timezone
 from django.http import HttpResponseNotAllowed, JsonResponse
 from decimal import Decimal
-from django_ratelimit.decorators import ratelimit
+from core.ratelimit import ratelimit
 import logging
 
 from .forms import MatchCreationForm, JoinMatchForm
@@ -15,9 +15,21 @@ from alert.models import Notification
 
 logger = logging.getLogger('django_ratelimit')
 
+
+def _get_rate_limit_key(request):
+    """
+    Get rate limit key: use user ID if authenticated, otherwise use IP.
+    This ensures rate limiting works correctly even when @ratelimit is outermost.
+    Returns just the identifier (user ID or IP) - django-ratelimit adds its own prefix.
+    """
+    if hasattr(request, 'user') and request.user.is_authenticated:
+        return str(request.user.id)
+    return request.META.get('REMOTE_ADDR', 'unknown')
+
+
+@ratelimit(key=_get_rate_limit_key, rate='10/h', method='POST', block=True)
 @login_required
 @transaction.atomic
-@ratelimit(key='user', rate='10/h', method='POST', block=True)
 def create_match(request):
     """Create a new match and deduct the amount from user's wallet - 10 per hour per user"""
     if request.method == 'POST':
@@ -209,9 +221,9 @@ def cancel_match(request, match_id):
     
     return redirect('my_matches')
 
+@ratelimit(key=_get_rate_limit_key, rate='20/h', method='POST', block=True)
 @login_required
 @transaction.atomic
-@ratelimit(key='user', rate='20/h', method='POST', block=True)
 def submit_match_result(request, match_id):
     """Submit match result (win, loss, or draw) and handle verification - 20 per hour per user"""
     if request.method != 'POST':
@@ -518,8 +530,8 @@ def available_matches(request):
     
     return render(request, 'matches/available_matches.html', context)
 
+@ratelimit(key=_get_rate_limit_key, rate='20/h', method='POST', block=True)
 @login_required
-@ratelimit(key='user', rate='20/h', method='POST', block=True)
 def upload_evidence(request, match_id):
     """Upload evidence for a match"""
     match = get_object_or_404(Match, id=match_id)

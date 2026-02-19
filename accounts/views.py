@@ -11,7 +11,8 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse, reverse_lazy
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
-from django_ratelimit.decorators import ratelimit
+from django.utils.decorators import method_decorator
+from core.ratelimit import ratelimit
 from django.http import HttpResponse, JsonResponse
 
 from .models import Profile
@@ -91,6 +92,7 @@ def signup(request):
     
     return render(request, 'registration/signup.html', {'form': form, 'email': email})
 
+@method_decorator(ratelimit(key='ip', rate='5/m', method='POST', block=True), name='post')
 class CustomLoginView(LoginView):
     authentication_form = EmailOrUsernameAuthenticationForm
     template_name = 'registration/login.html'

@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django.contrib import messages
-from django.utils.html import format_html
+from django.utils.html import format_html, mark_safe
 from .forms import CustomUserCreationForm, CustomUserChangeForm
 from .models import CustomUser, Profile
 
@@ -32,14 +32,12 @@ class CustomUserAdmin(UserAdmin):
     
     def is_active_display(self, obj):
         """Display is_active status with color coding"""
+        if obj is None:
+            return '-'
         if obj.is_active:
-            return format_html(
-                '<span style="color: #48bb78; font-weight: bold;">✓ Active</span>'
-            )
+            return mark_safe('<span style="color: #48bb78; font-weight: bold;">✓ Active</span>')
         else:
-            return format_html(
-                '<span style="color: #f56565; font-weight: bold;">✗ Disabled</span>'
-            )
+            return mark_safe('<span style="color: #f56565; font-weight: bold;">✗ Disabled</span>')
     is_active_display.short_description = 'Status'
     is_active_display.admin_order_field = 'is_active'
     

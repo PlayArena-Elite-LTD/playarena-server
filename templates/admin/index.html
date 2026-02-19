@@ -1,11 +1,21 @@
 {% extends "admin/index.html" %}
 {% load static %}
 
+{% block extrastyle %}
+{{ block.super }}
+<link rel="stylesheet" type="text/css" href="{% static 'styles/admin_custom.css' %}?v=2.1">
+{% endblock %}
+
 {% block content %}
 <div class="admin-dashboard">
     <div class="dashboard-header">
-        <h1>Dashboard Overview</h1>
-        <p class="dashboard-subtitle">Welcome to PlayyArena Administration</p>
+        <div class="dashboard-header-content">
+            <h1>Dashboard Overview</h1>
+            <p class="dashboard-subtitle">Welcome to PlayyArena Administration Portal</p>
+        </div>
+        <div class="dashboard-header-meta">
+            <span class="dashboard-date">{% now "F j, Y" %}</span>
+        </div>
     </div>
 
     <div class="stats-grid">
@@ -138,9 +148,67 @@
     </div>
 
     <div class="dashboard-apps">
-        <h2 class="section-title">Application Modules</h2>
+        <div class="section-header">
+            <h2 class="section-title">Application Modules</h2>
+            <p class="section-description">Manage all application data and settings</p>
+        </div>
         {{ block.super }}
     </div>
 </div>
+
+<style>
+    .dashboard-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 1.5rem;
+    }
+    
+    .dashboard-header-content {
+        flex: 1;
+        min-width: 0;
+    }
+    
+    .dashboard-header-meta {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 0.5rem;
+    }
+    
+    .dashboard-date {
+        font-size: 0.875rem;
+        color: var(--text-tertiary, #718096);
+        font-weight: 500;
+        padding: 0.5rem 1rem;
+        background: var(--bg-primary, #FFFFFF);
+        border-radius: 8px;
+        border: 1px solid var(--border-light, #E2E8F0);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    }
+    
+    .section-header {
+        margin-bottom: 1.5rem;
+    }
+    
+    .section-description {
+        font-size: 0.875rem;
+        color: var(--text-secondary, #4A5568);
+        margin: 0.5rem 0 0 0;
+        font-weight: 400;
+    }
+    
+    @media (max-width: 768px) {
+        .dashboard-header {
+            flex-direction: column;
+        }
+        
+        .dashboard-header-meta {
+            align-items: flex-start;
+            width: 100%;
+        }
+    }
+</style>
 {% endblock %}
 

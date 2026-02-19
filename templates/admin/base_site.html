@@ -17,7 +17,81 @@
 
 {% block extrastyle %}
 {{ block.super }}
-<link rel="stylesheet" type="text/css" href="{% static 'styles/admin_custom.css' %}">
+<link rel="stylesheet" type="text/css" href="{% static 'styles/admin_custom.css' %}?v=2.1">
+<style>
+    /* Professional admin enhancements */
+    body {
+        background: var(--bg-secondary, #F7FAFC);
+    }
+    
+    /* Dark mode body background */
+    body.theme-dark,
+    html[data-theme="dark"] body {
+        background: var(--bg-secondary, #2D3748) !important;
+    }
+    
+    #content {
+        padding: 0;
+        min-height: calc(100vh - 120px);
+    }
+    
+    /* Improve readability and spacing */
+    .module {
+        margin-bottom: var(--space-xl, 2rem);
+    }
+    
+    /* Smooth scrolling */
+    html {
+        scroll-behavior: smooth;
+    }
+    
+    /* Professional selection */
+    ::selection {
+        background: rgba(0, 217, 255, 0.2);
+        color: var(--text-primary);
+    }
+    
+    /* Dark mode selection */
+    body.theme-dark ::selection,
+    html[data-theme="dark"] ::selection {
+        background: rgba(0, 229, 255, 0.3);
+        color: var(--text-primary);
+    }
+    
+    /* Better scrollbar */
+    ::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+    }
+    
+    ::-webkit-scrollbar-track {
+        background: var(--bg-secondary);
+    }
+    
+    body.theme-dark ::-webkit-scrollbar-track,
+    html[data-theme="dark"] ::-webkit-scrollbar-track {
+        background: var(--bg-secondary, #2D3748);
+    }
+    
+    ::-webkit-scrollbar-thumb {
+        background: var(--border-medium);
+        border-radius: 5px;
+    }
+    
+    ::-webkit-scrollbar-thumb:hover {
+        background: var(--accent-primary);
+    }
+    
+    body.theme-dark ::-webkit-scrollbar-thumb,
+    html[data-theme="dark"] ::-webkit-scrollbar-thumb {
+        background: var(--border-medium, #718096);
+    }
+    
+    body.theme-dark ::-webkit-scrollbar-thumb:hover,
+    html[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+        background: var(--accent-primary, #00E5FF);
+    }
+</style>
 {% endblock %}
 
 

@@ -12,6 +12,20 @@
     --wallet-soft-shadow: 0 8px 22px rgba(10, 15, 30, 0.28);
   }
 
+  /* Light mode colors for wallet theme */
+  body:not(.dark-theme) .wallet-theme {
+    --wallet-bg: #ffffff;
+    --wallet-surface: rgba(248, 250, 252, 0.95);
+    --wallet-border: rgba(148, 163, 184, 0.3);
+    --wallet-text: #334155;
+    --wallet-heading: #0f172a;
+    --wallet-accent: #0891b2;
+    --wallet-accent-2: #7c3aed;
+    --wallet-accent-3: #ec4899;
+    --wallet-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+    --wallet-soft-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+  }
+
   .wallet-theme.section {
     background:
       radial-gradient(1200px 700px at 10% -10%, rgba(34, 211, 238, 0.16), transparent 60%),
@@ -100,30 +114,60 @@
   .wallet-theme .dashboard-button,
   .wallet-theme .form-button-primary,
   .wallet-theme .form-button-secondary {
+    padding: 10px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--wallet-border);
+    background: var(--wallet-surface);
+    color: var(--wallet-text);
+    font-weight: 600;
+    transition: all 0.2s ease;
+    text-decoration: none;
     display: inline-flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.75rem 1.25rem;
-    border-radius: 12px;
-    border: 1px solid rgba(34, 211, 238, 0.5);
-    background: rgba(10, 15, 30, 0.6);
-    color: var(--wallet-heading);
-    text-decoration: none;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
-    cursor: pointer;
-    font-weight: 600;
+    justify-content: center;
+    gap: 6px;
   }
 
   .wallet-theme .dashboard-button:hover,
   .wallet-theme .form-button-secondary:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 0 18px rgba(34, 211, 238, 0.25);
+    background: rgba(34, 211, 238, 0.15);
+    border-color: rgba(34, 211, 238, 0.4);
+    color: var(--wallet-heading);
   }
 
   .wallet-theme .form-button-primary,
   .wallet-theme .dashboard-button-primary {
-    background: linear-gradient(135deg, rgba(34, 211, 238, 0.9), rgba(59, 130, 246, 0.85));
+    background: linear-gradient(135deg, var(--wallet-accent), var(--wallet-accent-2));
     color: #0b1020;
+    border-color: var(--wallet-accent);
+    font-weight: 700;
+  }
+
+  /* Light mode wallet buttons */
+  body:not(.dark-theme) .wallet-theme .dashboard-button,
+  body:not(.dark-theme) .wallet-theme .form-button-secondary {
+    background: #f8fafc;
+    color: #334155;
+    border-color: #cbd5e1;
+  }
+
+  body:not(.dark-theme) .wallet-theme .dashboard-button:hover,
+  body:not(.dark-theme) .wallet-theme .form-button-secondary:hover {
+    background: #e2e8f0;
+    border-color: #94a3b8;
+    color: #1e293b;
+  }
+
+  body:not(.dark-theme) .wallet-theme .form-button-primary,
+  body:not(.dark-theme) .wallet-theme .dashboard-button-primary {
+    background: linear-gradient(135deg, #0891b2, #2563eb);
+    color: #ffffff;
+    border-color: #0891b2;
+  }
+
+  body:not(.dark-theme) .wallet-theme .form-button-primary:hover,
+  body:not(.dark-theme) .wallet-theme .dashboard-button-primary:hover {
+    background: linear-gradient(135deg, #0e7490, #1d4ed8);
   }
 
   .wallet-theme .form-group input,

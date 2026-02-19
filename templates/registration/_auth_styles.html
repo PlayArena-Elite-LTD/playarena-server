@@ -10,10 +10,31 @@
     --auth-glow: rgba(34, 211, 238, 0.28);
   }
 
+  /* Light mode colors for auth */
+  body:not(.dark-theme) {
+    --auth-bg: #ffffff;
+    --auth-surface: rgba(248, 250, 252, 0.95);
+    --auth-border: rgba(148, 163, 184, 0.3);
+    --auth-text: #475569;
+    --auth-heading: #0f172a;
+    --auth-accent: #0891b2;
+    --auth-accent-2: #7c3aed;
+    --auth-glow: rgba(8, 145, 178, 0.15);
+  }
+
   body {
     background:
       radial-gradient(900px 600px at 15% -10%, rgba(34, 211, 238, 0.16), transparent 55%),
       radial-gradient(700px 520px at 85% -20%, rgba(167, 139, 250, 0.2), transparent 60%),
+      var(--auth-bg);
+    color: var(--auth-text);
+  }
+
+  /* Light mode body background */
+  body:not(.dark-theme) {
+    background:
+      radial-gradient(900px 600px at 15% -10%, rgba(8, 145, 178, 0.08), transparent 55%),
+      radial-gradient(700px 520px at 85% -20%, rgba(124, 58, 237, 0.1), transparent 60%),
       var(--auth-bg);
     color: var(--auth-text);
   }

@@ -17,6 +17,21 @@
     --landing-soft-shadow: 0 8px 22px rgba(10, 15, 30, 0.28);
   }
 
+  /* Light mode colors for landing page */
+  body:not(.dark-theme) {
+    --landing-bg: #ffffff;
+    --landing-surface: rgba(248, 250, 252, 0.95);
+    --landing-border: rgba(148, 163, 184, 0.3);
+    --landing-text: #475569;
+    --landing-heading: #0f172a;
+    --landing-accent: #0891b2;
+    --landing-accent-2: #7c3aed;
+    --landing-accent-3: #ec4899;
+    --landing-glow: rgba(8, 145, 178, 0.15);
+    --landing-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+    --landing-soft-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+  }
+
   body {
     background:
       radial-gradient(1200px 800px at 10% -10%, rgba(34, 211, 238, 0.14), transparent 55%),
@@ -39,6 +54,12 @@
     border-bottom: 1px solid rgba(148, 163, 184, 0.12);
     position: relative;
     overflow: hidden;
+  }
+
+  /* Light mode hero background */
+  body:not(.dark-theme) .landing-neon .hero {
+    background: linear-gradient(135deg, rgba(248, 250, 252, 0.98), rgba(241, 245, 249, 0.98));
+    border-bottom: 1px solid rgba(148, 163, 184, 0.3);
   }
 
   .landing-neon .hero::after {
@@ -94,6 +115,13 @@
     padding: 1.25rem 1.5rem;
     text-align: center;
     box-shadow: var(--landing-soft-shadow);
+  }
+
+  /* Light mode stat cards */
+  body:not(.dark-theme) .landing-neon .stat-card {
+    background: rgba(248, 250, 252, 0.95);
+    border: 1px solid rgba(148, 163, 184, 0.4);
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
   }
 
   .landing-neon .stat-value {
@@ -162,6 +190,18 @@
     transform: translateY(-1px);
   }
 
+  /* Light mode button primary - darker background with white text */
+  body:not(.dark-theme) .landing-neon .button--primary {
+    background: linear-gradient(135deg, #0891b2, #2563eb);
+    color: #ffffff;
+    border: 1px solid #0891b2;
+    box-shadow: 0 10px 24px rgba(8, 145, 178, 0.3);
+  }
+
+  body:not(.dark-theme) .landing-neon .button--primary:hover {
+    box-shadow: 0 14px 30px rgba(8, 145, 178, 0.4);
+  }
+
   .landing-neon .button--outline {
     border: 2px solid rgba(167, 139, 250, 0.8);
     color: var(--landing-heading);
@@ -171,6 +211,42 @@
   .landing-neon .button--outline:hover {
     background: linear-gradient(135deg, rgba(244, 114, 182, 0.25), rgba(167, 139, 250, 0.2));
     border-color: rgba(244, 114, 182, 0.7);
+  }
+
+  /* Light mode button outline - dark background with white text */
+  body:not(.dark-theme) .landing-neon .button--outline {
+    border: 2px solid #1e293b;
+    color: #ffffff;
+    background: #1e293b;
+  }
+
+  body:not(.dark-theme) .landing-neon .button--outline:hover {
+    background: #334155;
+    border-color: #334155;
+  }
+
+  /* Button secondary style */
+  .landing-neon .button--secondary {
+    background: transparent;
+    color: var(--landing-heading);
+    border: 2px solid var(--landing-accent);
+  }
+
+  .landing-neon .button--secondary:hover {
+    background: var(--landing-accent);
+    color: #0b1020;
+  }
+
+  /* Light mode button secondary */
+  body:not(.dark-theme) .landing-neon .button--secondary {
+    background: transparent;
+    color: #0891b2;
+    border: 2px solid #0891b2;
+  }
+
+  body:not(.dark-theme) .landing-neon .button--secondary:hover {
+    background: #0891b2;
+    color: #ffffff;
   }
 
   .landing-neon .about-card,

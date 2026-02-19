@@ -4,7 +4,7 @@ from django.contrib import messages
 from django.views.decorators.http import require_POST
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from django_ratelimit.decorators import ratelimit
+from core.ratelimit import ratelimit
 from django.db import transaction
 from django.conf import settings
 from decimal import Decimal
@@ -19,6 +19,17 @@ from .payment_method_forms import SavedPaymentMethodForm, DeletePaymentMethodFor
 from wallet.payment_debug import payment_debug_enabled, mask_secret
 
 logger = logging.getLogger(__name__)
+
+
+def _get_rate_limit_key(request):
+    """
+    Get rate limit key: use user ID if authenticated, otherwise use IP.
+    This ensures rate limiting works correctly even when @ratelimit is outermost.
+    Returns just the identifier (user ID or IP) - django-ratelimit adds its own prefix.
+    """
+    if hasattr(request, 'user') and request.user.is_authenticated:
+        return str(request.user.id)
+    return request.META.get('REMOTE_ADDR', 'unknown')
 
 
 def _build_public_url(request, path_or_url: str) -> str:
@@ -52,7 +63,7 @@ def wallet_view(request):
         return render(request, 'wallet/wallet.html', {'wallet': wallet, 'transactions': []})
 
 
-@ratelimit(key='user', rate='10/m', block=True)
+@ratelimit(key=_get_rate_limit_key, rate='10/m', method='POST', block=True)
 @login_required
 @require_POST
 @transaction.atomic
@@ -120,7 +131,7 @@ def deposit_view(request):
     return render(request, 'wallet/deposit.html', {'form': form, 'wallet': wallet})
 
 
-@ratelimit(key='user', rate='5/m', block=True)
+@ratelimit(key=_get_rate_limit_key, rate='5/m', method='POST', block=True)
 @login_required
 @require_POST
 @transaction.atomic
@@ -211,8 +222,8 @@ def payment_methods_list(request):
     })
 
 
+@ratelimit(key=_get_rate_limit_key, rate='10/h', method='POST', block=True)
 @login_required
-@ratelimit(key='user', rate='10/h', method='POST', block=True)
 def payment_method_create(request):
     """Add a new payment method"""
     if request.method == 'POST':
@@ -243,8 +254,8 @@ def payment_method_create(request):
     })
 
 
+@ratelimit(key=_get_rate_limit_key, rate='10/h', method='POST', block=True)
 @login_required
-@ratelimit(key='user', rate='10/h', method='POST', block=True)
 def payment_method_edit(request, payment_method_id):
     """Edit an existing payment method"""
     payment_method = get_object_or_404(
@@ -270,8 +281,8 @@ def payment_method_edit(request, payment_method_id):
     })
 
 
+@ratelimit(key=_get_rate_limit_key, rate='10/h', method='POST', block=True)
 @login_required
-@ratelimit(key='user', rate='10/h', method='POST', block=True)
 def payment_method_delete(request, payment_method_id):
     """Delete a payment method"""
     payment_method = get_object_or_404(
@@ -310,8 +321,8 @@ def payment_method_delete(request, payment_method_id):
     })
 
 
+@ratelimit(key=_get_rate_limit_key, rate='10/h', method='POST', block=True)
 @login_required
-@ratelimit(key='user', rate='10/h', method='POST', block=True)
 def payment_method_set_default(request, payment_method_id):
     """Set a payment method as default"""
     payment_method = get_object_or_404(

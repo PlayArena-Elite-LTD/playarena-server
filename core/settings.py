@@ -44,10 +44,11 @@ if _dotenv_path.exists():
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-k=zcyj&f3bu3yfofrlw=w7nf-aarhrl1vxj^dsuofxh+ko0d5d'
+# Generate a new secret key for production: python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-k=zcyj&f3bu3yfofrlw=w7nf-aarhrl1vxj^dsuofxh+ko0d5d')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-# Use environment variable for production, default to True for development
+# Use environment variable for production, default to True for local development
 DEBUG = os.environ.get('DEBUG', 'True').lower() == 'true'
 
 def _split_csv_env(name: str, default: list[str]) -> list[str]:
@@ -78,13 +79,27 @@ _default_csrf_trusted = [
 CSRF_TRUSTED_ORIGINS = _split_csv_env("DJANGO_CSRF_TRUSTED_ORIGINS", _default_csrf_trusted)
 
 # Security headers for production
+# In production (DEBUG=False), enforce HTTPS and secure cookies
 if not DEBUG:
-    SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'False').lower() == 'true'
+    SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'True').lower() == 'true'
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = 'DENY'
+    # HSTS only in production
+    SECURE_HSTS_SECONDS = 31536000  # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+else:
+    # Development: allow HTTP, disable all HTTPS enforcement
+    SECURE_SSL_REDIRECT = False
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SECURE = False
+    # Disable HSTS in development to prevent browser from forcing HTTPS
+    SECURE_HSTS_SECONDS = 0
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+    SECURE_HSTS_PRELOAD = False
 
 # Application definition
 
@@ -144,12 +159,58 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+# Support both PostgreSQL (production) and SQLite (development)
+_db_engine = os.environ.get('DB_ENGINE', 'django.db.backends.sqlite3')
+
+if _db_engine == 'django.db.backends.postgresql':
+    # PostgreSQL configuration (production)
+    _db_name = os.environ.get('DB_NAME', '')
+    _db_user = os.environ.get('DB_USER', '')
+    _db_password = os.environ.get('DB_PASSWORD', '')
+    _db_host = os.environ.get('DB_HOST', 'localhost')
+    _db_port = os.environ.get('DB_PORT', '5432')
+    
+    # Validate required PostgreSQL settings
+    if not _db_name or not _db_user:
+        raise ValueError(
+            "PostgreSQL requires DB_NAME and DB_USER environment variables. "
+            "Please set them in your environment or .env file."
+        )
+    
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': _db_name,
+            'USER': _db_user,
+            'PASSWORD': _db_password,
+            'HOST': _db_host,
+            'PORT': _db_port,
+            'OPTIONS': {
+                'connect_timeout': 10,
+                # Connection pooling settings
+                'options': '-c statement_timeout=30000',  # 30 seconds
+            },
+            # Connection pooling for better performance
+            'CONN_MAX_AGE': 600,  # Keep connections alive for 10 minutes
+            # Atomic requests for better transaction handling
+            'ATOMIC_REQUESTS': True,
+        }
     }
-}
+    
+    # Enable connection health checks
+    if not DEBUG:
+        DATABASES['default']['OPTIONS']['options'] = (
+            DATABASES['default']['OPTIONS'].get('options', '') + 
+            ' -c log_statement=none -c log_duration=off'
+        )
+else:
+    # SQLite configuration (development)
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 # Cache configuration with robust fallback system
 def get_cache_config():
@@ -309,13 +370,13 @@ LOGOUT_REDIRECT_URL = 'login'
 
 # Email settings
 #EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend" 
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = "smtp.gmail.com"
-EMAIL_PORT = "587"  # It's recommended to keep this as a string or int depending on how your email backend handles it
-EMAIL_HOST_USER = "lucadev1435@gmail.com"
-EMAIL_HOST_PASSWORD = "yrvx rrvl ndvc hmps"
-EMAIL_USE_TLS = True
-EMAIL_USE_SSL = False
+EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')
+EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = os.environ.get('EMAIL_PORT', '587')
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True').lower() == 'true'
+EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', 'False').lower() == 'true'
 
 # Required for HTML emails in password reset
 PASSWORD_RESET_TIMEOUT = 86400  # 24 hours in seconds
@@ -347,13 +408,11 @@ CORS_ALLOWED_HEADERS = [
     "x-requested-with",
 ]
 
-# Security headers
+# Security headers (XSS and content type protection always enabled)
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
-SECURE_HSTS_SECONDS = 31536000  # 1 year
-SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-SECURE_HSTS_PRELOAD = True
 X_FRAME_OPTIONS = 'DENY'
+# Note: HSTS settings are now handled conditionally based on DEBUG above
 
 # Content Security Policy
 CSP_DEFAULT_SRC = ("'self'",)
