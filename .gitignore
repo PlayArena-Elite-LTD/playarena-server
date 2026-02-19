@@ -87,3 +87,8 @@ security.log
 *.key
 *.crt
 *.cert
+
+# Development files archive (not needed for deployment)
+# Note: dev_files/ folder is kept in repo for reference but not needed in production
+dev_files/cache/
+dev_files/*.log
