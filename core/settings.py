@@ -12,6 +12,8 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 import os
+import sys
+from urllib.parse import urlparse, unquote
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -43,13 +45,23 @@ if _dotenv_path.exists():
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-# Generate a new secret key for production: python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-k=zcyj&f3bu3yfofrlw=w7nf-aarhrl1vxj^dsuofxh+ko0d5d')
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in ("1", "true", "yes", "on")
+
 
 # SECURITY WARNING: don't run with debug turned on in production!
-# Use environment variable for production, default to True for local development
-DEBUG = os.environ.get('DEBUG', 'True').lower() == 'true'
+DEBUG = _env_bool('DEBUG', True)
+
+# SECURITY WARNING: keep the secret key used in production secret!
+# Generate a new secret key for production:
+# python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+_default_dev_secret = 'django-insecure-k=zcyj&f3bu3yfofrlw=w7nf-aarhrl1vxj^dsuofxh+ko0d5d'
+SECRET_KEY = os.environ.get('SECRET_KEY', _default_dev_secret)
+if not DEBUG and (SECRET_KEY == _default_dev_secret or not str(SECRET_KEY).strip()):
+    raise ValueError("SECRET_KEY must be set when DEBUG=False")
 
 def _split_csv_env(name: str, default: list[str]) -> list[str]:
     raw = os.environ.get(name)
@@ -68,6 +80,10 @@ if DEBUG and os.environ.get("DJANGO_ALLOWED_HOSTS") is None:
     ALLOWED_HOSTS = ["*"]
 else:
     ALLOWED_HOSTS = _split_csv_env("DJANGO_ALLOWED_HOSTS", _default_allowed_hosts)
+
+_render_hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
+if _render_hostname and _render_hostname not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(_render_hostname)
 
 _default_csrf_trusted = [
     "https://lucadev.pythonanywhere.com",
@@ -91,6 +107,7 @@ if not DEBUG:
     SECURE_HSTS_SECONDS = 31536000  # 1 year
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 else:
     # Development: allow HTTP, disable all HTTPS enforcement
     SECURE_SSL_REDIRECT = False
@@ -101,6 +118,12 @@ else:
     SECURE_HSTS_INCLUDE_SUBDOMAINS = False
     SECURE_HSTS_PRELOAD = False
 
+# Test runs use the Django test client over HTTP. Force-disable HTTPS redirects there.
+if 'test' in sys.argv:
+    SECURE_SSL_REDIRECT = False
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SECURE = False
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -110,6 +133,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'corsheaders',
     'django_ratelimit',  # Rate limiting package
     'accounts',
     'wallet',
@@ -117,6 +141,7 @@ INSTALLED_APPS = [
     'alert',
     'messenger',
     'panel',
+    'audit',
 ]
 
 AUTH_USER_MODEL = 'accounts.CustomUser'
@@ -124,6 +149,7 @@ AUTH_USER_MODEL = 'accounts.CustomUser'
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -159,58 +185,86 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-# Support both PostgreSQL (production) and SQLite (development)
-_db_engine = os.environ.get('DB_ENGINE', 'django.db.backends.sqlite3')
+# Support Render DATABASE_URL first, then explicit PostgreSQL env vars, then SQLite.
+_database_url = os.environ.get('DATABASE_URL', '').strip()
+if _database_url:
+    parsed = urlparse(_database_url)
+    engine = 'django.db.backends.postgresql' if parsed.scheme.startswith('postgres') else 'django.db.backends.sqlite3'
+    if engine == 'django.db.backends.postgresql':
+        DATABASES = {
+            'default': {
+                'ENGINE': engine,
+                'NAME': unquote((parsed.path or '').lstrip('/')),
+                'USER': unquote(parsed.username or ''),
+                'PASSWORD': unquote(parsed.password or ''),
+                'HOST': parsed.hostname or '',
+                'PORT': str(parsed.port or '5432'),
+                'CONN_MAX_AGE': 600,
+                'ATOMIC_REQUESTS': True,
+                'OPTIONS': {
+                    'connect_timeout': 10,
+                },
+            }
+        }
+    else:
+        DATABASES = {
+            'default': {
+                'ENGINE': 'django.db.backends.sqlite3',
+                'NAME': BASE_DIR / 'db.sqlite3',
+            }
+        }
+else:
+    _db_engine = os.environ.get('DB_ENGINE', 'django.db.backends.sqlite3')
 
-if _db_engine == 'django.db.backends.postgresql':
+    if _db_engine == 'django.db.backends.postgresql':
     # PostgreSQL configuration (production)
-    _db_name = os.environ.get('DB_NAME', '')
-    _db_user = os.environ.get('DB_USER', '')
-    _db_password = os.environ.get('DB_PASSWORD', '')
-    _db_host = os.environ.get('DB_HOST', 'localhost')
-    _db_port = os.environ.get('DB_PORT', '5432')
+        _db_name = os.environ.get('DB_NAME', '')
+        _db_user = os.environ.get('DB_USER', '')
+        _db_password = os.environ.get('DB_PASSWORD', '')
+        _db_host = os.environ.get('DB_HOST', 'localhost')
+        _db_port = os.environ.get('DB_PORT', '5432')
     
     # Validate required PostgreSQL settings
-    if not _db_name or not _db_user:
-        raise ValueError(
-            "PostgreSQL requires DB_NAME and DB_USER environment variables. "
-            "Please set them in your environment or .env file."
-        )
+        if not _db_name or not _db_user:
+            raise ValueError(
+                "PostgreSQL requires DB_NAME and DB_USER environment variables. "
+                "Please set them in your environment or .env file."
+            )
     
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': _db_name,
-            'USER': _db_user,
-            'PASSWORD': _db_password,
-            'HOST': _db_host,
-            'PORT': _db_port,
-            'OPTIONS': {
-                'connect_timeout': 10,
-                # Connection pooling settings
-                'options': '-c statement_timeout=30000',  # 30 seconds
-            },
-            # Connection pooling for better performance
-            'CONN_MAX_AGE': 600,  # Keep connections alive for 10 minutes
-            # Atomic requests for better transaction handling
-            'ATOMIC_REQUESTS': True,
+        DATABASES = {
+            'default': {
+                'ENGINE': 'django.db.backends.postgresql',
+                'NAME': _db_name,
+                'USER': _db_user,
+                'PASSWORD': _db_password,
+                'HOST': _db_host,
+                'PORT': _db_port,
+                'OPTIONS': {
+                    'connect_timeout': 10,
+                    # Connection pooling settings
+                    'options': '-c statement_timeout=30000',  # 30 seconds
+                },
+                # Connection pooling for better performance
+                'CONN_MAX_AGE': 600,  # Keep connections alive for 10 minutes
+                # Atomic requests for better transaction handling
+                'ATOMIC_REQUESTS': True,
+            }
         }
-    }
     
     # Enable connection health checks
-    if not DEBUG:
-        DATABASES['default']['OPTIONS']['options'] = (
-            DATABASES['default']['OPTIONS'].get('options', '') + 
-            ' -c log_statement=none -c log_duration=off'
-        )
-else:
+        if not DEBUG:
+            DATABASES['default']['OPTIONS']['options'] = (
+                DATABASES['default']['OPTIONS'].get('options', '') +
+                ' -c log_statement=none -c log_duration=off'
+            )
+    else:
     # SQLite configuration (development)
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
+        DATABASES = {
+            'default': {
+                'ENGINE': 'django.db.backends.sqlite3',
+                'NAME': BASE_DIR / 'db.sqlite3',
+            }
         }
-    }
 
 # Cache configuration with robust fallback system
 def get_cache_config():
@@ -331,6 +385,8 @@ STORAGES = {
 # This prevents missing static assets / 404s and `Missing staticfiles manifest entry` errors.
 if DEBUG:
     STORAGES["staticfiles"]["BACKEND"] = "django.contrib.staticfiles.storage.StaticFilesStorage"
+if 'test' in sys.argv:
+    STORAGES["staticfiles"]["BACKEND"] = "django.contrib.staticfiles.storage.StaticFilesStorage"
 
 # Media files (User-uploaded files)
 # https://docs.djangoproject.com/en/5.2/topics/files/
@@ -387,6 +443,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
     "https://lucadev.pythonanywhere.com",
 ]
+CORS_ALLOWED_ORIGINS = _split_csv_env("DJANGO_CORS_ALLOWED_ORIGINS", CORS_ALLOWED_ORIGINS)
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_METHODS = [
     "GET",
@@ -427,8 +484,17 @@ CSP_FONT_SRC = ("'self'",)
 WALLET_AUTO_PROCESS_WITHDRAWALS = True
 
 # Payment Gateway Settings
-# Test mode: Set to False in production
-PAYMENT_TEST_MODE = True
+# Test mode: keep true for local/mock testing, set false for real provider calls.
+PAYMENT_GATEWAY_TEST_MODE = _env_bool('PAYMENT_GATEWAY_TEST_MODE', _env_bool('PAYMENT_TEST_MODE', True))
+PAYMENT_TEST_MODE = PAYMENT_GATEWAY_TEST_MODE
+
+# Bank payout integration mode:
+# - mock: no external bank call (safe local/default)
+# - live: call BANK_PAYOUT_API_URL endpoint
+BANK_PAYOUT_MODE = os.environ.get('BANK_PAYOUT_MODE', 'mock').strip().lower()
+BANK_PAYOUT_API_URL = os.environ.get('BANK_PAYOUT_API_URL', '').strip()
+BANK_PAYOUT_API_KEY = os.environ.get('BANK_PAYOUT_API_KEY', '').strip()
+BANK_PAYOUT_TIMEOUT_SECONDS = int(os.environ.get('BANK_PAYOUT_TIMEOUT_SECONDS', '30'))
 
 # Admin email alerts (used by logging handlers)
 ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL')

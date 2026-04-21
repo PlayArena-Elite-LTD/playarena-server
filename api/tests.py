@@ -11,6 +11,8 @@ from messenger.models import Message, ReadMessage
 from panel.models import Dispute
 from wallet.models import Wallet, Transaction
 
+User = get_user_model()
+
 
 class MatchApiTests(APITestCase):
     def setUp(self):

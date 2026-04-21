@@ -9,6 +9,7 @@ from core import admin as core_admin
 urlpatterns = [
     path('favicon.ico', RedirectView.as_view(url='/static/favicon.svg', permanent=False)),
     path('admin/', admin.site.urls),
+    path('api/', include('api.urls')),
     path('accounts/', include('accounts.urls')),
     path('accounts/', include('django.contrib.auth.urls')),
     path('matches/', include('matches.urls')),

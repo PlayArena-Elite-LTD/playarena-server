@@ -81,6 +81,10 @@ class PaymentManager:
         
         # General settings
         self.test_mode = getattr(settings, 'PAYMENT_GATEWAY_TEST_MODE', True)
+        self.bank_payout_mode = str(getattr(settings, 'BANK_PAYOUT_MODE', 'mock')).strip().lower()
+        self.bank_payout_api_url = str(getattr(settings, 'BANK_PAYOUT_API_URL', '')).strip()
+        self.bank_payout_api_key = str(getattr(settings, 'BANK_PAYOUT_API_KEY', '')).strip()
+        self.bank_payout_timeout_seconds = int(getattr(settings, 'BANK_PAYOUT_TIMEOUT_SECONDS', 30))
 
     def _refresh_pesapal_config(self) -> None:
         """
@@ -199,28 +203,114 @@ class PaymentManager:
     def _process_bank_transfer(self, withdrawal) -> Dict[str, Any]:
         """
         Process bank transfer withdrawal.
-        
-        For now, this is a placeholder that simulates processing.
-        In production, this would integrate with bank APIs or manual processing workflow.
+
+        Modes:
+        - mock (default): no external call, useful for local and staging tests
+        - live: POST payout request to BANK_PAYOUT_API_URL
         """
         logger.info(f'Processing bank transfer for withdrawal {withdrawal.id}')
-        
-        # TODO: Integrate with actual bank transfer API when available
-        # For now, simulate processing (manual approval required)
-        
+
         transaction_id = f"BANK_{withdrawal.id}_{int(timezone.now().timestamp())}"
-        
-        return {
-            'success': True,
-            'transaction_id': transaction_id,
-            'gateway_response': {
-                'status': 'pending',
-                'message': 'Bank transfer initiated. Processing may take 1-3 business days.',
+        payout_mode = self.bank_payout_mode or 'mock'
+
+        # Safe default for local development and mock testing.
+        if payout_mode != 'live':
+            return {
+                'success': True,
                 'transaction_id': transaction_id,
-                'gateway': 'bank_transfer',
-                'processed_at': timezone.now().isoformat()
-            },
-            'failure_reason': None
+                'gateway_response': {
+                    'status': 'pending',
+                    'message': 'Bank transfer initiated in mock mode.',
+                    'transaction_id': transaction_id,
+                    'gateway': 'bank_transfer',
+                    'mode': 'mock',
+                    'processed_at': timezone.now().isoformat()
+                },
+                'failure_reason': None
+            }
+
+        if not self.bank_payout_api_url:
+            return {
+                'success': False,
+                'transaction_id': None,
+                'gateway_response': {'status': 'error', 'message': 'BANK_PAYOUT_API_URL is not configured'},
+                'failure_reason': 'Live bank payout mode requires BANK_PAYOUT_API_URL'
+            }
+
+        payload = self._build_bank_payout_payload(withdrawal, transaction_id)
+        headers = {'Content-Type': 'application/json'}
+        if self.bank_payout_api_key:
+            headers['Authorization'] = f'Bearer {self.bank_payout_api_key}'
+
+        try:
+            response = requests.post(
+                self.bank_payout_api_url,
+                json=payload,
+                headers=headers,
+                timeout=self.bank_payout_timeout_seconds,
+            )
+
+            try:
+                gateway_data = response.json()
+            except Exception:
+                gateway_data = {'raw_response': response.text}
+
+            if 200 <= response.status_code < 300:
+                gateway_status = str(gateway_data.get('status', '')).lower()
+                remote_transaction_id = (
+                    gateway_data.get('transaction_id')
+                    or gateway_data.get('id')
+                    or gateway_data.get('reference')
+                    or transaction_id
+                )
+                is_success = gateway_status in ('success', 'queued', 'pending', '')
+                if is_success:
+                    return {
+                        'success': True,
+                        'transaction_id': str(remote_transaction_id),
+                        'gateway_response': {
+                            **gateway_data,
+                            'gateway': 'bank_transfer',
+                            'mode': 'live',
+                            'http_status': response.status_code,
+                        },
+                        'failure_reason': None
+                    }
+
+            error_message = (
+                gateway_data.get('message')
+                if isinstance(gateway_data, dict)
+                else None
+            ) or f"Bank payout API returned HTTP {response.status_code}"
+            return {
+                'success': False,
+                'transaction_id': None,
+                'gateway_response': {
+                    **(gateway_data if isinstance(gateway_data, dict) else {'response': gateway_data}),
+                    'gateway': 'bank_transfer',
+                    'mode': 'live',
+                    'http_status': response.status_code,
+                },
+                'failure_reason': error_message
+            }
+        except requests.RequestException as e:
+            logger.error(f'Bank payout API request failed for withdrawal {withdrawal.id}: {str(e)}', exc_info=True)
+            return {
+                'success': False,
+                'transaction_id': None,
+                'gateway_response': {'status': 'error', 'error': str(e), 'gateway': 'bank_transfer', 'mode': 'live'},
+                'failure_reason': f'Bank payout API error: {str(e)}'
+            }
+
+    def _build_bank_payout_payload(self, withdrawal, reference: str) -> Dict[str, Any]:
+        return {
+            'reference': reference,
+            'withdrawal_id': withdrawal.id,
+            'user_id': withdrawal.user_id,
+            'username': getattr(withdrawal.user, 'username', ''),
+            'amount': str(withdrawal.amount),
+            'currency': getattr(settings, 'PESAPAL_CURRENCY', 'KES'),
+            'account_details': withdrawal.account_details,
         }
     
     def _process_mobile_money(self, withdrawal) -> Dict[str, Any]:
