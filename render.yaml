@@ -1,6 +1,6 @@
 databases:
   - name: playarena-db
-    databaseName: playyarena
+    databaseName: playarena
     user: playarena
     plan: free
 
