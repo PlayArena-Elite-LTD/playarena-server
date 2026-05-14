@@ -1,12 +1,12 @@
 databases:
-  - name: playyarena-db
-    databaseName: playyarena
-    user: playyarena
+  - name: playarena-db
+    databaseName: playarena
+    user: playarena
     plan: free
 
 services:
   - type: web
-    name: playyarena
+    name: playarena
     env: python
     plan: free
     autoDeploy: true
@@ -19,7 +19,7 @@ services:
         value: "false"
       - key: DATABASE_URL
         fromDatabase:
-          name: playyarena-db
+          name: playarena-db
           property: connectionString
       - key: DJANGO_ALLOWED_HOSTS
         sync: false
