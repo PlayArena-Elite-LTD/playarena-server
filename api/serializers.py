@@ -2,7 +2,9 @@ from rest_framework import serializers
 from decimal import Decimal
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError
 from accounts.models import CustomUser, Profile
+from accounts.forms import signup_integrity_error_messages
 from matches.models import Match, MatchResult
 from wallet.models import Wallet, Transaction, Deposit, Withdrawal
 from panel.models import Dispute
@@ -98,9 +100,15 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         """Create user with hashed password"""
         validated_data.pop('password_confirm')
         password = validated_data.pop('password')
-        user = CustomUser.objects.create(**validated_data)
-        user.set_password(password)
-        user.save()
+        try:
+            user = CustomUser.objects.create(**validated_data)
+            user.set_password(password)
+            user.save()
+        except IntegrityError as exc:
+            field_errors = signup_integrity_error_messages(exc)
+            if field_errors:
+                raise serializers.ValidationError(field_errors) from exc
+            raise
         return user
 
 

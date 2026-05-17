@@ -6,6 +6,7 @@ from datetime import datetime
 from django.contrib.auth.views import LoginView
 from django.contrib.auth.forms import AuthenticationForm
 from django.core import signing
+from django.db import IntegrityError
 from django.core.mail import send_mail, EmailMultiAlternatives
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse, reverse_lazy
@@ -16,7 +17,13 @@ from core.ratelimit import ratelimit
 from django.http import HttpResponse, JsonResponse
 
 from .models import Profile
-from .forms import PreSignupForm, CustomUserCreationForm, UserForm, ProfileForm
+from .forms import (
+    PreSignupForm,
+    CustomUserCreationForm,
+    UserForm,
+    ProfileForm,
+    apply_signup_integrity_errors_to_form,
+)
 from .login_form import EmailOrUsernameAuthenticationForm
 
 User = get_user_model()
@@ -76,19 +83,32 @@ def signup(request):
         return redirect('pre_signup')
     
     if request.method == 'POST':
-        form = CustomUserCreationForm(request.POST)
+        form = CustomUserCreationForm(
+            request.POST,
+            signup_email=email,
+            initial={'email': email},
+        )
         if form.is_valid():
             user = form.save(commit=False)
             user.email = email
-            user.save()
-            
-            # Create profile
-            Profile.objects.create(user=user)
-            
+            try:
+                user.save()
+            except IntegrityError as exc:
+                if apply_signup_integrity_errors_to_form(form, exc):
+                    return render(
+                        request,
+                        'registration/signup.html',
+                        {'form': form, 'email': email},
+                    )
+                raise
+
             messages.success(request, 'Account created successfully! You can now log in.')
             return redirect('login')
     else:
-        form = CustomUserCreationForm(initial={'email': email})
+        form = CustomUserCreationForm(
+            initial={'email': email},
+            signup_email=email,
+        )
     
     return render(request, 'registration/signup.html', {'form': form, 'email': email})
 
