@@ -68,6 +68,21 @@
             <p class="form-help">{{ form.payment_method.help_text }}</p>
           {% endif %}
         </div>
+
+        <div class="form-group" id="mobile-number-group">
+          <label for="{{ form.mobile_number.id_for_label }}" class="form-label">{{ form.mobile_number.label }}</label>
+          {{ form.mobile_number }}
+          {% if form.mobile_number.errors %}
+            <div class="form-field-errors">
+              {% for error in form.mobile_number.errors %}
+                <p class="form-field-error">{{ error }}</p>
+              {% endfor %}
+            </div>
+          {% endif %}
+          {% if form.mobile_number.help_text %}
+            <p class="form-help">{{ form.mobile_number.help_text }}</p>
+          {% endif %}
+        </div>
         
         <div class="form-actions">
           <a href="{% url 'wallet' %}" class="form-button-secondary">Cancel</a>
@@ -83,6 +98,18 @@
 {% block additional_scripts %}
 {% load static %}
 <script src="{% static 'scripts/wallet.js' %}"></script>
+<script>
+(function () {
+  const methodSelect = document.getElementById('{{ form.payment_method.id_for_label }}');
+  const mobileGroup = document.getElementById('mobile-number-group');
+  if (!methodSelect || !mobileGroup) return;
+  function toggleMobile() {
+    mobileGroup.style.display = methodSelect.value === 'LIPILA_MOMO' ? '' : 'none';
+  }
+  methodSelect.addEventListener('change', toggleMobile);
+  toggleMobile();
+})();
+</script>
 {% endblock %}
 
 

@@ -496,6 +496,14 @@ BANK_PAYOUT_API_URL = os.environ.get('BANK_PAYOUT_API_URL', '').strip()
 BANK_PAYOUT_API_KEY = os.environ.get('BANK_PAYOUT_API_KEY', '').strip()
 BANK_PAYOUT_TIMEOUT_SECONDS = int(os.environ.get('BANK_PAYOUT_TIMEOUT_SECONDS', '30'))
 
+# Lipila payment gateway (Zambia — card & mobile money)
+# Sandbox: https://api.lipila.dev — get test key (lsk_...) from Lipila dashboard
+LIPILA_API_KEY = os.environ.get('LIPILA_API_KEY', '').strip()
+LIPILA_BASE_URL = os.environ.get('LIPILA_BASE_URL', 'https://api.lipila.dev').strip()
+LIPILA_CURRENCY = os.environ.get('LIPILA_CURRENCY', 'ZMW').strip()
+LIPILA_MOCK_MODE = _env_bool('LIPILA_MOCK_MODE', PAYMENT_GATEWAY_TEST_MODE)
+PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '').strip()
+
 # Admin email alerts (used by logging handlers)
 ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL')
 ADMINS = [('Admin', ADMIN_EMAIL)] if ADMIN_EMAIL else []

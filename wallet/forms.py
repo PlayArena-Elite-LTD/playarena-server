@@ -25,47 +25,52 @@ class DepositForm(forms.Form):
         choices=Deposit.PAYMENT_METHOD_CHOICES,
         widget=forms.Select(attrs={'class': 'form-control'}),
         label='Payment Method',
-        initial='PESAPAL'
+        initial='LIPILA'
+    )
+
+    mobile_number = forms.CharField(
+        max_length=20,
+        required=False,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': '26097xxxxxxx',
+        }),
+        label='Mobile Money Number',
+        help_text='Required for Lipila Mobile Money (Zambian format, e.g. 26097xxxxxxx)',
     )
     
     def __init__(self, *args, **kwargs):
         self.user = kwargs.pop('user', None)
         super().__init__(*args, **kwargs)
 
-        # Show only active deposit methods for now (Pesapal + optional manual bank transfer).
         choices = []
-        pesapal_mock = bool(getattr(settings, "PESAPAL_MOCK_MODE", False))
-        pesapal_ready = bool(
-            (getattr(settings, "PESAPAL_CONSUMER_KEY", "") or "").strip()
-            and (getattr(settings, "PESAPAL_CONSUMER_SECRET", "") or "").strip()
-        )
-        if pesapal_ready or pesapal_mock:
-            choices.append(("PESAPAL", "Pesapal"))
-        choices.append(("BANK_TRANSFER", "Bank Transfer"))
-        self.fields["payment_method"].choices = choices
+        lipila_mock = bool(getattr(settings, 'LIPILA_MOCK_MODE', False))
+        lipila_ready = bool((getattr(settings, 'LIPILA_API_KEY', '') or '').strip())
+        if lipila_ready or lipila_mock:
+            choices.append(('LIPILA', 'Lipila (Card)'))
+            choices.append(('LIPILA_MOMO', 'Lipila (Mobile Money)'))
+        choices.append(('BANK_TRANSFER', 'Bank Transfer'))
+        self.fields['payment_method'].choices = choices
 
-        if pesapal_mock:
-            self.fields["payment_method"].help_text = (
-                "Pesapal is running in MOCK mode (dev-only). Deposits will auto-complete without contacting Pesapal."
+        if lipila_mock:
+            self.fields['payment_method'].help_text = (
+                'Lipila is running in MOCK mode (dev-only). Deposits auto-complete on callback.'
             )
-            self.fields["payment_method"].initial = "PESAPAL"
-            return
+            self.fields['payment_method'].initial = 'LIPILA'
+        elif not lipila_ready:
+            self.fields['payment_method'].initial = 'BANK_TRANSFER'
+            self.fields['mobile_number'].widget = forms.HiddenInput()
 
-        if pesapal_ready and not (getattr(settings, "PESAPAL_IPN_ID", "") or "").strip():
-            public_base = (getattr(settings, "PUBLIC_BASE_URL", "") or "").strip()
-            extra = (
-                " Tip: set PUBLIC_BASE_URL to your ngrok/Cloudflare Tunnel URL so IPN auto-registration can work."
-                if public_base == ""
-                else ""
-            )
-            self.fields["payment_method"].help_text = (
-                "Pesapal needs an IPN notification_id (PESAPAL_IPN_ID). "
-                "If it's not set, deposits will fail until you register the IPN URL in Pesapal and set PESAPAL_IPN_ID."
-                + extra
-            )
+        if not lipila_ready and not lipila_mock:
+            self.fields['mobile_number'].widget = forms.HiddenInput()
 
-        if not pesapal_ready:
-            self.fields["payment_method"].initial = "BANK_TRANSFER"
+    def clean(self):
+        cleaned = super().clean()
+        method = cleaned.get('payment_method')
+        mobile = (cleaned.get('mobile_number') or '').strip()
+        if method == 'LIPILA_MOMO' and not mobile:
+            self.add_error('mobile_number', 'Mobile number is required for Lipila Mobile Money deposits.')
+        return cleaned
         
     def clean_amount(self):
         """Additional validation for deposit amount"""
@@ -218,24 +223,6 @@ class WithdrawalForm(forms.Form):
                     )
         
         return amount
-    
-    use_saved_method = forms.BooleanField(
-        required=False,
-        initial=False,
-        widget=forms.CheckboxInput(attrs={
-            'class': 'form-check-input'
-        }),
-        label='Use saved payment method'
-    )
-    
-    saved_payment_method = forms.ModelChoiceField(
-        queryset=SavedPaymentMethod.objects.none(),
-        required=False,
-        widget=forms.Select(attrs={
-            'class': 'form-control'
-        }),
-        label='Select Saved Payment Method'
-    )
     
     def __init__(self, *args, **kwargs):
         self.user = kwargs.pop('user', None)

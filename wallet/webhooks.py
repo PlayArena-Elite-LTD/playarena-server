@@ -24,7 +24,7 @@ from django.utils import timezone
 from django.contrib import messages
 
 from wallet.models import Deposit, Withdrawal, Transaction, Wallet
-from wallet.pesapal_service import get_pesapal_client, PesapalClient
+from wallet.lipila_service import get_lipila_client, LipilaClient
 from wallet.notifications import (
     notify_deposit_completed,
     notify_deposit_failed,
@@ -164,108 +164,103 @@ def _fail_deposit(deposit: Deposit, failed_via: str, reason: str, gateway_payloa
     return True
 
 
-@csrf_exempt
-@require_http_methods(["GET", "POST"])
-def pesapal_ipn(request):
-    """
-    Pesapal IPN endpoint.
+def _lipila_reference_id_from_request(request) -> str | None:
+    """Extract Lipila referenceId from query, form, or JSON body."""
+    reference_id = (
+        request.GET.get('referenceId')
+        or request.GET.get('reference_id')
+        or request.POST.get('referenceId')
+        or request.POST.get('reference_id')
+    )
+    if reference_id:
+        return str(reference_id).strip()
+    try:
+        body = json.loads(request.body.decode('utf-8') or '{}')
+        if isinstance(body, dict):
+            return str(
+                body.get('referenceId')
+                or body.get('reference_id')
+                or ''
+            ).strip() or None
+    except Exception:
+        pass
+    return None
 
-    Pesapal commonly hits this endpoint with query params that include an order tracking ID.
-    We then query Pesapal for the definitive transaction status and update our Deposit.
-    """
-    order_tracking_id = (
-        request.GET.get('OrderTrackingId')
-        or request.GET.get('orderTrackingId')
-        or request.GET.get('order_tracking_id')
-        or request.POST.get('OrderTrackingId')
-        or request.POST.get('orderTrackingId')
-        or request.POST.get('order_tracking_id')
+
+def _find_deposit_by_lipila_reference(reference_id: str):
+    return (
+        Deposit.objects.filter(payment_reference=str(reference_id)).first()
+        or Deposit.objects.filter(transaction_id=str(reference_id)).first()
     )
 
-    if not order_tracking_id:
-        return JsonResponse({'status': 'error', 'message': 'Missing OrderTrackingId'}, status=400)
 
-    deposit = Deposit.objects.filter(transaction_id=str(order_tracking_id)).first()
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+def lipila_callback(request):
+    """
+    Lipila async callback and user redirect after payment.
+
+    Always re-checks status with Lipila before crediting the wallet.
+    """
+    reference_id = _lipila_reference_id_from_request(request)
+    if not reference_id:
+        if request.method == 'GET':
+            from django.shortcuts import redirect
+            messages.info(request, 'Payment started. Waiting for confirmation...')
+            return redirect('wallet')
+        return JsonResponse({'status': 'error', 'message': 'Missing referenceId'}, status=400)
+
+    deposit = _find_deposit_by_lipila_reference(reference_id)
     if not deposit:
-        # Keep response 200 so Pesapal doesn't retry endlessly for unknown refs.
-        logger.warning(f'Pesapal IPN: deposit not found for tracking id {order_tracking_id}')
+        logger.warning(f'Lipila callback: deposit not found for reference {reference_id}')
+        if request.method == 'GET':
+            from django.shortcuts import redirect
+            messages.info(request, 'Payment received. If your wallet does not update shortly, contact support.')
+            return redirect('wallet')
         return JsonResponse({'status': 'ok', 'message': 'Deposit not found'}, status=200)
 
-    # Dev-only mock flow: treat tracking IDs with MOCK_ prefix as completed.
-    if str(order_tracking_id).startswith("MOCK_") and bool(getattr(settings, "PESAPAL_MOCK_MODE", False)):
-        _complete_deposit(deposit, completed_via='pesapal_ipn_mock', gateway_payload={'mock': True, 'order_tracking_id': order_tracking_id})
+    if str(reference_id).startswith('MOCK_') and bool(getattr(settings, 'LIPILA_MOCK_MODE', False)):
+        _complete_deposit(deposit, completed_via='lipila_callback_mock', gateway_payload={'mock': True, 'reference_id': reference_id})
+        if request.method == 'GET':
+            from django.shortcuts import redirect
+            messages.success(request, 'Deposit completed successfully (mock).')
+            return redirect('wallet')
         return JsonResponse({'status': 'ok'})
 
     try:
-        client = get_pesapal_client()
-        status_resp = client.get_transaction_status(str(order_tracking_id))
-        normalized, raw_desc = PesapalClient.interpret_status(status_resp)
+        client = get_lipila_client()
+        status_resp = client.check_collection_status(str(reference_id))
+        normalized, raw_desc = LipilaClient.interpret_status(status_resp)
 
         if normalized == 'COMPLETED':
-            _complete_deposit(deposit, completed_via='pesapal_ipn', gateway_payload=status_resp)
+            _complete_deposit(deposit, completed_via='lipila_callback', gateway_payload=status_resp)
+            if request.method == 'GET':
+                from django.shortcuts import redirect
+                messages.success(request, 'Deposit completed successfully.')
+                return redirect('wallet')
             return JsonResponse({'status': 'ok'})
 
         if normalized == 'FAILED':
-            _fail_deposit(deposit, failed_via='pesapal_ipn', reason=raw_desc or 'Payment failed', gateway_payload=status_resp)
+            _fail_deposit(deposit, failed_via='lipila_callback', reason=raw_desc or 'Payment failed', gateway_payload=status_resp)
+            if request.method == 'GET':
+                from django.shortcuts import redirect
+                messages.error(request, 'Deposit failed.')
+                return redirect('wallet')
             return JsonResponse({'status': 'ok'})
 
+        if request.method == 'GET':
+            from django.shortcuts import redirect
+            messages.info(request, 'Payment is processing. Your wallet will update once confirmed.')
+            return redirect('wallet')
         return JsonResponse({'status': 'ok', 'message': f'Payment {normalized}'})
 
     except Exception as e:
-        logger.error(f'Pesapal IPN error for {order_tracking_id}: {str(e)}', exc_info=True)
-        # Return 200 to prevent aggressive retries on transient problems; logs capture details.
-        return JsonResponse({'status': 'ok', 'message': 'Processed'})
-
-
-@require_http_methods(["GET"])
-def pesapal_callback(request):
-    """
-    User redirect/callback after payment on Pesapal side.
-
-    This is NOT trusted alone; we still query Pesapal for status, and IPN is the authoritative path.
-    """
-    order_tracking_id = (
-        request.GET.get('OrderTrackingId')
-        or request.GET.get('orderTrackingId')
-        or request.GET.get('order_tracking_id')
-    )
-    if not order_tracking_id:
-        messages.info(request, 'Payment started. Waiting for confirmation...')
-        from django.shortcuts import redirect
-        return redirect('wallet')
-
-    deposit = Deposit.objects.filter(transaction_id=str(order_tracking_id)).first()
-    if not deposit:
-        messages.info(request, 'Payment received. If your wallet does not update shortly, contact support.')
-        from django.shortcuts import redirect
-        return redirect('wallet')
-
-    # Dev-only mock flow: treat tracking IDs with MOCK_ prefix as completed.
-    if str(order_tracking_id).startswith("MOCK_") and bool(getattr(settings, "PESAPAL_MOCK_MODE", False)):
-        _complete_deposit(deposit, completed_via='pesapal_callback_mock', gateway_payload={'mock': True, 'order_tracking_id': order_tracking_id})
-        messages.success(request, 'Deposit completed successfully (mock).')
-        from django.shortcuts import redirect
-        return redirect('wallet')
-
-    try:
-        client = get_pesapal_client()
-        status_resp = client.get_transaction_status(str(order_tracking_id))
-        normalized, raw_desc = PesapalClient.interpret_status(status_resp)
-
-        if normalized == 'COMPLETED':
-            _complete_deposit(deposit, completed_via='pesapal_callback', gateway_payload=status_resp)
-            messages.success(request, 'Deposit completed successfully.')
-        elif normalized == 'FAILED':
-            _fail_deposit(deposit, failed_via='pesapal_callback', reason=raw_desc or 'Payment failed', gateway_payload=status_resp)
-            messages.error(request, 'Deposit failed.')
-        else:
+        logger.error(f'Lipila callback error for {reference_id}: {str(e)}', exc_info=True)
+        if request.method == 'GET':
+            from django.shortcuts import redirect
             messages.info(request, 'Payment is processing. Your wallet will update once confirmed.')
-
-    except Exception:
-        messages.info(request, 'Payment is processing. Your wallet will update once confirmed.')
-
-    from django.shortcuts import redirect
-    return redirect('wallet')
+            return redirect('wallet')
+        return JsonResponse({'status': 'ok', 'message': 'Processed'})
 
 
 @csrf_exempt

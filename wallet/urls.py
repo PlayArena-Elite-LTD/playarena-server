@@ -1,6 +1,6 @@
 from django.urls import path
 from . import views
-from .webhooks import paystack_webhook, flutterwave_webhook, pesapal_ipn, pesapal_callback
+from .webhooks import paystack_webhook, flutterwave_webhook, lipila_callback
 
 urlpatterns = [
     path('', views.wallet_view, name='wallet'),
@@ -16,6 +16,6 @@ urlpatterns = [
     # Webhook endpoints
     path('webhooks/paystack/', paystack_webhook, name='paystack_webhook'),
     path('webhooks/flutterwave/', flutterwave_webhook, name='flutterwave_webhook'),
-    path('webhooks/pesapal/', pesapal_ipn, name='pesapal_ipn'),
-    path('pesapal/callback/', pesapal_callback, name='pesapal_callback'),
+    path('webhooks/lipila/', lipila_callback, name='lipila_callback'),
+    path('lipila/callback/', lipila_callback, name='lipila_callback_redirect'),
 ]

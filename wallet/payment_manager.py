@@ -20,7 +20,7 @@ import ipaddress
 from django.conf import settings
 from django.utils import timezone
 
-from wallet.pesapal_service import get_pesapal_client, PesapalClient
+from wallet.lipila_service import get_lipila_client, LipilaClient
 from wallet.payment_debug import payment_debug_enabled, mask_secret
 
 logger = logging.getLogger(__name__)
@@ -57,28 +57,15 @@ class PaymentManager:
     Unified payment gateway manager for processing deposits and withdrawals.
     
     Supports multiple payment gateways:
-    - Pesapal (active)
-    - Paystack (kept for future)
-    - Flutterwave (kept for future)
+    - Lipila (active — card & mobile money)
     - Bank Transfer (manual processing)
-    - Mobile Money
+    - Mobile Money withdrawals (via Lipila disbursement when configured)
     """
     
     def __init__(self):
         """Initialize PaymentManager with gateway configurations"""
-        # Pesapal configuration
-        self._refresh_pesapal_config()
+        self._refresh_lipila_config()
 
-        # Paystack configuration
-        self.paystack_secret_key = getattr(settings, 'PAYSTACK_SECRET_KEY', None)
-        self.paystack_public_key = getattr(settings, 'PAYSTACK_PUBLIC_KEY', None)
-        self.paystack_base_url = getattr(settings, 'PAYSTACK_BASE_URL', 'https://api.paystack.co')
-        
-        # Flutterwave configuration
-        self.flutterwave_secret_key = getattr(settings, 'FLUTTERWAVE_SECRET_KEY', None)
-        self.flutterwave_public_key = getattr(settings, 'FLUTTERWAVE_PUBLIC_KEY', None)
-        self.flutterwave_base_url = getattr(settings, 'FLUTTERWAVE_BASE_URL', 'https://api.flutterwave.com/v3')
-        
         # General settings
         self.test_mode = getattr(settings, 'PAYMENT_GATEWAY_TEST_MODE', True)
         self.bank_payout_mode = str(getattr(settings, 'BANK_PAYOUT_MODE', 'mock')).strip().lower()
@@ -86,24 +73,15 @@ class PaymentManager:
         self.bank_payout_api_key = str(getattr(settings, 'BANK_PAYOUT_API_KEY', '')).strip()
         self.bank_payout_timeout_seconds = int(getattr(settings, 'BANK_PAYOUT_TIMEOUT_SECONDS', 30))
 
-    def _refresh_pesapal_config(self) -> None:
-        """
-        Refresh Pesapal configuration from Django settings.
-
-        This avoids stale configuration if env vars are loaded after the PaymentManager
-        singleton is created (common in local dev).
-        """
-        self.pesapal_consumer_key = (getattr(settings, 'PESAPAL_CONSUMER_KEY', '') or '').strip()
-        self.pesapal_consumer_secret = (getattr(settings, 'PESAPAL_CONSUMER_SECRET', '') or '').strip()
-        self.pesapal_ipn_id = (getattr(settings, 'PESAPAL_IPN_ID', '') or '').strip()
-        self.pesapal_currency = (getattr(settings, 'PESAPAL_CURRENCY', 'KES') or 'KES')
+    def _refresh_lipila_config(self) -> None:
+        """Refresh Lipila configuration from Django settings."""
+        self.lipila_api_key = (getattr(settings, 'LIPILA_API_KEY', '') or '').strip()
+        self.lipila_currency = (getattr(settings, 'LIPILA_CURRENCY', 'ZMW') or 'ZMW').strip()
         if payment_debug_enabled():
             logger.info(
-                "[PAYMENT_DEBUG] pesapal_config: key=%s secret=%s ipn_id=%s currency=%s",
-                mask_secret(self.pesapal_consumer_key),
-                mask_secret(self.pesapal_consumer_secret),
-                (self.pesapal_ipn_id or "(not set)"),
-                self.pesapal_currency,
+                "[PAYMENT_DEBUG] lipila_config: api_key=%s currency=%s",
+                mask_secret(self.lipila_api_key),
+                self.lipila_currency,
             )
     
     def initialize_deposit(
@@ -111,6 +89,7 @@ class PaymentManager:
         deposit,
         callback_url: Optional[str] = None,
         ipn_url: Optional[str] = None,
+        mobile_number: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Initialize a deposit payment through the appropriate payment gateway.
@@ -134,8 +113,13 @@ class PaymentManager:
         payment_method = deposit.payment_method
         
         try:
-            if payment_method == 'PESAPAL':
-                return self._initialize_pesapal_deposit(deposit, callback_url, ipn_url=ipn_url)
+            if payment_method in ('LIPILA', 'LIPILA_MOMO'):
+                return self._initialize_lipila_deposit(
+                    deposit,
+                    callback_url,
+                    ipn_url=ipn_url,
+                    mobile_number=mobile_number,
+                )
             elif payment_method == 'BANK_TRANSFER':
                 return self._initialize_bank_transfer_deposit(deposit, callback_url)
             else:
@@ -309,135 +293,142 @@ class PaymentManager:
             'user_id': withdrawal.user_id,
             'username': getattr(withdrawal.user, 'username', ''),
             'amount': str(withdrawal.amount),
-            'currency': getattr(settings, 'PESAPAL_CURRENCY', 'KES'),
+            'currency': getattr(settings, 'LIPILA_CURRENCY', 'ZMW'),
             'account_details': withdrawal.account_details,
         }
     
     def _process_mobile_money(self, withdrawal) -> Dict[str, Any]:
-        """
-        Process mobile money withdrawal.
+        """Process mobile money withdrawal via Lipila disbursement API."""
+        self._refresh_lipila_config()
 
-        Currently handled as manual processing in this project.
-        (Paystack/Flutterwave transfer integrations are kept for future rollout.)
-        """
-        transaction_id = f"MM_{withdrawal.id}_{int(timezone.now().timestamp())}"
-        return {
-            'success': True,
-            'transaction_id': transaction_id,
-            'gateway_response': {
-                'status': 'pending',
-                'message': 'Mobile money withdrawal queued for manual processing.',
+        if bool(getattr(settings, 'LIPILA_MOCK_MODE', False)):
+            transaction_id = f"MOCK_MM_{withdrawal.id}_{int(timezone.now().timestamp())}"
+            return {
+                'success': True,
                 'transaction_id': transaction_id,
-                'gateway': 'manual_mobile_money',
-                'processed_at': timezone.now().isoformat()
-            },
-            'failure_reason': None
-        }
+                'gateway_response': {
+                    'status': 'pending',
+                    'message': 'Mock Lipila mobile money disbursement.',
+                    'transaction_id': transaction_id,
+                    'gateway': 'lipila',
+                    'mode': 'mock',
+                },
+                'failure_reason': None,
+            }
 
-    def _initialize_pesapal_deposit(
+        if not self.lipila_api_key:
+            return {
+                'success': False,
+                'transaction_id': None,
+                'gateway_response': {'status': 'error', 'message': 'Lipila not configured'},
+                'failure_reason': 'LIPILA_API_KEY is not configured',
+            }
+
+        account_number = self._extract_phone_number(withdrawal.account_details)
+        if not account_number:
+            return {
+                'success': False,
+                'transaction_id': None,
+                'gateway_response': {'status': 'error', 'message': 'Invalid mobile number'},
+                'failure_reason': 'Account details must include a valid mobile money number (e.g. 26097xxxxxxx)',
+            }
+
+        reference_id = f'WDR_{withdrawal.id}_{int(timezone.now().timestamp())}'
+        try:
+            client = get_lipila_client()
+            resp = client.disburse_mobile_money(
+                reference_id=reference_id,
+                amount=float(withdrawal.amount),
+                account_number=account_number,
+                currency=self.lipila_currency,
+                narration=f'Withdrawal for {withdrawal.user.username}',
+            )
+            identifier = resp.get('identifier') or reference_id
+            status = str(resp.get('status', 'Pending'))
+            is_ok = status.lower() in ('pending', 'successful', 'success', '')
+            if is_ok:
+                return {
+                    'success': True,
+                    'transaction_id': str(identifier),
+                    'gateway_response': {**resp, 'gateway': 'lipila', 'reference_id': reference_id},
+                    'failure_reason': None,
+                }
+            return {
+                'success': False,
+                'transaction_id': None,
+                'gateway_response': resp,
+                'failure_reason': resp.get('message', 'Lipila disbursement failed'),
+            }
+        except requests.exceptions.RequestException as e:
+            logger.error(f'Lipila disbursement error for withdrawal {withdrawal.id}: {str(e)}', exc_info=True)
+            return {
+                'success': False,
+                'transaction_id': None,
+                'gateway_response': {'status': 'error', 'error': str(e)},
+                'failure_reason': f'Lipila API error: {str(e)}',
+            }
+
+    @staticmethod
+    def _extract_phone_number(account_details: str) -> Optional[str]:
+        import re
+        text = (account_details or '').strip()
+        if not text:
+            return None
+        match = re.search(r'(\+?260\d{9}|0\d{9})', text.replace(' ', ''))
+        if match:
+            digits = re.sub(r'\D', '', match.group(1))
+            if digits.startswith('0') and len(digits) == 10:
+                return '260' + digits[1:]
+            if digits.startswith('260') and len(digits) == 12:
+                return digits
+        digits_only = re.sub(r'\D', '', text)
+        if digits_only.startswith('260') and len(digits_only) == 12:
+            return digits_only
+        return None
+
+    def _initialize_lipila_deposit(
         self,
         deposit,
         callback_url: Optional[str],
         ipn_url: Optional[str] = None,
+        mobile_number: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Initialize a deposit via Pesapal.
-        """
-        # Ensure we always use current settings
-        self._refresh_pesapal_config()
+        """Initialize a deposit via Lipila (card redirect or mobile money prompt)."""
+        self._refresh_lipila_config()
+        callback_url = callback_url or (str(ipn_url).strip() if ipn_url else None)
+        use_mobile_money = deposit.payment_method == 'LIPILA_MOMO'
 
-        # Dev-only: allow mocking Pesapal (no external API calls).
-        # This is useful when credentials/IPN are not set up yet.
-        if bool(getattr(settings, "PESAPAL_MOCK_MODE", False)):
+        if bool(getattr(settings, 'LIPILA_MOCK_MODE', False)):
             if not callback_url:
                 return {
                     'success': False,
                     'authorization_url': None,
                     'payment_reference': None,
                     'gateway_response': {'status': 'error', 'message': 'Missing callback_url'},
-                    'failure_reason': 'callback_url is required for Pesapal'
+                    'failure_reason': 'callback_url is required for Lipila',
                 }
-
-            mock_tracking_id = f"MOCK_{deposit.id}_{int(timezone.now().timestamp())}"
-            joiner = "&" if "?" in str(callback_url) else "?"
-            redirect_url = f"{callback_url}{joiner}OrderTrackingId={mock_tracking_id}"
+            reference_id = f'MOCK_{deposit.id}_{int(timezone.now().timestamp())}'
+            joiner = '&' if '?' in str(callback_url) else '?'
+            redirect_url = f'{callback_url}{joiner}referenceId={reference_id}'
             return {
                 'success': True,
-                'authorization_url': redirect_url,
-                'payment_reference': mock_tracking_id,
+                'authorization_url': redirect_url if not use_mobile_money else None,
+                'payment_reference': reference_id,
                 'gateway_response': {
                     'status': 'mock',
-                    'message': 'Mock Pesapal mode enabled (deposit auto-completes on callback).',
-                    'redirect_url': redirect_url,
-                    'order_tracking_id': mock_tracking_id,
+                    'message': 'Mock Lipila mode enabled (deposit auto-completes on callback).',
+                    'reference_id': reference_id,
                 },
                 'failure_reason': None,
             }
 
-        if not self.pesapal_consumer_key or not self.pesapal_consumer_secret:
+        if not self.lipila_api_key:
             return {
                 'success': False,
                 'authorization_url': None,
                 'payment_reference': None,
-                'gateway_response': {'status': 'error', 'message': 'Pesapal not configured'},
-                'failure_reason': 'Pesapal consumer key/secret not configured'
-            }
-
-        pesapal_ipn_id = str(self.pesapal_ipn_id or '').strip()
-        ipn_url_str = (str(ipn_url).strip() if ipn_url else "")
-        if not pesapal_ipn_id and ipn_url_str:
-            # Convenience: attempt to auto-register IPN (requires a publicly reachable URL).
-            if _is_local_or_private_url(ipn_url_str):
-                if payment_debug_enabled():
-                    logger.info("[PAYMENT_DEBUG] skipping IPN auto-register (local/private url): ipn_url=%s", ipn_url_str)
-            else:
-                try:
-                    client: PesapalClient = get_pesapal_client()
-                    if payment_debug_enabled():
-                        logger.info("[PAYMENT_DEBUG] attempting IPN auto-register: ipn_url=%s", ipn_url_str)
-                    reg = client.register_ipn(ipn_url=ipn_url_str, notification_type='GET')
-                    reg_data = reg.get('data', reg) if isinstance(reg, dict) else {}
-                    pesapal_ipn_id = (
-                        reg_data.get('ipn_id')
-                        or reg_data.get('ipnId')
-                        or reg_data.get('notification_id')
-                        or reg_data.get('id')
-                        or ''
-                    )
-                    pesapal_ipn_id = str(pesapal_ipn_id).strip()
-                    if pesapal_ipn_id:
-                        logger.info(f'Pesapal IPN auto-registered. Set PESAPAL_IPN_ID={pesapal_ipn_id}')
-                    elif payment_debug_enabled():
-                        logger.info("[PAYMENT_DEBUG] IPN auto-register response did not contain an id: %s", reg)
-                except Exception as e:
-                    logger.warning(f'Pesapal IPN auto-registration failed: {str(e)}')
-
-        if not pesapal_ipn_id:
-            ipn_hint = ""
-            if ipn_url_str:
-                if _is_local_or_private_url(ipn_url_str):
-                    ipn_hint = (
-                        f" Current IPN URL is {ipn_url_str} which is not publicly reachable."
-                        " Set PUBLIC_BASE_URL to a public domain (ngrok/Cloudflare Tunnel), then try again."
-                    )
-                else:
-                    ipn_hint = f" Current IPN URL: {ipn_url_str}."
-            return {
-                'success': False,
-                'authorization_url': None,
-                'payment_reference': None,
-                'gateway_response': {'status': 'error', 'message': 'Pesapal IPN not configured'},
-                'failure_reason': (
-                    'Missing PESAPAL_IPN_ID (notification_id). '
-                    'Expose your server publicly and register IPN URL /wallet/webhooks/pesapal/ in Pesapal, '
-                    'or set PESAPAL_IPN_ID manually.'
-                    + ipn_hint
-                    + (
-                        f' You can also run: python manage.py register_pesapal_ipn --url "{ipn_url_str}"'
-                        if ipn_url_str and not _is_local_or_private_url(ipn_url_str)
-                        else ""
-                    )
-                )
+                'gateway_response': {'status': 'error', 'message': 'Lipila not configured'},
+                'failure_reason': 'LIPILA_API_KEY is not configured',
             }
 
         if not callback_url:
@@ -446,74 +437,116 @@ class PaymentManager:
                 'authorization_url': None,
                 'payment_reference': None,
                 'gateway_response': {'status': 'error', 'message': 'Missing callback_url'},
-                'failure_reason': 'callback_url is required for Pesapal'
+                'failure_reason': 'callback_url is required for Lipila',
             }
 
-        merchant_reference = f'DEP_{deposit.id}_{int(timezone.now().timestamp())}'
-        description = f'Deposit for {deposit.user.username}'
+        reference_id = f'DEP_{deposit.id}_{int(timezone.now().timestamp())}'
+        narration = f'Deposit for {deposit.user.username}'
+        amount = float(deposit.amount)
+        user = deposit.user
+        profile = getattr(user, 'profile', None)
+        first_name = (getattr(profile, 'first_name', None) or user.username or 'User').strip()
+        last_name = (getattr(profile, 'last_name', None) or 'Account').strip()
+        email = user.email or f'{user.username}@playyarena.local'
+        phone = (mobile_number or '').strip() or email
 
         try:
-            client: PesapalClient = get_pesapal_client()
-            resp = client.submit_order(
-                merchant_reference=merchant_reference,
-                amount=str(deposit.amount),
-                currency=self.pesapal_currency,
-                description=description,
+            client: LipilaClient = get_lipila_client()
+
+            if use_mobile_money:
+                account_number = self._extract_phone_number(mobile_number or '')
+                if not account_number:
+                    return {
+                        'success': False,
+                        'authorization_url': None,
+                        'payment_reference': None,
+                        'gateway_response': {'status': 'error'},
+                        'failure_reason': 'A valid Zambian mobile number is required (e.g. 26097xxxxxxx)',
+                    }
+                resp = client.collect_mobile_money(
+                    reference_id=reference_id,
+                    amount=amount,
+                    account_number=account_number,
+                    currency=self.lipila_currency,
+                    narration=narration,
+                    email=email,
+                    callback_url=callback_url,
+                )
+                status = str(resp.get('status', 'Pending'))
+                if status.lower() == 'failed':
+                    return {
+                        'success': False,
+                        'authorization_url': None,
+                        'payment_reference': reference_id,
+                        'gateway_response': resp,
+                        'failure_reason': resp.get('message', 'Lipila mobile money collection failed'),
+                    }
+                return {
+                    'success': True,
+                    'authorization_url': None,
+                    'payment_reference': str(resp.get('referenceId') or reference_id),
+                    'gateway_response': resp,
+                    'failure_reason': None,
+                }
+
+            resp = client.collect_card(
+                reference_id=reference_id,
+                amount=amount,
+                account_number=phone,
+                currency=self.lipila_currency,
+                narration=narration,
+                email=email,
+                first_name=first_name,
+                last_name=last_name,
+                phone_number=phone,
+                redirect_url=callback_url,
+                back_url=callback_url,
                 callback_url=callback_url,
-                notification_id=str(pesapal_ipn_id),
-                email=deposit.user.email,
-                first_name=getattr(deposit.user, 'first_name', None) or None,
-                last_name=getattr(deposit.user, 'last_name', None) or None,
             )
-
-            data = resp.get('data', resp) if isinstance(resp, dict) else {}
-            redirect_url = (
-                data.get('redirect_url')
-                or data.get('redirectUrl')
-                or data.get('redirectURL')
-                or data.get('link')
-            )
-            order_tracking_id = (
-                data.get('order_tracking_id')
-                or data.get('orderTrackingId')
-                or data.get('order_trackingid')
-                or data.get('orderTrackingID')
-            )
-
-            if not redirect_url or not order_tracking_id:
+            redirect_url = resp.get('cardRedirectionUrl')
+            payment_reference = str(resp.get('referenceId') or reference_id)
+            status = str(resp.get('status', 'Pending'))
+            if status.lower() == 'failed':
                 return {
                     'success': False,
                     'authorization_url': None,
-                    'payment_reference': None,
+                    'payment_reference': payment_reference,
                     'gateway_response': resp,
-                    'failure_reason': 'Pesapal response missing redirect_url/order_tracking_id'
+                    'failure_reason': resp.get('message', 'Lipila card collection failed'),
                 }
-
+            if not redirect_url:
+                return {
+                    'success': False,
+                    'authorization_url': None,
+                    'payment_reference': payment_reference,
+                    'gateway_response': resp,
+                    'failure_reason': 'Lipila response missing cardRedirectionUrl',
+                }
             return {
                 'success': True,
                 'authorization_url': redirect_url,
-                'payment_reference': str(order_tracking_id),
+                'payment_reference': payment_reference,
                 'gateway_response': resp,
-                'failure_reason': None
+                'failure_reason': None,
             }
 
         except requests.exceptions.RequestException as e:
-            logger.error(f'Pesapal API error for deposit {deposit.id}: {str(e)}', exc_info=True)
+            logger.error(f'Lipila API error for deposit {deposit.id}: {str(e)}', exc_info=True)
             return {
                 'success': False,
                 'authorization_url': None,
                 'payment_reference': None,
                 'gateway_response': {'status': 'error', 'error': str(e)},
-                'failure_reason': f'Pesapal API error: {str(e)}'
+                'failure_reason': f'Lipila API error: {str(e)}',
             }
         except Exception as e:
-            logger.error(f'Error initializing Pesapal deposit {deposit.id}: {str(e)}', exc_info=True)
+            logger.error(f'Error initializing Lipila deposit {deposit.id}: {str(e)}', exc_info=True)
             return {
                 'success': False,
                 'authorization_url': None,
                 'payment_reference': None,
                 'gateway_response': {'status': 'error', 'error': str(e)},
-                'failure_reason': f'Processing error: {str(e)}'
+                'failure_reason': f'Processing error: {str(e)}',
             }
 
     def _initialize_bank_transfer_deposit(self, deposit, callback_url: Optional[str]) -> Dict[str, Any]:

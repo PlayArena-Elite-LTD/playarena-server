@@ -1,4 +1,5 @@
 from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.views.decorators.http import require_POST
@@ -15,6 +16,7 @@ from urllib.parse import urljoin
 
 from .models import Wallet, Transaction, Deposit, Withdrawal, SavedPaymentMethod
 from .forms import DepositForm, WithdrawalForm
+from wallet.payment_manager import get_payment_manager
 from .payment_method_forms import SavedPaymentMethodForm, DeletePaymentMethodForm
 from wallet.payment_debug import payment_debug_enabled, mask_secret
 
@@ -106,6 +108,51 @@ def deposit_view(request):
                 )
                 
                 deposit.save()
+
+                if payment_method in ('LIPILA', 'LIPILA_MOMO'):
+                    callback_url = _build_public_url(
+                        request,
+                        reverse('lipila_callback_redirect'),
+                    )
+                    payment_manager = get_payment_manager()
+                    init_result = payment_manager.initialize_deposit(
+                        deposit,
+                        callback_url=callback_url,
+                        ipn_url=_build_public_url(request, reverse('lipila_callback')),
+                        mobile_number=form.cleaned_data.get('mobile_number'),
+                    )
+                    if init_result.get('success'):
+                        ref = init_result.get('payment_reference')
+                        deposit.status = 'PROCESSING'
+                        deposit.transaction_id = ref
+                        deposit.payment_reference = ref
+                        deposit.payment_provider = 'LIPILA'
+                        deposit.gateway_response = init_result.get('gateway_response') or {}
+                        deposit.save(
+                            update_fields=[
+                                'status',
+                                'transaction_id',
+                                'payment_reference',
+                                'payment_provider',
+                                'gateway_response',
+                            ]
+                        )
+                        redirect_url = init_result.get('authorization_url')
+                        if redirect_url:
+                            return redirect(redirect_url)
+                        messages.info(
+                            request,
+                            'Check your phone to approve the mobile money payment. '
+                            'Your wallet will update once confirmed.',
+                        )
+                        return redirect('wallet')
+
+                    deposit.status = 'FAILED'
+                    deposit.failure_reason = init_result.get('failure_reason') or 'Payment initialization failed'
+                    deposit.gateway_response = init_result.get('gateway_response') or {}
+                    deposit.save(update_fields=['status', 'failure_reason', 'gateway_response'])
+                    messages.error(request, deposit.failure_reason)
+                    return redirect('wallet')
                 
                 t1 = time.perf_counter()
                 if payment_debug_enabled():

@@ -182,8 +182,10 @@ class Deposit(models.Model):
     ]
     
     PAYMENT_METHOD_CHOICES = [
-        ('PESAPAL', 'Pesapal'),
+        ('LIPILA', 'Lipila (Card)'),
+        ('LIPILA_MOMO', 'Lipila (Mobile Money)'),
         # Legacy values (kept to avoid breaking existing rows / admin edits)
+        ('PESAPAL', 'Pesapal (legacy)'),
         ('ZYNELPAY', 'Zynel Pay (legacy)'),
         ('PAYPAL', 'PayPal (legacy)'),
         ('STRIPE', 'Stripe (legacy)'),
@@ -206,7 +208,17 @@ class Deposit(models.Model):
     # Security fields added by migration 0004_add_payment_security_fields
     gateway_response = models.JSONField(default=dict, blank=True, help_text='Full gateway response stored as JSON (for audit and debugging)')
     gateway_transaction_id = models.CharField(max_length=255, blank=True, null=True, help_text='Additional gateway transaction identifier (e.g., flw_ref for Flutterwave)')
-    payment_provider = models.CharField(max_length=20, blank=True, null=True, choices=[('PAYSTACK', 'Paystack'), ('FLUTTERWAVE', 'Flutterwave')], help_text='Payment gateway provider used')
+    payment_provider = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        choices=[
+            ('LIPILA', 'Lipila'),
+            ('PAYSTACK', 'Paystack'),
+            ('FLUTTERWAVE', 'Flutterwave'),
+        ],
+        help_text='Payment gateway provider used',
+    )
     payment_reference = models.CharField(max_length=255, blank=True, null=True, unique=True, db_index=True, help_text='Unique payment reference (prevents duplicate payments)')
     ip_address = models.GenericIPAddressField(blank=True, null=True, help_text='IP address of the user when deposit was initiated (for fraud detection)')
     user_agent = models.CharField(max_length=500, blank=True, null=True, help_text='User agent string (for security tracking)')
