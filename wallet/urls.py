@@ -5,6 +5,8 @@ from .webhooks import paystack_webhook, flutterwave_webhook, lipila_callback
 urlpatterns = [
     path('', views.wallet_view, name='wallet'),
     path('deposit/', views.deposit_view, name='deposit'),
+    path('deposit/<int:deposit_id>/pending/', views.deposit_pending_view, name='deposit_pending'),
+    path('deposit/<int:deposit_id>/status/', views.deposit_status_json, name='deposit_status_json'),
     path('withdraw/', views.withdraw_view, name='withdraw'),
     path('transactions/', views.transaction_history, name='transaction_history'),
     # Payment method management

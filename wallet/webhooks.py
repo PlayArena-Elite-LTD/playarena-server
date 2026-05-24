@@ -24,7 +24,7 @@ from django.utils import timezone
 from django.contrib import messages
 
 from wallet.models import Deposit, Withdrawal, Transaction, Wallet
-from wallet.lipila_service import get_lipila_client, LipilaClient
+from services.payments.factory import get_payment_gateway
 from wallet.notifications import (
     notify_deposit_completed,
     notify_deposit_failed,
@@ -198,69 +198,27 @@ def _find_deposit_by_lipila_reference(reference_id: str):
 @require_http_methods(["GET", "POST"])
 def lipila_callback(request):
     """
-    Lipila async callback and user redirect after payment.
+    User redirect / legacy callback URL — does NOT confirm payment.
 
-    Always re-checks status with Lipila before crediting the wallet.
+    Wallet credit happens only via POST /api/payments/lipila/webhook/.
     """
+    from django.shortcuts import redirect
+
     reference_id = _lipila_reference_id_from_request(request)
-    if not reference_id:
-        if request.method == 'GET':
-            from django.shortcuts import redirect
-            messages.info(request, 'Payment started. Waiting for confirmation...')
-            return redirect('wallet')
-        return JsonResponse({'status': 'error', 'message': 'Missing referenceId'}, status=400)
+    deposit = _find_deposit_by_lipila_reference(reference_id) if reference_id else None
 
-    deposit = _find_deposit_by_lipila_reference(reference_id)
-    if not deposit:
-        logger.warning(f'Lipila callback: deposit not found for reference {reference_id}')
-        if request.method == 'GET':
-            from django.shortcuts import redirect
-            messages.info(request, 'Payment received. If your wallet does not update shortly, contact support.')
-            return redirect('wallet')
-        return JsonResponse({'status': 'ok', 'message': 'Deposit not found'}, status=200)
+    if request.method == 'POST':
+        gateway = get_payment_gateway()
+        result = gateway.handle_webhook(request)
+        return JsonResponse({
+            'status': 'ok' if result.processed else 'ignored',
+            'message': result.message,
+        })
 
-    if str(reference_id).startswith('MOCK_') and bool(getattr(settings, 'LIPILA_MOCK_MODE', False)):
-        _complete_deposit(deposit, completed_via='lipila_callback_mock', gateway_payload={'mock': True, 'reference_id': reference_id})
-        if request.method == 'GET':
-            from django.shortcuts import redirect
-            messages.success(request, 'Deposit completed successfully (mock).')
-            return redirect('wallet')
-        return JsonResponse({'status': 'ok'})
-
-    try:
-        client = get_lipila_client()
-        status_resp = client.check_collection_status(str(reference_id))
-        normalized, raw_desc = LipilaClient.interpret_status(status_resp)
-
-        if normalized == 'COMPLETED':
-            _complete_deposit(deposit, completed_via='lipila_callback', gateway_payload=status_resp)
-            if request.method == 'GET':
-                from django.shortcuts import redirect
-                messages.success(request, 'Deposit completed successfully.')
-                return redirect('wallet')
-            return JsonResponse({'status': 'ok'})
-
-        if normalized == 'FAILED':
-            _fail_deposit(deposit, failed_via='lipila_callback', reason=raw_desc or 'Payment failed', gateway_payload=status_resp)
-            if request.method == 'GET':
-                from django.shortcuts import redirect
-                messages.error(request, 'Deposit failed.')
-                return redirect('wallet')
-            return JsonResponse({'status': 'ok'})
-
-        if request.method == 'GET':
-            from django.shortcuts import redirect
-            messages.info(request, 'Payment is processing. Your wallet will update once confirmed.')
-            return redirect('wallet')
-        return JsonResponse({'status': 'ok', 'message': f'Payment {normalized}'})
-
-    except Exception as e:
-        logger.error(f'Lipila callback error for {reference_id}: {str(e)}', exc_info=True)
-        if request.method == 'GET':
-            from django.shortcuts import redirect
-            messages.info(request, 'Payment is processing. Your wallet will update once confirmed.')
-            return redirect('wallet')
-        return JsonResponse({'status': 'ok', 'message': 'Processed'})
+    if deposit:
+        return redirect('deposit_pending', deposit_id=deposit.id)
+    messages.info(request, 'Payment pending. Waiting for confirmation from provider.')
+    return redirect('wallet')
 
 
 @csrf_exempt

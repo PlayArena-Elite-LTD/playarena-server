@@ -227,9 +227,26 @@ class TransactionSerializer(serializers.ModelSerializer):
 
 class DepositCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating deposit requests"""
+    mobile_number = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=20,
+        help_text='Required for LIPILA_MOMO (Zambian format, e.g. 26097xxxxxxx)',
+    )
+
     class Meta:
         model = Deposit
-        fields = ['amount', 'payment_method']
+        fields = ['amount', 'payment_method', 'mobile_number']
+
+    def validate(self, attrs):
+        method = attrs.get('payment_method')
+        mobile = (attrs.get('mobile_number') or '').strip()
+        if method == 'LIPILA_MOMO' and not mobile:
+            raise serializers.ValidationError({
+                'mobile_number': 'Mobile number is required for Lipila Mobile Money deposits.',
+            })
+        attrs['mobile_number'] = mobile
+        return attrs
 
     def create(self, validated_data):
         request = self.context.get('request')
@@ -238,6 +255,7 @@ class DepositCreateSerializer(serializers.ModelSerializer):
         ip_address = request.META.get('REMOTE_ADDR')
         user_agent = request.META.get('HTTP_USER_AGENT', '')[:500]
 
+        validated_data.pop('mobile_number', None)
         deposit = Deposit(
             user=user,
             amount=validated_data['amount'],

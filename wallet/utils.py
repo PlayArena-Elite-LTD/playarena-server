@@ -13,106 +13,164 @@ from .models import Wallet, Transaction, Deposit, Withdrawal
 logger = logging.getLogger(__name__)
 
 
+def build_public_url(request, path_or_url: str) -> str:
+    from services.payments.url_utils import build_public_url as _build
+    return _build(request, path_or_url)
+
+
+def initialize_lipila_deposit_payment(deposit, request, mobile_number=None):
+    """
+    Initialize payment via configured PAYMENT_PROVIDER gateway (Lipila).
+
+    Never marks deposit COMPLETED here — webhook confirms payment.
+    """
+    if deposit.payment_method not in ('LIPILA', 'LIPILA_MOMO'):
+        return {
+            'initialized': False,
+            'success': True,
+            'payment_url': None,
+            'payment_reference': None,
+            'order_id': deposit.id,
+            'payment_status': None,
+            'message': 'Deposit created. Awaiting manual processing.',
+            'failure_reason': None,
+        }
+
+    from services.payments.factory import get_payment_gateway
+
+    gateway = get_payment_gateway()
+    result = gateway.initiate_payment(deposit, request, mobile_number=mobile_number)
+
+    if result.success:
+        deposit.status = 'PROCESSING'
+        deposit.transaction_id = result.provider_transaction_id or result.payment_reference
+        deposit.provider_transaction_id = result.provider_transaction_id
+        deposit.payment_reference = result.payment_reference
+        deposit.payment_provider = result.provider
+        deposit.provider_payment_status = result.payment_status or 'Pending'
+        deposit.gateway_response = result.raw_response
+        deposit.save(
+            update_fields=[
+                'status',
+                'transaction_id',
+                'provider_transaction_id',
+                'payment_reference',
+                'payment_provider',
+                'provider_payment_status',
+                'gateway_response',
+                'idempotency_key',
+            ]
+        )
+        return {
+            'initialized': True,
+            'success': True,
+            'payment_url': result.payment_url,
+            'payment_reference': result.payment_reference,
+            'order_id': deposit.id,
+            'payment_status': result.payment_status,
+            'message': result.message,
+            'failure_reason': None,
+        }
+
+    deposit.status = 'FAILED'
+    deposit.provider_payment_status = 'Failed'
+    deposit.failure_reason = result.failure_reason or result.message
+    deposit.gateway_response = result.raw_response
+    deposit.save(
+        update_fields=[
+            'status',
+            'provider_payment_status',
+            'failure_reason',
+            'gateway_response',
+        ]
+    )
+    return {
+        'initialized': True,
+        'success': False,
+        'payment_url': None,
+        'payment_reference': result.payment_reference,
+        'order_id': deposit.id,
+        'payment_status': 'Failed',
+        'message': result.message,
+        'failure_reason': deposit.failure_reason,
+    }
+
+
+def get_deposit_payment_status_payload(deposit):
+    """Public status for polling — derived from DB only (webhook-updated)."""
+    return {
+        'order_id': deposit.id,
+        'deposit_id': deposit.id,
+        'status': deposit.status,
+        'payment_provider': deposit.payment_provider,
+        'provider_payment_status': deposit.provider_payment_status,
+        'payment_reference': deposit.payment_reference,
+        'provider_transaction_id': deposit.provider_transaction_id,
+        'amount': str(deposit.amount),
+        'completed': deposit.status == 'COMPLETED',
+        'failed': deposit.status == 'FAILED',
+        'pending': deposit.status in ('PENDING', 'PROCESSING'),
+    }
+
+
 @transaction.atomic
 def complete_deposit_and_credit_wallet(deposit):
     """
-    Securely complete a deposit and credit the wallet balance
-    
-    Security features:
-    - Atomic transaction (all or nothing)
-    - Idempotent (won't credit twice if already completed)
-    - Creates transaction record for audit
-    - Prevents race conditions with select_for_update
-    
-    Args:
-        deposit: Deposit instance to complete
-    
-    Returns:
-        dict: {
-            'success': bool,
-            'wallet_credited': bool,
-            'transaction_created': bool,
-            'message': str
-        }
+    Securely complete a deposit and credit the wallet balance (admin/manual use).
+    Lipila production flow should prefer webhook via apply_deposit_webhook_status.
     """
     try:
-        # Security: Lock deposit to prevent concurrent processing
         deposit = Deposit.objects.select_for_update().get(id=deposit.id)
-        
-        # Security: Check if already completed (idempotency)
+
         if deposit.status == 'COMPLETED':
-            # Check if wallet was already credited
             existing_transaction = Transaction.objects.filter(
                 wallet=deposit.wallet,
                 transaction_type='DEPOSIT',
                 description__contains=f"Deposit of ${deposit.amount}",
-                created_at__gte=deposit.created_at
+                created_at__gte=deposit.created_at,
             ).first()
-            
             if existing_transaction:
-                logger.info(
-                    f"Deposit {deposit.id} already completed and wallet credited - "
-                    f"Transaction: {existing_transaction.id}"
-                )
                 return {
                     'success': True,
                     'wallet_credited': True,
                     'transaction_created': False,
-                    'message': 'Deposit already completed and wallet credited'
+                    'message': 'Deposit already completed and wallet credited',
                 }
-            else:
-                # Status is COMPLETED but no transaction found - credit now
-                logger.warning(
-                    f"Deposit {deposit.id} marked COMPLETED but wallet not credited - "
-                    f"Crediting now"
-                )
-        
-        # Security: Only process if status allows
+
         if deposit.status in ['FAILED', 'CANCELLED']:
-            logger.warning(
-                f"Cannot credit wallet for deposit {deposit.id} - "
-                f"Status: {deposit.status}"
-            )
             return {
                 'success': False,
                 'wallet_credited': False,
                 'transaction_created': False,
-                'message': f'Cannot credit wallet for deposit with status: {deposit.status}'
+                'message': f'Cannot credit wallet for deposit with status: {deposit.status}',
             }
-        
-        # Get wallet with lock
+
         wallet = Wallet.objects.select_for_update().get(id=deposit.wallet.id)
-        
-        # Update deposit status
         deposit.status = 'COMPLETED'
+        deposit.provider_payment_status = 'Successful'
         if not deposit.completed_at:
             deposit.completed_at = timezone.now()
         if not deposit.verification_hash:
-            # Generate verification hash if method exists (security feature)
             if hasattr(deposit, 'generate_verification_hash'):
                 deposit.verification_hash = deposit.generate_verification_hash()
             else:
-                # Fallback: generate simple hash if method doesn't exist
                 import hashlib
-                hash_data = f"{deposit.id}_{deposit.user_id}_{deposit.amount}_{deposit.status}_{deposit.transaction_id}"
+                hash_data = (
+                    f"{deposit.id}_{deposit.user_id}_{deposit.amount}_"
+                    f"{deposit.status}_{deposit.transaction_id}"
+                )
                 deposit.verification_hash = hashlib.sha256(hash_data.encode()).hexdigest()
-        
-        # Credit wallet balance
+
         wallet.balance += deposit.amount
-        
-        # Create transaction record for audit
         transaction_record = Transaction.objects.create(
             wallet=wallet,
             amount=deposit.amount,
             transaction_type='DEPOSIT',
-            description=f"Deposit of ${deposit.amount:.2f} via {deposit.get_payment_method_display()}"
+            description=f"Deposit of ${deposit.amount:.2f} via {deposit.get_payment_method_display()}",
         )
-        
-        # Save both atomically
-        deposit.save(update_fields=['status', 'completed_at', 'verification_hash'])
+        deposit.save(update_fields=['status', 'completed_at', 'verification_hash', 'provider_payment_status'])
         wallet.save(update_fields=['balance'])
-        
-        # Audit log: Deposit completed
+
         from audit.utils import log_action
         log_action(
             action='deposit_completed',
@@ -124,128 +182,63 @@ def complete_deposit_and_credit_wallet(deposit):
                 'transaction_id': deposit.transaction_id,
                 'new_balance': str(wallet.balance),
                 'transaction_record_id': transaction_record.id,
-            }
+            },
         )
-        
-        logger.info(
-            f"Deposit {deposit.id} completed and wallet credited - "
-            f"User: {deposit.user.username}, Amount: ${deposit.amount}, "
-            f"New Balance: ${wallet.balance}, Transaction: {transaction_record.id}"
-        )
-        
         return {
             'success': True,
             'wallet_credited': True,
             'transaction_created': True,
             'message': 'Deposit completed and wallet credited successfully',
             'new_balance': wallet.balance,
-            'transaction_id': transaction_record.id
+            'transaction_id': transaction_record.id,
         }
-        
     except Deposit.DoesNotExist:
-        logger.error(f"Deposit {deposit.id} not found")
         return {
             'success': False,
             'wallet_credited': False,
             'transaction_created': False,
-            'message': 'Deposit not found'
+            'message': 'Deposit not found',
         }
     except Exception as e:
-        logger.error(
-            f"Error completing deposit {deposit.id} and crediting wallet - "
-            f"Error: {str(e)}",
-            exc_info=True
-        )
-        # Transaction will rollback automatically
+        logger.error('Error completing deposit %s: %s', deposit.id, e, exc_info=True)
         return {
             'success': False,
             'wallet_credited': False,
             'transaction_created': False,
-            'message': f'Error: {str(e)}'
+            'message': f'Error: {str(e)}',
         }
 
 
 @transaction.atomic
 def process_withdrawal_and_debit_wallet(withdrawal, gateway_result: dict | None = None):
-    """
-    Securely process a withdrawal and debit the wallet balance
-    
-    Security features:
-    - Atomic transaction (all or nothing)
-    - Idempotent (won't debit twice if already completed)
-    - Creates transaction record for audit
-    - Prevents race conditions with select_for_update
-    - Validates wallet balance before debiting
-    
-    Args:
-        withdrawal: Withdrawal instance to process
-    
-    Returns:
-        dict: {
-            'success': bool,
-            'wallet_debited': bool,
-            'transaction_created': bool,
-            'new_balance': Decimal,
-            'message': str
-        }
-    """
+    """Securely process a withdrawal and debit the wallet balance."""
     try:
-        # Security: Lock withdrawal to prevent concurrent processing
         withdrawal = Withdrawal.objects.select_for_update().get(id=withdrawal.id)
-        
-        # Security: Check if already completed (idempotency)
         if withdrawal.status == 'COMPLETED':
-            # Check if wallet was already debited
             existing_transaction = Transaction.objects.filter(
                 wallet=withdrawal.wallet,
                 transaction_type='WITHDRAWAL',
                 description__contains=f"Withdrawal of ${withdrawal.amount}",
-                created_at__gte=withdrawal.created_at
+                created_at__gte=withdrawal.created_at,
             ).first()
-            
             if existing_transaction:
-                logger.info(
-                    f"Withdrawal {withdrawal.id} already completed and wallet debited - "
-                    f"Transaction: {existing_transaction.id}"
-                )
                 return {
                     'success': True,
                     'wallet_debited': True,
                     'transaction_created': False,
                     'new_balance': withdrawal.wallet.balance,
-                    'message': 'Withdrawal already completed and wallet debited'
+                    'message': 'Withdrawal already completed and wallet debited',
                 }
-            else:
-                # Status is COMPLETED but no transaction found - debit now
-                logger.warning(
-                    f"Withdrawal {withdrawal.id} marked COMPLETED but wallet not debited - "
-                    f"Debiting now"
-                )
-        
-        # Security: Only process if status allows
         if withdrawal.status in ['FAILED', 'CANCELLED']:
-            logger.warning(
-                f"Cannot debit wallet for withdrawal {withdrawal.id} - "
-                f"Status: {withdrawal.status}"
-            )
             return {
                 'success': False,
                 'wallet_debited': False,
                 'transaction_created': False,
                 'new_balance': withdrawal.wallet.balance,
-                'message': f'Cannot debit wallet for withdrawal with status: {withdrawal.status}'
+                'message': f'Cannot debit wallet for withdrawal with status: {withdrawal.status}',
             }
-        
-        # Get wallet with lock
         wallet = Wallet.objects.select_for_update().get(id=withdrawal.wallet.id)
-        
-        # Security: Validate balance before debiting (double-check)
         if withdrawal.amount > wallet.balance:
-            logger.error(
-                f"Insufficient balance for withdrawal {withdrawal.id} - "
-                f"Required: ${withdrawal.amount}, Available: ${wallet.balance}"
-            )
-            # Mark as failed so it doesn't sit pending forever.
             withdrawal.status = 'FAILED'
             withdrawal.failure_reason = (
                 f'Insufficient balance. Required: ${withdrawal.amount}, Available: ${wallet.balance}'
@@ -256,87 +249,56 @@ def process_withdrawal_and_debit_wallet(withdrawal, gateway_result: dict | None 
                 'wallet_debited': False,
                 'transaction_created': False,
                 'new_balance': wallet.balance,
-                'message': f'Insufficient balance. Required: ${withdrawal.amount}, Available: ${wallet.balance}'
+                'message': withdrawal.failure_reason,
             }
-        
         gateway_result = gateway_result or {}
-
-        # Update withdrawal status
         withdrawal.status = 'COMPLETED'
-        # Record gateway identifiers (if provided)
-        txid = gateway_result.get('transaction_id') or gateway_result.get('transfer_code') or None
+        txid = gateway_result.get('transaction_id') or gateway_result.get('transfer_code')
         if txid:
             withdrawal.transaction_id = str(txid)
             withdrawal.gateway_transaction_id = str(txid)
         if gateway_result.get('gateway_response') is not None:
             withdrawal.gateway_response = gateway_result.get('gateway_response') or {}
         withdrawal.failure_reason = None
-        
-        # Debit wallet balance
         wallet.balance -= withdrawal.amount
-        
-        # Create transaction record for audit (negative amount for withdrawal)
         transaction_record = Transaction.objects.create(
             wallet=wallet,
-            amount=-withdrawal.amount,  # Negative for withdrawal
+            amount=-withdrawal.amount,
             transaction_type='WITHDRAWAL',
-            description=f"Withdrawal of ${withdrawal.amount:.2f} via {withdrawal.get_payment_method_display()}"
+            description=f"Withdrawal of ${withdrawal.amount:.2f} via {withdrawal.get_payment_method_display()}",
         )
-        
-        # Save both atomically
-        withdrawal.save(update_fields=['status', 'transaction_id', 'gateway_transaction_id', 'gateway_response', 'failure_reason'])
+        withdrawal.save(
+            update_fields=[
+                'status',
+                'transaction_id',
+                'gateway_transaction_id',
+                'gateway_response',
+                'failure_reason',
+            ]
+        )
         wallet.save(update_fields=['balance'])
-        
-        # Audit log: Withdrawal completed
-        from audit.utils import log_action
-        log_action(
-            action='withdrawal_completed',
-            user=withdrawal.user,
-            details={
-                'withdrawal_id': withdrawal.id,
-                'amount': str(withdrawal.amount),
-                'payment_method': withdrawal.payment_method,
-                'transaction_id': withdrawal.transaction_id,
-                'new_balance': str(wallet.balance),
-                'transaction_record_id': transaction_record.id,
-            }
-        )
-        
-        logger.info(
-            f"Withdrawal {withdrawal.id} completed and wallet debited - "
-            f"User: {withdrawal.user.username}, Amount: ${withdrawal.amount}, "
-            f"New Balance: ${wallet.balance}, Transaction: {transaction_record.id}"
-        )
-        
         return {
             'success': True,
             'wallet_debited': True,
             'transaction_created': True,
             'message': 'Withdrawal completed and wallet debited successfully',
             'new_balance': wallet.balance,
-            'transaction_id': transaction_record.id
+            'transaction_id': transaction_record.id,
         }
-        
     except Withdrawal.DoesNotExist:
-        logger.error(f"Withdrawal {withdrawal.id} not found")
         return {
             'success': False,
             'wallet_debited': False,
             'transaction_created': False,
             'new_balance': None,
-            'message': 'Withdrawal not found'
+            'message': 'Withdrawal not found',
         }
     except Exception as e:
-        logger.error(
-            f"Error processing withdrawal {withdrawal.id} and debiting wallet - "
-            f"Error: {str(e)}",
-            exc_info=True
-        )
-        # Transaction will rollback automatically
+        logger.error('Error processing withdrawal %s: %s', withdrawal.id, e, exc_info=True)
         return {
             'success': False,
             'wallet_debited': False,
             'transaction_created': False,
             'new_balance': None,
-            'message': f'Error: {str(e)}'
+            'message': f'Error: {str(e)}',
         }

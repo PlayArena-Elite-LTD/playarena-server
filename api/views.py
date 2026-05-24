@@ -2,6 +2,8 @@ from rest_framework import generics, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 from rest_framework.exceptions import PermissionDenied
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import get_user_model
@@ -867,7 +869,11 @@ class DepositCreateView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+        mobile_number = serializer.validated_data.get('mobile_number')
         deposit = serializer.save()
+
+        from wallet.utils import initialize_lipila_deposit_payment, get_deposit_payment_status_payload
+        lipila = initialize_lipila_deposit_payment(deposit, request, mobile_number=mobile_number)
 
         from audit.utils import log_action
         log_action(
@@ -878,19 +884,93 @@ class DepositCreateView(APIView):
                 'amount': str(deposit.amount),
                 'payment_method': deposit.payment_method,
                 'status': deposit.status,
+                'lipila_initialized': lipila.get('initialized'),
             },
             request=request,
         )
 
+        response_status = (
+            status.HTTP_201_CREATED
+            if lipila['success']
+            else status.HTTP_400_BAD_REQUEST
+        )
+        payload = {
+            **get_deposit_payment_status_payload(deposit),
+            'message': lipila['message'],
+        }
+        if lipila.get('payment_url'):
+            payload['payment_url'] = lipila['payment_url']
+        if lipila.get('failure_reason'):
+            payload['failure_reason'] = lipila['failure_reason']
+
+        return Response(payload, status=response_status)
+
+
+class PaymentStatusView(APIView):
+    """
+    GET /api/payment/status/{order_id}/
+
+    Poll deposit payment status (DB + optional server-side Lipila verify).
+    Frontend must not assume payment success until status is COMPLETED.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, order_id):
+        from wallet.models import Deposit
+        from wallet.utils import get_deposit_payment_status_payload
+        from services.payments.factory import get_payment_gateway
+        from wallet.payment_processing import apply_deposit_webhook_status
+
+        deposit = get_object_or_404(Deposit, id=order_id, user=request.user)
+
+        if deposit.status == 'PROCESSING' and deposit.payment_provider == 'lipila':
+            gateway = get_payment_gateway()
+            verify = gateway.verify_payment(deposit)
+            if verify.payment_status == 'Successful':
+                apply_deposit_webhook_status(
+                    deposit,
+                    payment_status='Successful',
+                    provider_transaction_id=verify.provider_transaction_id,
+                    raw_payload=verify.raw_response,
+                )
+                deposit.refresh_from_db()
+            elif verify.payment_status == 'Failed':
+                apply_deposit_webhook_status(
+                    deposit,
+                    payment_status='Failed',
+                    provider_transaction_id=verify.provider_transaction_id,
+                    raw_payload=verify.raw_response,
+                )
+                deposit.refresh_from_db()
+
+        return Response(get_deposit_payment_status_payload(deposit))
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class LipilaWebhookView(APIView):
+    """
+    POST /api/payments/lipila/webhook/
+
+    Authoritative payment confirmation — idempotent wallet credit.
+    """
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        from services.payments.factory import get_payment_gateway
+
+        gateway = get_payment_gateway()
+        result = gateway.handle_webhook(request)
+        if not result.processed and 'signature' in (result.message or '').lower():
+            return Response({'status': 'error', 'message': result.message}, status=status.HTTP_401_UNAUTHORIZED)
         return Response(
             {
-                'deposit_id': deposit.id,
-                'status': deposit.status,
-                'amount': str(deposit.amount),
-                'payment_method': deposit.payment_method,
-                'message': 'Deposit request created. Payment processing pending.',
+                'status': 'ok' if result.processed else 'ignored',
+                'message': result.message,
+                'deposit_id': result.deposit_id,
+                'payment_status': result.payment_status,
             },
-            status=status.HTTP_201_CREATED,
+            status=status.HTTP_200_OK,
         )
 
 

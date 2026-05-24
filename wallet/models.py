@@ -181,6 +181,12 @@ class Deposit(models.Model):
         ('CANCELLED', 'Cancelled'),
     ]
     
+    PROVIDER_PAYMENT_STATUS_CHOICES = [
+        ('Pending', 'Pending'),
+        ('Successful', 'Successful'),
+        ('Failed', 'Failed'),
+    ]
+
     PAYMENT_METHOD_CHOICES = [
         ('LIPILA', 'Lipila (Card)'),
         ('LIPILA_MOMO', 'Lipila (Mobile Money)'),
@@ -209,15 +215,38 @@ class Deposit(models.Model):
     gateway_response = models.JSONField(default=dict, blank=True, help_text='Full gateway response stored as JSON (for audit and debugging)')
     gateway_transaction_id = models.CharField(max_length=255, blank=True, null=True, help_text='Additional gateway transaction identifier (e.g., flw_ref for Flutterwave)')
     payment_provider = models.CharField(
-        max_length=20,
+        max_length=32,
         blank=True,
         null=True,
-        choices=[
-            ('LIPILA', 'Lipila'),
-            ('PAYSTACK', 'Paystack'),
-            ('FLUTTERWAVE', 'Flutterwave'),
-        ],
-        help_text='Payment gateway provider used',
+        db_index=True,
+        help_text='Active gateway slug (e.g. lipila)',
+    )
+    provider_transaction_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        db_index=True,
+        help_text='Provider transaction / identifier from Lipila',
+    )
+    provider_payment_status = models.CharField(
+        max_length=20,
+        choices=PROVIDER_PAYMENT_STATUS_CHOICES,
+        blank=True,
+        null=True,
+        db_index=True,
+        help_text='Authoritative provider status (Pending, Successful, Failed)',
+    )
+    idempotency_key = models.CharField(
+        max_length=64,
+        blank=True,
+        null=True,
+        unique=True,
+        help_text='Idempotency key for payment initiation',
+    )
+    raw_webhook_payload = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Last webhook payload from provider (debugging)',
     )
     payment_reference = models.CharField(max_length=255, blank=True, null=True, unique=True, db_index=True, help_text='Unique payment reference (prevents duplicate payments)')
     ip_address = models.GenericIPAddressField(blank=True, null=True, help_text='IP address of the user when deposit was initiated (for fraud detection)')
@@ -241,6 +270,8 @@ class Deposit(models.Model):
         indexes = [
             models.Index(fields=['user', '-created_at']),
             models.Index(fields=['status']),
+            models.Index(fields=['payment_provider', 'provider_payment_status']),
+            models.Index(fields=['provider_transaction_id']),
         ]
         constraints = [
             # Security: Ensure transaction_id is unique (prevent duplicate processing)

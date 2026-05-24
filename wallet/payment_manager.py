@@ -20,7 +20,7 @@ import ipaddress
 from django.conf import settings
 from django.utils import timezone
 
-from wallet.lipila_service import get_lipila_client, LipilaClient
+from services.payments.factory import get_payment_gateway
 from wallet.payment_debug import payment_debug_enabled, mask_secret
 
 logger = logging.getLogger(__name__)
@@ -64,8 +64,6 @@ class PaymentManager:
     
     def __init__(self):
         """Initialize PaymentManager with gateway configurations"""
-        self._refresh_lipila_config()
-
         # General settings
         self.test_mode = getattr(settings, 'PAYMENT_GATEWAY_TEST_MODE', True)
         self.bank_payout_mode = str(getattr(settings, 'BANK_PAYOUT_MODE', 'mock')).strip().lower()
@@ -73,17 +71,6 @@ class PaymentManager:
         self.bank_payout_api_key = str(getattr(settings, 'BANK_PAYOUT_API_KEY', '')).strip()
         self.bank_payout_timeout_seconds = int(getattr(settings, 'BANK_PAYOUT_TIMEOUT_SECONDS', 30))
 
-    def _refresh_lipila_config(self) -> None:
-        """Refresh Lipila configuration from Django settings."""
-        self.lipila_api_key = (getattr(settings, 'LIPILA_API_KEY', '') or '').strip()
-        self.lipila_currency = (getattr(settings, 'LIPILA_CURRENCY', 'ZMW') or 'ZMW').strip()
-        if payment_debug_enabled():
-            logger.info(
-                "[PAYMENT_DEBUG] lipila_config: api_key=%s currency=%s",
-                mask_secret(self.lipila_api_key),
-                self.lipila_currency,
-            )
-    
     def initialize_deposit(
         self,
         deposit,
@@ -114,10 +101,9 @@ class PaymentManager:
         
         try:
             if payment_method in ('LIPILA', 'LIPILA_MOMO'):
-                return self._initialize_lipila_deposit(
+                return self._initialize_lipila_via_gateway(
                     deposit,
                     callback_url,
-                    ipn_url=ipn_url,
                     mobile_number=mobile_number,
                 )
             elif payment_method == 'BANK_TRANSFER':
@@ -299,7 +285,7 @@ class PaymentManager:
     
     def _process_mobile_money(self, withdrawal) -> Dict[str, Any]:
         """Process mobile money withdrawal via Lipila disbursement API."""
-        self._refresh_lipila_config()
+        from services.payments.lipila_service import get_lipila_service
 
         if bool(getattr(settings, 'LIPILA_MOCK_MODE', False)):
             transaction_id = f"MOCK_MM_{withdrawal.id}_{int(timezone.now().timestamp())}"
@@ -316,12 +302,16 @@ class PaymentManager:
                 'failure_reason': None,
             }
 
-        if not self.lipila_api_key:
+        secret = (
+            getattr(settings, 'LIPILA_SECRET_KEY', '')
+            or getattr(settings, 'LIPILA_API_KEY', '')
+        ).strip()
+        if not secret:
             return {
                 'success': False,
                 'transaction_id': None,
                 'gateway_response': {'status': 'error', 'message': 'Lipila not configured'},
-                'failure_reason': 'LIPILA_API_KEY is not configured',
+                'failure_reason': 'LIPILA_SECRET_KEY is not configured',
             }
 
         account_number = self._extract_phone_number(withdrawal.account_details)
@@ -335,12 +325,12 @@ class PaymentManager:
 
         reference_id = f'WDR_{withdrawal.id}_{int(timezone.now().timestamp())}'
         try:
-            client = get_lipila_client()
+            client = get_lipila_service()
             resp = client.disburse_mobile_money(
                 reference_id=reference_id,
                 amount=float(withdrawal.amount),
                 account_number=account_number,
-                currency=self.lipila_currency,
+                currency=getattr(settings, 'LIPILA_CURRENCY', 'ZMW'),
                 narration=f'Withdrawal for {withdrawal.user.username}',
             )
             identifier = resp.get('identifier') or reference_id
@@ -386,168 +376,30 @@ class PaymentManager:
             return digits_only
         return None
 
-    def _initialize_lipila_deposit(
+    def _initialize_lipila_via_gateway(
         self,
         deposit,
         callback_url: Optional[str],
-        ipn_url: Optional[str] = None,
         mobile_number: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Initialize a deposit via Lipila (card redirect or mobile money prompt)."""
-        self._refresh_lipila_config()
-        callback_url = callback_url or (str(ipn_url).strip() if ipn_url else None)
-        use_mobile_money = deposit.payment_method == 'LIPILA_MOMO'
+        """Delegate Lipila deposit initiation to the payment gateway abstraction."""
 
-        if bool(getattr(settings, 'LIPILA_MOCK_MODE', False)):
-            if not callback_url:
-                return {
-                    'success': False,
-                    'authorization_url': None,
-                    'payment_reference': None,
-                    'gateway_response': {'status': 'error', 'message': 'Missing callback_url'},
-                    'failure_reason': 'callback_url is required for Lipila',
-                }
-            reference_id = f'MOCK_{deposit.id}_{int(timezone.now().timestamp())}'
-            joiner = '&' if '?' in str(callback_url) else '?'
-            redirect_url = f'{callback_url}{joiner}referenceId={reference_id}'
-            return {
-                'success': True,
-                'authorization_url': redirect_url if not use_mobile_money else None,
-                'payment_reference': reference_id,
-                'gateway_response': {
-                    'status': 'mock',
-                    'message': 'Mock Lipila mode enabled (deposit auto-completes on callback).',
-                    'reference_id': reference_id,
-                },
-                'failure_reason': None,
-            }
+        class _CallbackRequest:
+            def build_absolute_uri(self, path):
+                return callback_url or path
 
-        if not self.lipila_api_key:
-            return {
-                'success': False,
-                'authorization_url': None,
-                'payment_reference': None,
-                'gateway_response': {'status': 'error', 'message': 'Lipila not configured'},
-                'failure_reason': 'LIPILA_API_KEY is not configured',
-            }
-
-        if not callback_url:
-            return {
-                'success': False,
-                'authorization_url': None,
-                'payment_reference': None,
-                'gateway_response': {'status': 'error', 'message': 'Missing callback_url'},
-                'failure_reason': 'callback_url is required for Lipila',
-            }
-
-        reference_id = f'DEP_{deposit.id}_{int(timezone.now().timestamp())}'
-        narration = f'Deposit for {deposit.user.username}'
-        amount = float(deposit.amount)
-        user = deposit.user
-        profile = getattr(user, 'profile', None)
-        first_name = (getattr(profile, 'first_name', None) or user.username or 'User').strip()
-        last_name = (getattr(profile, 'last_name', None) or 'Account').strip()
-        email = user.email or f'{user.username}@playyarena.local'
-        phone = (mobile_number or '').strip() or email
-
-        try:
-            client: LipilaClient = get_lipila_client()
-
-            if use_mobile_money:
-                account_number = self._extract_phone_number(mobile_number or '')
-                if not account_number:
-                    return {
-                        'success': False,
-                        'authorization_url': None,
-                        'payment_reference': None,
-                        'gateway_response': {'status': 'error'},
-                        'failure_reason': 'A valid Zambian mobile number is required (e.g. 26097xxxxxxx)',
-                    }
-                resp = client.collect_mobile_money(
-                    reference_id=reference_id,
-                    amount=amount,
-                    account_number=account_number,
-                    currency=self.lipila_currency,
-                    narration=narration,
-                    email=email,
-                    callback_url=callback_url,
-                )
-                status = str(resp.get('status', 'Pending'))
-                if status.lower() == 'failed':
-                    return {
-                        'success': False,
-                        'authorization_url': None,
-                        'payment_reference': reference_id,
-                        'gateway_response': resp,
-                        'failure_reason': resp.get('message', 'Lipila mobile money collection failed'),
-                    }
-                return {
-                    'success': True,
-                    'authorization_url': None,
-                    'payment_reference': str(resp.get('referenceId') or reference_id),
-                    'gateway_response': resp,
-                    'failure_reason': None,
-                }
-
-            resp = client.collect_card(
-                reference_id=reference_id,
-                amount=amount,
-                account_number=phone,
-                currency=self.lipila_currency,
-                narration=narration,
-                email=email,
-                first_name=first_name,
-                last_name=last_name,
-                phone_number=phone,
-                redirect_url=callback_url,
-                back_url=callback_url,
-                callback_url=callback_url,
-            )
-            redirect_url = resp.get('cardRedirectionUrl')
-            payment_reference = str(resp.get('referenceId') or reference_id)
-            status = str(resp.get('status', 'Pending'))
-            if status.lower() == 'failed':
-                return {
-                    'success': False,
-                    'authorization_url': None,
-                    'payment_reference': payment_reference,
-                    'gateway_response': resp,
-                    'failure_reason': resp.get('message', 'Lipila card collection failed'),
-                }
-            if not redirect_url:
-                return {
-                    'success': False,
-                    'authorization_url': None,
-                    'payment_reference': payment_reference,
-                    'gateway_response': resp,
-                    'failure_reason': 'Lipila response missing cardRedirectionUrl',
-                }
-            return {
-                'success': True,
-                'authorization_url': redirect_url,
-                'payment_reference': payment_reference,
-                'gateway_response': resp,
-                'failure_reason': None,
-            }
-
-        except requests.exceptions.RequestException as e:
-            logger.error(f'Lipila API error for deposit {deposit.id}: {str(e)}', exc_info=True)
-            return {
-                'success': False,
-                'authorization_url': None,
-                'payment_reference': None,
-                'gateway_response': {'status': 'error', 'error': str(e)},
-                'failure_reason': f'Lipila API error: {str(e)}',
-            }
-        except Exception as e:
-            logger.error(f'Error initializing Lipila deposit {deposit.id}: {str(e)}', exc_info=True)
-            return {
-                'success': False,
-                'authorization_url': None,
-                'payment_reference': None,
-                'gateway_response': {'status': 'error', 'error': str(e)},
-                'failure_reason': f'Processing error: {str(e)}',
-            }
+        result = get_payment_gateway().initiate_payment(
+            deposit,
+            _CallbackRequest(),
+            mobile_number=mobile_number,
+        )
+        return {
+            'success': result.success,
+            'authorization_url': result.payment_url,
+            'payment_reference': result.payment_reference,
+            'gateway_response': result.raw_response,
+            'failure_reason': result.failure_reason,
+        }
 
     def _initialize_bank_transfer_deposit(self, deposit, callback_url: Optional[str]) -> Dict[str, Any]:
         """

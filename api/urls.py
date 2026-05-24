@@ -25,6 +25,8 @@ from .views import (
     TransactionHistoryView,
     DepositCreateView,
     WithdrawalCreateView,
+    PaymentStatusView,
+    LipilaWebhookView,
     DisputeViewSet,
     MessageViewSet,
     NotificationViewSet
@@ -70,6 +72,8 @@ urlpatterns = [
     path('wallet/transactions/', TransactionHistoryView.as_view(), name='api_wallet_transactions'),
     path('wallet/deposit/', DepositCreateView.as_view(), name='api_wallet_deposit'),
     path('wallet/withdraw/', WithdrawalCreateView.as_view(), name='api_wallet_withdraw'),
+    path('payment/status/<int:order_id>/', PaymentStatusView.as_view(), name='api_payment_status'),
+    path('payments/lipila/webhook/', LipilaWebhookView.as_view(), name='api_lipila_webhook'),
     
     # Include router URLs (disputes, messages, notifications)
     path('', include(router.urls)),
