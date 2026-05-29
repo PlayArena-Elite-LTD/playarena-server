@@ -29,7 +29,7 @@ from .login_form import EmailOrUsernameAuthenticationForm
 User = get_user_model()
 
 
-@ratelimit(key='ip', rate='3/h', method='POST', block=True)
+@ratelimit(key='ip', rate='6/h', method='POST', block=True)
 def pre_signup(request):
     """Handle pre-signup form to collect email before full registration"""
     if request.method == 'POST':
