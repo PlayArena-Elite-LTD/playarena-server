@@ -132,13 +132,20 @@ class LipilaGateway(PaymentGateway):
             )
         except requests.RequestException as e:
             logger.error('Lipila initiate error: deposit_id=%s', deposit.id, exc_info=True)
+            api_message = str(e)
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    body = e.response.json()
+                    api_message = body.get('message') or body.get('error') or body.get('detail') or str(e)
+                except Exception:
+                    api_message = e.response.text[:300] or str(e)
             return PaymentInitResult(
                 success=False,
                 provider=self.provider_name,
                 payment_status='Failed',
                 payment_reference=reference_id,
-                message='Lipila API error',
-                failure_reason=str(e),
+                message=f'Lipila API error: {api_message}',
+                failure_reason=api_message,
             )
 
     def verify_payment(self, deposit) -> PaymentVerifyResult:
