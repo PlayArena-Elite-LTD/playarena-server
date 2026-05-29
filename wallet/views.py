@@ -20,15 +20,11 @@ from wallet.payment_debug import payment_debug_enabled, mask_secret
 logger = logging.getLogger(__name__)
 
 
-def _get_rate_limit_key(request):
-    """
-    Get rate limit key: use user ID if authenticated, otherwise use IP.
-    This ensures rate limiting works correctly even when @ratelimit is outermost.
-    Returns just the identifier (user ID or IP) - django-ratelimit adds its own prefix.
-    """
-    if hasattr(request, 'user') and request.user.is_authenticated:
+def _get_rate_limit_key(group, request):
+    if hasattr(request, "user") and request.user.is_authenticated:
         return str(request.user.id)
-    return request.META.get('REMOTE_ADDR', 'unknown')
+
+    return request.META.get("REMOTE_ADDR", "unknown")
 
 
 @login_required
@@ -52,7 +48,7 @@ def wallet_view(request):
 
 @ratelimit(key=_get_rate_limit_key, rate='10/m', method='POST', block=True)
 @login_required
-@require_POST
+# @require_POST
 @transaction.atomic
 def deposit_view(request):
     """
