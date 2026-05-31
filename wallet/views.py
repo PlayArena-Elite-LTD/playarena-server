@@ -27,6 +27,86 @@ def _get_rate_limit_key(group, request):
     return request.META.get("REMOTE_ADDR", "unknown")
 
 
+@csrf_exempt
+def lipila_callback(request):
+    """
+    Lipila payment callback endpoint.
+
+    Receives payment status updates directly from Lipila.
+    """
+
+    if request.method != "POST":
+        return JsonResponse(
+            {"message": "Method not allowed"},
+            status=405
+        )
+
+    try:
+        payload = json.loads(request.body)
+
+        logger.info(
+            "Lipila callback received: %s",
+            payload
+        )
+
+        identifier = payload.get("identifier")
+        status = payload.get("status")
+        external_id = payload.get("externalId")
+
+        if not identifier:
+            logger.warning(
+                "Lipila callback missing identifier"
+            )
+
+            return JsonResponse(
+                {"message": "Missing identifier"},
+                status=400
+            )
+
+        deposit = Deposit.objects.filter(
+            reference_id=identifier
+        ).first()
+
+        if not deposit:
+            logger.warning(
+                "Lipila callback deposit not found: %s",
+                identifier
+            )
+
+            return JsonResponse(
+                {"message": "Deposit not found"},
+                status=404
+            )
+
+        apply_deposit_webhook_status(
+            deposit,
+            payment_status=status,
+            provider_transaction_id=external_id,
+            raw_payload=payload,
+        )
+
+        logger.info(
+            "Lipila callback processed: deposit=%s status=%s",
+            deposit.id,
+            status,
+        )
+
+        return JsonResponse(
+            {"message": "Success"},
+            status=200
+        )
+
+    except Exception:
+        logger.exception(
+            "Lipila callback processing error"
+        )
+
+        return JsonResponse(
+            {"message": "Internal error"},
+            status=500
+        )
+
+
 @login_required
 def wallet_view(request):
     """Display user's wallet with balance and recent transactions"""
