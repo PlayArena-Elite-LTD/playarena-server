@@ -18,7 +18,11 @@ logger = logging.getLogger('payments.lipila')
 def _build_url(base: str, path: str) -> str:
     if path.startswith('http://') or path.startswith('https://'):
         return path
-    return urljoin(base.rstrip('/') + '/', path.lstrip('/'))
+    base_clean = base.rstrip('/')
+    path_clean = path.lstrip('/')
+    if base_clean.endswith('/api/v1') and path_clean.startswith('api/v1/'):
+        path_clean = path_clean[len('api/v1/'):]
+    return urljoin(base_clean + '/', path_clean)
 
 
 class LipilaService:
@@ -115,21 +119,46 @@ class LipilaService:
         logger.debug('Lipila initiate body keys: %s', list(data.keys()) if isinstance(data, dict) else type(data))
         return data
 
-    def get_transaction_status(self, reference_id: str) -> Dict[str, Any]:
-        if self.legacy_collections:
-            url = _build_url(self.base_url, '/api/v1/collections/check-status')
+    def _get_collection_status(self, reference_id: str) -> Optional[Dict[str, Any]]:
+        """Try Lipila's documented collection status endpoint."""
+        for path in ('/collections/check-status', '/api/v1/collections/check-status'):
+            url = _build_url(self.base_url, path)
             resp = requests.get(
                 url,
                 params={'referenceId': reference_id},
                 headers=self._headers(),
                 timeout=self.timeout,
             )
-        else:
-            path = self.status_path_template.format(reference_id=reference_id)
-            url = _build_url(self.base_url, path)
-            resp = requests.get(url, headers=self._headers(), timeout=self.timeout)
+            logger.info(
+                'Lipila collection status check: ref=%s url=%s http=%s',
+                reference_id,
+                url,
+                resp.status_code,
+            )
+            if resp.ok:
+                return resp.json() if resp.content else {}
+            if resp.status_code != 404:
+                resp.raise_for_status()
+        return None
+
+    def get_transaction_status(self, reference_id: str) -> Dict[str, Any]:
+        collection_status = self._get_collection_status(reference_id)
+        if collection_status is not None:
+            return collection_status
+
+        if self.legacy_collections:
+            raise requests.HTTPError(
+                f'Collection with referenceId {reference_id} was not found'
+            )
+
+        path = self.status_path_template.format(reference_id=reference_id)
+        url = _build_url(self.base_url, path)
+        resp = requests.get(url, headers=self._headers(), timeout=self.timeout)
 
         logger.info('Lipila status check: ref=%s http=%s', reference_id, resp.status_code)
+        if resp.ok:
+            return resp.json() if resp.content else {}
+
         resp.raise_for_status()
         return resp.json() if resp.content else {}
 

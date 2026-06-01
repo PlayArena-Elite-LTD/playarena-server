@@ -147,36 +147,65 @@ class LipilaGateway(PaymentGateway):
                 message=f'Lipila API error: {api_message}',
                 failure_reason=api_message,
             )
-
     def verify_payment(self, deposit) -> PaymentVerifyResult:
-        ref = deposit.payment_reference or deposit.transaction_id
-        if not ref:
+        refs = []
+        for ref in (
+            deposit.payment_reference,
+            deposit.provider_transaction_id,
+            deposit.transaction_id,
+        ):
+            if ref and str(ref) not in refs:
+                refs.append(str(ref))
+        if isinstance(deposit.gateway_response, dict):
+            for ref in (
+                deposit.gateway_response.get('referenceId'),
+                deposit.gateway_response.get('identifier'),
+                deposit.gateway_response.get('transactionId'),
+                deposit.gateway_response.get('externalId'),
+            ):
+                if ref and str(ref) not in refs:
+                    refs.append(str(ref))
+
+        if not refs:
             return PaymentVerifyResult(
                 success=False,
                 payment_status='Pending',
                 message='No payment reference',
             )
-        if str(ref).startswith('MOCK_') and bool(getattr(settings, 'LIPILA_MOCK_MODE', False)):
+
+        if refs[0].startswith('MOCK_') and bool(getattr(settings, 'LIPILA_MOCK_MODE', False)):
             return PaymentVerifyResult(
                 success=True,
                 payment_status='Successful',
-                provider_transaction_id=ref,
+                provider_transaction_id=refs[0],
                 message='Mock payment',
                 raw_response={'mock': True},
             )
+
+        last_error = None
         try:
-            resp = self.service.get_transaction_status(str(ref))
-            normalized, msg = LipilaService.interpret_status(resp)
-            lipila_status = LipilaService.normalize_status(
-                str(resp.get('status', normalized))
-            )
-            return PaymentVerifyResult(
-                success=normalized == 'COMPLETED',
-                payment_status=lipila_status,
-                provider_transaction_id=LipilaService.extract_transaction_id(resp) or ref,
-                message=msg,
-                raw_response=resp,
-            )
+            for ref in refs:
+                try:
+                    resp = self.service.get_transaction_status(ref)
+                except Exception as e:
+                    last_error = e
+                    logger.info('Lipila verify ref failed: deposit_id=%s ref=%s', deposit.id, ref)
+                    continue
+
+                normalized, msg = LipilaService.interpret_status(resp)
+                lipila_status = LipilaService.normalize_status(
+                    str(resp.get('status', normalized))
+                )
+                return PaymentVerifyResult(
+                    success=normalized == 'COMPLETED',
+                    payment_status=lipila_status,
+                    provider_transaction_id=LipilaService.extract_transaction_id(resp) or ref,
+                    message=msg,
+                    raw_response=resp,
+                )
+
+            if last_error:
+                raise last_error
         except Exception as e:
             logger.error('Lipila verify error: deposit_id=%s', deposit.id, exc_info=True)
             return PaymentVerifyResult(
@@ -184,6 +213,12 @@ class LipilaGateway(PaymentGateway):
                 payment_status='Pending',
                 message=str(e),
             )
+
+        return PaymentVerifyResult(
+            success=False,
+            payment_status='Pending',
+            message='Payment still pending',
+        )
 
     def handle_webhook(self, request) -> WebhookResult:
         raw_body = request.body
@@ -196,17 +231,18 @@ class LipilaGateway(PaymentGateway):
             return WebhookResult(processed=False, message='Invalid webhook signature')
 
         reference = str(
-            payload.get('externalReference')
-            or payload.get('referenceId')
+            payload.get('referenceId')
             or payload.get('reference_id')
+            or payload.get('externalReference')
             or payload.get('order_id')
             or payload.get('orderId')
             or ''
         ).strip()
+        identifier = str(payload.get('identifier') or '').strip()
         transaction_id = str(
             payload.get('transactionId')
             or payload.get('transaction_id')
-            or payload.get('identifier')
+            or identifier
             or ''
         ).strip()
         status_raw = str(payload.get('status') or payload.get('paymentStatus') or '').strip()
@@ -223,16 +259,16 @@ class LipilaGateway(PaymentGateway):
         from wallet.payment_processing import apply_deposit_webhook_status
 
         deposit = None
-        if reference:
+        for value in (reference, identifier, transaction_id):
+            if not value:
+                continue
             deposit = (
-                Deposit.objects.filter(payment_reference=reference).first()
-                or Deposit.objects.filter(transaction_id=reference).first()
+                Deposit.objects.filter(payment_reference=value).first()
+                or Deposit.objects.filter(provider_transaction_id=value).first()
+                or Deposit.objects.filter(transaction_id=value).first()
             )
-        if not deposit and transaction_id:
-            deposit = (
-                Deposit.objects.filter(provider_transaction_id=transaction_id).first()
-                or Deposit.objects.filter(transaction_id=transaction_id).first()
-            )
+            if deposit:
+                break
 
         if not deposit:
             logger.warning('Lipila webhook: deposit not found ref=%s txn=%s', reference, transaction_id)
@@ -242,10 +278,16 @@ class LipilaGateway(PaymentGateway):
                 raw_payload=payload,
             )
 
+        provider_transaction_id = None
+        for candidate in (transaction_id, reference, identifier, payload.get('externalId')):
+            if candidate and str(candidate) != str(deposit.payment_reference):
+                provider_transaction_id = str(candidate)
+                break
+
         applied = apply_deposit_webhook_status(
             deposit,
             payment_status=payment_status,
-            provider_transaction_id=transaction_id or None,
+            provider_transaction_id=provider_transaction_id,
             raw_payload=payload,
             webhook_signature=request.headers.get('X-Signature')
             or request.headers.get('X-Webhook-Signature')

@@ -6,8 +6,6 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from core.ratelimit import ratelimit
 from django.db import transaction
-from decimal import Decimal
-import json
 import logging
 import time
 
@@ -30,81 +28,14 @@ def _get_rate_limit_key(group, request):
 @csrf_exempt
 def lipila_callback(request):
     """
-    Lipila payment callback endpoint.
+    Backward-compatible Lipila callback entrypoint.
 
-    Receives payment status updates directly from Lipila.
+    The canonical implementation lives in wallet.webhooks.lipila_callback so
+    GET redirects and POST webhook processing share the same behavior.
     """
+    from wallet.webhooks import lipila_callback as wallet_lipila_callback
 
-    if request.method != "POST":
-        return JsonResponse(
-            {"message": "Method not allowed"},
-            status=405
-        )
-
-    try:
-        payload = json.loads(request.body)
-
-        logger.info(
-            "Lipila callback received: %s",
-            payload
-        )
-
-        identifier = payload.get("identifier")
-        status = payload.get("status")
-        external_id = payload.get("externalId")
-
-        if not identifier:
-            logger.warning(
-                "Lipila callback missing identifier"
-            )
-
-            return JsonResponse(
-                {"message": "Missing identifier"},
-                status=400
-            )
-
-        deposit = Deposit.objects.filter(
-            reference_id=identifier
-        ).first()
-
-        if not deposit:
-            logger.warning(
-                "Lipila callback deposit not found: %s",
-                identifier
-            )
-
-            return JsonResponse(
-                {"message": "Deposit not found"},
-                status=404
-            )
-
-        apply_deposit_webhook_status(
-            deposit,
-            payment_status=status,
-            provider_transaction_id=external_id,
-            raw_payload=payload,
-        )
-
-        logger.info(
-            "Lipila callback processed: deposit=%s status=%s",
-            deposit.id,
-            status,
-        )
-
-        return JsonResponse(
-            {"message": "Success"},
-            status=200
-        )
-
-    except Exception:
-        logger.exception(
-            "Lipila callback processing error"
-        )
-
-        return JsonResponse(
-            {"message": "Internal error"},
-            status=500
-        )
+    return wallet_lipila_callback(request)
 
 
 @login_required
@@ -225,7 +156,7 @@ def deposit_status_json(request, deposit_id):
     from wallet.payment_processing import apply_deposit_webhook_status
 
     deposit = get_object_or_404(Deposit, id=deposit_id, user=request.user)
-    if deposit.status == 'PROCESSING' and deposit.payment_provider == 'lipila':
+    if deposit.status in ('PENDING', 'PROCESSING') and deposit.payment_provider == 'lipila':
         gateway = get_payment_gateway()
         verify = gateway.verify_payment(deposit)
         if verify.payment_status == 'Successful':
