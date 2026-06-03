@@ -86,13 +86,17 @@ class LipilaService:
         url = _build_url(self.base_url, self.mobile_money_path)
         payload: Dict[str, Any] = {
             'referenceId': reference_id,
+            'identifier': reference_id,
             'externalReference': reference_id,
             'amount': amount,
             'currency': currency,
             'narration': narration,
+            'referenceData': narration,
             'accountNumber': account_number,
             'phoneNumber': account_number,
         }
+        if callback_url:
+            payload['callbackUrl'] = callback_url
         if email:
             payload['email'] = email
 
@@ -137,6 +141,13 @@ class LipilaService:
             )
             if resp.ok:
                 return resp.json() if resp.content else {}
+            if resp.status_code == 400:
+                logger.warning(
+                    'Lipila collection status check rejected ref=%s body=%s',
+                    reference_id,
+                    resp.text[:300],
+                )
+                return None
             if resp.status_code != 404:
                 resp.raise_for_status()
         return None
@@ -168,11 +179,15 @@ class LipilaService:
         reference_id = kwargs['reference_id']
         payload = {
             'referenceId': reference_id,
+            'identifier': reference_id,
             'amount': kwargs['amount'],
             'narration': kwargs['narration'],
+            'referenceData': kwargs['narration'],
             'accountNumber': kwargs['account_number'],
             'currency': kwargs['currency'],
         }
+        if kwargs.get('callback_url'):
+            payload['callbackUrl'] = kwargs['callback_url']
         if kwargs.get('email'):
             payload['email'] = kwargs['email']
         headers = {
@@ -203,12 +218,12 @@ class LipilaService:
         """
         if not isinstance(response, dict):
             return 'UNKNOWN', ''
-        status = str(
-            response.get('status')
-            or response.get('paymentStatus')
+        status = LipilaService.extract_status(response)
+        message = str(
+            response.get('message')
+            or response.get('description')
             or ''
         ).strip()
-        message = str(response.get('message') or '').strip()
         normalized = LipilaService.normalize_status(status)
         if normalized == 'Successful':
             return 'COMPLETED', message or status
@@ -219,17 +234,48 @@ class LipilaService:
         return 'UNKNOWN', message or status
 
     @staticmethod
+    def extract_status(response: Dict[str, Any]) -> str:
+        if not isinstance(response, dict):
+            return ''
+
+        for payload in LipilaService._candidate_payloads(response):
+            status = str(
+                payload.get('status')
+                or payload.get('paymentStatus')
+                or payload.get('payment_status')
+                or payload.get('collectionStatus')
+                or payload.get('transactionStatus')
+                or ''
+            ).strip()
+            if status:
+                return status
+        return ''
+
+    @staticmethod
     def extract_transaction_id(response: Dict[str, Any]) -> Optional[str]:
         if not isinstance(response, dict):
             return None
-        return str(
-            response.get('transactionId')
-            or response.get('transaction_id')
-            or response.get('identifier')
-            or response.get('id')
-            or response.get('referenceId')
-            or ''
-        ).strip() or None
+        for payload in LipilaService._candidate_payloads(response):
+            value = str(
+                payload.get('transactionId')
+                or payload.get('transaction_id')
+                or payload.get('identifier')
+                or payload.get('externalId')
+                or payload.get('id')
+                or payload.get('referenceId')
+                or ''
+            ).strip()
+            if value:
+                return value
+        return None
+
+    @staticmethod
+    def _candidate_payloads(response: Dict[str, Any]):
+        yield response
+        for key in ('data', 'transaction', 'collection', 'payment'):
+            nested = response.get(key)
+            if isinstance(nested, dict):
+                yield nested
 
 
 def get_lipila_service() -> LipilaService:
