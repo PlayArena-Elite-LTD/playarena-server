@@ -18,7 +18,11 @@ logger = logging.getLogger('payments.lipila')
 def _build_url(base: str, path: str) -> str:
     if path.startswith('http://') or path.startswith('https://'):
         return path
-    return urljoin(base.rstrip('/') + '/', path.lstrip('/'))
+    base_clean = base.rstrip('/')
+    path_clean = path.lstrip('/')
+    if base_clean.endswith('/api/v1') and path_clean.startswith('api/v1/'):
+        path_clean = path_clean[len('api/v1/'):]
+    return urljoin(base_clean + '/', path_clean)
 
 
 class LipilaService:
@@ -29,8 +33,8 @@ class LipilaService:
         secret_key: str,
         base_url: str,
         *,
-        mobile_money_path: str = '/transactions/mobile-money',
-        status_path_template: str = '/transactions/{reference_id}',
+        mobile_money_path: str = '/collections/mobile-money',
+        status_path_template: str = '/collections/{reference_id}',
         legacy_collections: bool = False,
         timeout: int = 30,
     ) -> None:
@@ -45,6 +49,7 @@ class LipilaService:
         headers = {
             'Accept': 'application/json',
             'Content-Type': 'application/json',
+            'x-api-key': self.secret_key,
             'Authorization': f'Bearer {self.secret_key}',
         }
         if callback_url:
@@ -64,7 +69,7 @@ class LipilaService:
         idempotency_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        POST {LIPILA_BASE_URL}/transactions/mobile-money (UAT/production style)
+        POST {LIPILA_BASE_URL}/collections/mobile-money (UAT/production style)
         or legacy /api/v1/collections/mobile-money when LIPILA_API_STYLE=legacy.
         """
         if self.legacy_collections:
@@ -103,26 +108,57 @@ class LipilaService:
         )
         resp = requests.post(url, json=payload, headers=headers, timeout=self.timeout)
         logger.info('Lipila initiate response: http=%s', resp.status_code)
+        if not resp.ok:
+            logger.error(
+                'Lipila initiate failed: http=%s body=%s',
+                resp.status_code,
+                resp.text[:500],
+            )
         resp.raise_for_status()
         data = resp.json() if resp.content else {}
         logger.debug('Lipila initiate body keys: %s', list(data.keys()) if isinstance(data, dict) else type(data))
         return data
 
-    def get_transaction_status(self, reference_id: str) -> Dict[str, Any]:
-        if self.legacy_collections:
-            url = _build_url(self.base_url, '/api/v1/collections/check-status')
+    def _get_collection_status(self, reference_id: str) -> Optional[Dict[str, Any]]:
+        """Try Lipila's documented collection status endpoint."""
+        for path in ('/collections/check-status', '/api/v1/collections/check-status'):
+            url = _build_url(self.base_url, path)
             resp = requests.get(
                 url,
                 params={'referenceId': reference_id},
                 headers=self._headers(),
                 timeout=self.timeout,
             )
-        else:
-            path = self.status_path_template.format(reference_id=reference_id)
-            url = _build_url(self.base_url, path)
-            resp = requests.get(url, headers=self._headers(), timeout=self.timeout)
+            logger.info(
+                'Lipila collection status check: ref=%s url=%s http=%s',
+                reference_id,
+                url,
+                resp.status_code,
+            )
+            if resp.ok:
+                return resp.json() if resp.content else {}
+            if resp.status_code != 404:
+                resp.raise_for_status()
+        return None
+
+    def get_transaction_status(self, reference_id: str) -> Dict[str, Any]:
+        collection_status = self._get_collection_status(reference_id)
+        if collection_status is not None:
+            return collection_status
+
+        if self.legacy_collections:
+            raise requests.HTTPError(
+                f'Collection with referenceId {reference_id} was not found'
+            )
+
+        path = self.status_path_template.format(reference_id=reference_id)
+        url = _build_url(self.base_url, path)
+        resp = requests.get(url, headers=self._headers(), timeout=self.timeout)
 
         logger.info('Lipila status check: ref=%s http=%s', reference_id, resp.status_code)
+        if resp.ok:
+            return resp.json() if resp.content else {}
+
         resp.raise_for_status()
         return resp.json() if resp.content else {}
 
@@ -201,6 +237,12 @@ def get_lipila_service() -> LipilaService:
         getattr(settings, 'LIPILA_SECRET_KEY', '')
         or getattr(settings, 'LIPILA_API_KEY', '')
     ).strip()
+    logger.info(
+        "Lipila Config: base_url=%s secret_present=%s secret_prefix=%s",
+        getattr(settings, 'LIPILA_BASE_URL', ''),
+        bool(secret),
+        secret[:8] if secret else 'EMPTY'
+    )
     legacy = str(getattr(settings, 'LIPILA_API_STYLE', 'uat')).strip().lower() == 'legacy'
     return LipilaService(
         secret_key=secret,
@@ -208,12 +250,12 @@ def get_lipila_service() -> LipilaService:
         mobile_money_path=getattr(
             settings,
             'LIPILA_MOBILE_MONEY_PATH',
-            '/transactions/mobile-money',
+            '/collections/mobile-money',
         ),
         status_path_template=getattr(
             settings,
             'LIPILA_STATUS_PATH_TEMPLATE',
-            '/transactions/{reference_id}',
+            '/collections/{reference_id}',
         ),
         legacy_collections=legacy,
         timeout=int(getattr(settings, 'LIPILA_TIMEOUT_SECONDS', 30)),

@@ -923,7 +923,7 @@ class PaymentStatusView(APIView):
 
         deposit = get_object_or_404(Deposit, id=order_id, user=request.user)
 
-        if deposit.status == 'PROCESSING' and deposit.payment_provider == 'lipila':
+        if deposit.status in ('PENDING', 'PROCESSING') and deposit.payment_provider == 'lipila':
             gateway = get_payment_gateway()
             verify = gateway.verify_payment(deposit)
             if verify.payment_status == 'Successful':

@@ -33,10 +33,11 @@ class DepositForm(forms.Form):
         required=False,
         widget=forms.TextInput(attrs={
             'class': 'form-control',
-            'placeholder': '26097xxxxxxx',
+            'placeholder': '260971234567',
+            'autocomplete': 'tel',
         }),
         label='Mobile Money Number',
-        help_text='Required for Lipila Mobile Money (Zambian format, e.g. 26097xxxxxxx)',
+        help_text='Zambian mobile number, e.g. 260971234567',
     )
     
     def __init__(self, *args, **kwargs):
@@ -47,17 +48,14 @@ class DepositForm(forms.Form):
         lipila_mock = bool(getattr(settings, 'LIPILA_MOCK_MODE', False))
         lipila_ready = bool((getattr(settings, 'LIPILA_API_KEY', '') or '').strip())
         if lipila_ready or lipila_mock:
+            choices.append(('LIPILA_MOMO', 'Lipila Mobile Money (MoMo)'))
             choices.append(('LIPILA', 'Lipila (Card)'))
-            choices.append(('LIPILA_MOMO', 'Lipila (Mobile Money)'))
         choices.append(('BANK_TRANSFER', 'Bank Transfer'))
         self.fields['payment_method'].choices = choices
 
-        if lipila_mock:
-            self.fields['payment_method'].help_text = (
-                'Lipila is running in MOCK mode (dev-only). Deposits auto-complete on callback.'
-            )
-            self.fields['payment_method'].initial = 'LIPILA'
-        elif not lipila_ready:
+        if lipila_ready or lipila_mock:
+            self.fields['payment_method'].initial = 'LIPILA_MOMO'
+        else:
             self.fields['payment_method'].initial = 'BANK_TRANSFER'
             self.fields['mobile_number'].widget = forms.HiddenInput()
 

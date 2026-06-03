@@ -6,8 +6,6 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from core.ratelimit import ratelimit
 from django.db import transaction
-from decimal import Decimal
-import json
 import logging
 import time
 
@@ -20,15 +18,24 @@ from wallet.payment_debug import payment_debug_enabled, mask_secret
 logger = logging.getLogger(__name__)
 
 
-def _get_rate_limit_key(request):
-    """
-    Get rate limit key: use user ID if authenticated, otherwise use IP.
-    This ensures rate limiting works correctly even when @ratelimit is outermost.
-    Returns just the identifier (user ID or IP) - django-ratelimit adds its own prefix.
-    """
-    if hasattr(request, 'user') and request.user.is_authenticated:
+def _get_rate_limit_key(group, request):
+    if hasattr(request, "user") and request.user.is_authenticated:
         return str(request.user.id)
-    return request.META.get('REMOTE_ADDR', 'unknown')
+
+    return request.META.get("REMOTE_ADDR", "unknown")
+
+
+@csrf_exempt
+def lipila_callback(request):
+    """
+    Backward-compatible Lipila callback entrypoint.
+
+    The canonical implementation lives in wallet.webhooks.lipila_callback so
+    GET redirects and POST webhook processing share the same behavior.
+    """
+    from wallet.webhooks import lipila_callback as wallet_lipila_callback
+
+    return wallet_lipila_callback(request)
 
 
 @login_required
@@ -52,7 +59,7 @@ def wallet_view(request):
 
 @ratelimit(key=_get_rate_limit_key, rate='10/m', method='POST', block=True)
 @login_required
-@require_POST
+# @require_POST
 @transaction.atomic
 def deposit_view(request):
     """
@@ -149,7 +156,7 @@ def deposit_status_json(request, deposit_id):
     from wallet.payment_processing import apply_deposit_webhook_status
 
     deposit = get_object_or_404(Deposit, id=deposit_id, user=request.user)
-    if deposit.status == 'PROCESSING' and deposit.payment_provider == 'lipila':
+    if deposit.status in ('PENDING', 'PROCESSING') and deposit.payment_provider == 'lipila':
         gateway = get_payment_gateway()
         verify = gateway.verify_payment(deposit)
         if verify.payment_status == 'Successful':
