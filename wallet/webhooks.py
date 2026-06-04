@@ -146,7 +146,7 @@ def _fail_deposit(deposit: Deposit, failed_via: str, reason: str, gateway_payloa
     deposit.gateway_response = gateway_payload or {}
     deposit.save()
 
-    notify_deposit_failed(deposit, reason=deposit.failure_reason)
+    notify_deposit_failed(deposit, failure_reason=deposit.failure_reason)
 
     from audit.utils import log_action
     log_action(
@@ -792,4 +792,3 @@ def handle_flutterwave_withdrawal_failed(data):
     except Exception as e:
         logger.error(f'Error processing Flutterwave withdrawal failed webhook: {str(e)}', exc_info=True)
         return JsonResponse({'status': 'error', 'message': 'Processing error'}, status=500)
-

@@ -12,6 +12,7 @@ from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from decimal import Decimal
+import logging
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
 from .serializers import (
     UserSerializer,
@@ -44,6 +45,7 @@ from wallet.models import Wallet, Transaction
 from wallet.notifications import notify_withdrawal_created
 
 User = get_user_model()
+logger = logging.getLogger('payments.lipila')
 
 
 class UserRegistrationView(APIView):
@@ -958,9 +960,39 @@ class LipilaWebhookView(APIView):
 
     def post(self, request):
         from services.payments.factory import get_payment_gateway
+        from wallet.payment_debug import payment_debug_enabled
+
+        raw_body = request.body or b''
+        logger.info(
+            'Lipila webhook HTTP hit: path=%s content_type=%s remote_addr=%s user_agent=%s bytes=%s',
+            request.path,
+            request.META.get('CONTENT_TYPE', ''),
+            request.META.get('REMOTE_ADDR', ''),
+            request.META.get('HTTP_USER_AGENT', ''),
+            len(raw_body),
+        )
+        if payment_debug_enabled():
+            logger.info(
+                '[PAYMENT_DEBUG] lipila_webhook_raw: headers=%s body=%s',
+                {
+                    'content_type': request.META.get('CONTENT_TYPE', ''),
+                    'x_signature': request.META.get('HTTP_X_SIGNATURE', ''),
+                    'x_webhook_signature': request.META.get('HTTP_X_WEBHOOK_SIGNATURE', ''),
+                    'webhook_signature': request.META.get('HTTP_WEBHOOK_SIGNATURE', ''),
+                    'user_agent': request.META.get('HTTP_USER_AGENT', ''),
+                },
+                raw_body.decode('utf-8', errors='replace')[:4000],
+            )
 
         gateway = get_payment_gateway()
         result = gateway.handle_webhook(request)
+        logger.info(
+            'Lipila webhook handled: processed=%s deposit_id=%s payment_status=%s message=%s',
+            result.processed,
+            result.deposit_id,
+            result.payment_status,
+            result.message,
+        )
         if not result.processed and 'signature' in (result.message or '').lower():
             return Response({'status': 'error', 'message': result.message}, status=status.HTTP_401_UNAUTHORIZED)
         return Response(

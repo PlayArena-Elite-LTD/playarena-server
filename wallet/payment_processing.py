@@ -87,7 +87,7 @@ def apply_deposit_webhook_status(
             else None
         ) or 'Payment failed'
         deposit.save()
-        notify_deposit_failed(deposit, reason=deposit.failure_reason)
+        notify_deposit_failed(deposit, failure_reason=deposit.failure_reason)
         logger.info('Deposit %s failed via webhook', deposit.id)
         return {'processed': True, 'message': 'Deposit failed', 'status': 'FAILED'}
 
