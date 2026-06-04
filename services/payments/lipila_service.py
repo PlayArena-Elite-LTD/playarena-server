@@ -111,7 +111,11 @@ class LipilaService:
             currency,
         )
         resp = requests.post(url, json=payload, headers=headers, timeout=self.timeout)
-        logger.info('Lipila initiate response: http=%s', resp.status_code)
+        logger.info(
+            'Lipila initiate response: http=%s body=%s',
+            resp.status_code,
+            resp.text[:500],
+        )
         if not resp.ok:
             logger.error(
                 'Lipila initiate failed: http=%s body=%s',
@@ -144,7 +148,7 @@ class LipilaService:
             if resp.status_code == 405:
                 resp = requests.get(
                     url,
-                    params={'referenceId': reference_id},
+                    json={'referenceId': reference_id},
                     headers=self._headers(),
                     timeout=self.timeout,
                 )
