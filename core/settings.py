@@ -484,8 +484,8 @@ CSP_FONT_SRC = ("'self'",)
 WALLET_AUTO_PROCESS_WITHDRAWALS = True
 
 # Payment Gateway Settings
-# Test mode: keep true for local/mock testing, set false for real provider calls.
-PAYMENT_GATEWAY_TEST_MODE = _env_bool('PAYMENT_GATEWAY_TEST_MODE', _env_bool('PAYMENT_TEST_MODE', True))
+# Test mode: explicitly enable for local/mock testing. Production defaults to real provider calls.
+PAYMENT_GATEWAY_TEST_MODE = _env_bool('PAYMENT_GATEWAY_TEST_MODE', _env_bool('PAYMENT_TEST_MODE', DEBUG))
 PAYMENT_TEST_MODE = PAYMENT_GATEWAY_TEST_MODE
 
 # Bank payout integration mode:

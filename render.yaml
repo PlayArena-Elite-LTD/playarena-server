@@ -30,6 +30,8 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: PAYMENT_GATEWAY_TEST_MODE
-        value: "true"
+        value: "false"
+      - key: LIPILA_MOCK_MODE
+        value: "false"
       - key: BANK_PAYOUT_MODE
         value: "mock"

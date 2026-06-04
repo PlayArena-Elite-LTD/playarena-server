@@ -38,7 +38,8 @@ This means all `migrate` operations on Render run against Postgres by default.
 
 Recommended first deployment values:
 - `DEBUG=false`
-- `PAYMENT_GATEWAY_TEST_MODE=true`
+- `PAYMENT_GATEWAY_TEST_MODE=false`
+- `LIPILA_MOCK_MODE=false`
 - `BANK_PAYOUT_MODE=mock`
 - Set `DJANGO_ALLOWED_HOSTS`, `DJANGO_CSRF_TRUSTED_ORIGINS`, `DJANGO_CORS_ALLOWED_ORIGINS`
 - `DATABASE_URL` is auto-wired from the managed Render Postgres service
@@ -51,7 +52,7 @@ When ready to go live:
    - `BANK_PAYOUT_MODE=live`
    - `BANK_PAYOUT_API_URL=https://your-real-bank-api.example/payouts`
    - `BANK_PAYOUT_API_KEY=<real-secret>`
-2. Set `PAYMENT_GATEWAY_TEST_MODE=false` for real provider behavior.
+2. Keep `PAYMENT_GATEWAY_TEST_MODE=false` and `LIPILA_MOCK_MODE=false` for real provider behavior.
 3. Re-deploy and verify with a small controlled test transaction first.
 
 ## Notes
