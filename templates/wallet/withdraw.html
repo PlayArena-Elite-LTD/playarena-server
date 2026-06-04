@@ -17,171 +17,243 @@
       {% endfor %}
     </div>
     {% endif %}
-    
-    <div class="form-header">
-      <h2 class="section-title">Withdraw Funds</h2>
-      <p class="wallet-subtitle">Request a payout to your preferred method.</p>
+
+    <div class="withdraw-header">
+      <div>
+        <h2 class="section-title">Withdraw Funds</h2>
+        <p class="wallet-subtitle">Send your available balance to a bank account or mobile money wallet.</p>
+      </div>
       <div class="header-actions">
         <a href="{% url 'payment_methods_list' %}" class="dashboard-button">
-          <i class="fas fa-credit-card"></i> Manage Payment Methods
+          <i class="fas fa-credit-card"></i>
+          <span>Payment Methods</span>
         </a>
         <a href="{% url 'wallet' %}" class="dashboard-button">
-          <i class="fas fa-arrow-left"></i> Back to Wallet
+          <i class="fas fa-arrow-left"></i>
+          <span>Wallet</span>
         </a>
       </div>
     </div>
-    
-    <div class="wallet-info-card">
-      <div class="wallet-balance">
-        <span class="balance-label">Available Balance</span>
-        <span class="balance-amount">${{ wallet.balance|floatformat:2 }}</span>
-      </div>
-    </div>
-    
-    <div class="form-container">
-      <form method="post" class="withdrawal-form" id="withdrawalForm">
-        {% csrf_token %}
-        
-        <div class="form-group">
-          <label for="{{ form.amount.id_for_label }}" class="form-label">
-            Withdrawal Amount <span class="required">*</span>
-          </label>
-          {{ form.amount }}
-          {% if form.amount.errors %}
-          <div class="form-error">
-            {{ form.amount.errors }}
+
+    <div class="withdraw-layout">
+      <div class="withdraw-panel">
+        <form method="post" class="withdrawal-form" id="withdrawalForm" novalidate>
+          {% csrf_token %}
+
+          {% if form.non_field_errors %}
+          <div class="form-error form-error-panel">
+            {{ form.non_field_errors }}
           </div>
           {% endif %}
-          <small class="form-help">Minimum: $1.00</small>
-        </div>
-        
-        <div class="form-group">
-          <label for="{{ form.payment_method.id_for_label }}" class="form-label">
-            Payment Method <span class="required">*</span>
-          </label>
-          {{ form.payment_method }}
-          {% if form.payment_method.errors %}
-          <div class="form-error">
-            {{ form.payment_method.errors }}
-          </div>
-          {% endif %}
-        </div>
-        
-        {% if form.saved_payment_method.queryset.count > 0 %}
-        <div class="form-group checkbox-group">
-          <div class="form-check">
-            {{ form.use_saved_method }}
-            <label for="{{ form.use_saved_method.id_for_label }}" class="form-check-label">
-              Use saved payment method
+
+          <div class="form-group">
+            <label for="{{ form.amount.id_for_label }}" class="form-label">
+              Amount <span class="required">*</span>
             </label>
+            <div class="amount-input-wrap">
+              <span class="amount-prefix">$</span>
+              {{ form.amount }}
+            </div>
+            <div class="quick-amounts" aria-label="Quick withdrawal amounts">
+              <button type="button" class="quick-amount" data-amount="1">1</button>
+              <button type="button" class="quick-amount" data-amount="5">5</button>
+              <button type="button" class="quick-amount" data-amount="10">10</button>
+              <button type="button" class="quick-amount" data-amount="{{ wallet.balance|floatformat:2 }}">Max</button>
+            </div>
+            {% if form.amount.errors %}
+            <div class="form-error">{{ form.amount.errors }}</div>
+            {% endif %}
+            <small class="form-help">Minimum $1.00. Mobile money max is $10,000 per request.</small>
           </div>
-          {% if form.use_saved_method.errors %}
-          <div class="form-error">
-            {{ form.use_saved_method.errors }}
+
+          <div class="form-group">
+            <label for="{{ form.payment_method.id_for_label }}" class="form-label">
+              Payout Method <span class="required">*</span>
+            </label>
+            {{ form.payment_method }}
+            {% if form.payment_method.errors %}
+            <div class="form-error">{{ form.payment_method.errors }}</div>
+            {% endif %}
+          </div>
+
+          {% if saved_methods %}
+          <div class="form-group saved-method-toggle">
+            <div class="form-check">
+              {{ form.use_saved_method }}
+              <label for="{{ form.use_saved_method.id_for_label }}" class="form-check-label">
+                Use a saved payout method
+              </label>
+            </div>
+          </div>
+
+          <div class="form-group" id="savedMethodGroup">
+            <label for="{{ form.saved_payment_method.id_for_label }}" class="form-label">Saved Method</label>
+            {{ form.saved_payment_method }}
+            {% if form.saved_payment_method.errors %}
+            <div class="form-error">{{ form.saved_payment_method.errors }}</div>
+            {% endif %}
+            <div class="saved-method-cards" aria-hidden="true">
+              {% for method in saved_methods %}
+              <div class="saved-method-card" data-method-id="{{ method.id }}" data-payment-method="{{ method.payment_method_type }}">
+                <span class="saved-method-label">{{ method.label }}</span>
+                <span class="saved-method-meta">
+                  {{ method.get_payment_method_type_display }}{% if method.is_default %} &middot; Default{% endif %}
+                </span>
+              </div>
+              {% endfor %}
+            </div>
+            <small class="form-help">
+              <a href="{% url 'payment_method_create' %}">Add a new payout method</a>
+            </small>
           </div>
           {% endif %}
+
+          <div class="form-group" id="accountDetailsGroup">
+            <label for="{{ form.account_details.id_for_label }}" class="form-label">
+              Account Details <span class="required">*</span>
+            </label>
+            {{ form.account_details }}
+            {% if form.account_details.errors %}
+            <div class="form-error">{{ form.account_details.errors }}</div>
+            {% endif %}
+            <div class="method-hint" id="methodHint"></div>
+          </div>
+
+          <div class="form-actions">
+            <a href="{% url 'wallet' %}" class="dashboard-button">Cancel</a>
+            <button type="submit" class="dashboard-button dashboard-button-primary">
+              <i class="fas fa-paper-plane"></i>
+              <span>Submit Request</span>
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <aside class="withdraw-summary" aria-label="Withdrawal summary">
+        <div class="summary-block">
+          <span class="summary-label">Available Balance</span>
+          <strong class="summary-balance">${{ wallet.balance|floatformat:2 }}</strong>
         </div>
-        
-        <div class="form-group" id="savedMethodGroup" style="display: none;">
-          <label for="{{ form.saved_payment_method.id_for_label }}" class="form-label">
-            Select Saved Payment Method
-          </label>
-          {{ form.saved_payment_method }}
-          {% if form.saved_payment_method.errors %}
-          <div class="form-error">
-            {{ form.saved_payment_method.errors }}
+
+        <div class="summary-block">
+          <span class="summary-label">Request Review</span>
+          <dl class="summary-list">
+            <div>
+              <dt>Amount</dt>
+              <dd id="reviewAmount">$0.00</dd>
+            </div>
+            <div>
+              <dt>Method</dt>
+              <dd id="reviewMethod">Bank Transfer</dd>
+            </div>
+            <div>
+              <dt>Status</dt>
+              <dd>Pending review</dd>
+            </div>
+          </dl>
+        </div>
+
+        {% if recent_withdrawals %}
+        <div class="summary-block">
+          <span class="summary-label">Recent Withdrawals</span>
+          <div class="mini-withdrawals">
+            {% for withdrawal in recent_withdrawals %}
+            <div class="mini-withdrawal">
+              <span>${{ withdrawal.amount|floatformat:2 }}</span>
+              <span class="status-badge status-{{ withdrawal.status|lower }}">{{ withdrawal.get_status_display }}</span>
+            </div>
+            {% endfor %}
           </div>
-          {% endif %}
-          <small class="form-help">
-            <a href="{% url 'payment_method_create' %}">Add new payment method</a>
-          </small>
         </div>
         {% endif %}
-        
-        <div class="form-group" id="accountDetailsGroup">
-          <label for="{{ form.account_details.id_for_label }}" class="form-label">
-            Account Details <span class="required">*</span>
-          </label>
-          {{ form.account_details }}
-          {% if form.account_details.errors %}
-          <div class="form-error">
-            {{ form.account_details.errors }}
-          </div>
-          {% endif %}
-          <small class="form-help">
-            Enter account information:
-            <ul style="margin-top: 0.5rem; padding-left: 1.5rem; font-size: 0.85rem;">
-              <li>Bank Transfer: account_number|bank_code</li>
-              <li>Mobile Money: phone|provider</li>
-              <li>Other: Provide relevant account details</li>
-            </ul>
-          </small>
-        </div>
-        
-        {% if form.non_field_errors %}
-        <div class="form-error">
-          {{ form.non_field_errors }}
-        </div>
-        {% endif %}
-        
-        <div class="form-actions">
-          <button type="submit" class="dashboard-button dashboard-button-primary">
-            <i class="fas fa-paper-plane"></i> Submit Withdrawal Request
-          </button>
-          <a href="{% url 'wallet' %}" class="dashboard-button">
-            Cancel
-          </a>
-        </div>
-      </form>
+      </aside>
     </div>
   </div>
 </section>
+{% endblock %}
 
+{% block additional_scripts %}
 <script>
-document.addEventListener('DOMContentLoaded', function() {
+(function () {
+  const amountInput = document.getElementById('{{ form.amount.id_for_label }}');
+  const methodSelect = document.getElementById('{{ form.payment_method.id_for_label }}');
   const useSavedCheckbox = document.getElementById('{{ form.use_saved_method.id_for_label }}');
   const savedMethodGroup = document.getElementById('savedMethodGroup');
   const accountDetailsGroup = document.getElementById('accountDetailsGroup');
+  const accountDetails = document.getElementById('{{ form.account_details.id_for_label }}');
   const savedMethodSelect = document.getElementById('{{ form.saved_payment_method.id_for_label }}');
-  
-  if (useSavedCheckbox && savedMethodGroup && accountDetailsGroup) {
-    function toggleFields() {
-      if (useSavedCheckbox.checked) {
-        savedMethodGroup.style.display = 'block';
-        accountDetailsGroup.style.display = 'none';
-        if (savedMethodSelect) {
-          savedMethodSelect.required = true;
-        }
-      } else {
-        savedMethodGroup.style.display = 'none';
-        accountDetailsGroup.style.display = 'block';
-        if (savedMethodSelect) {
-          savedMethodSelect.required = false;
-        }
-      }
+  const methodHint = document.getElementById('methodHint');
+  const reviewAmount = document.getElementById('reviewAmount');
+  const reviewMethod = document.getElementById('reviewMethod');
+  const maxBalance = Number('{{ wallet.balance|floatformat:2 }}');
+
+  const hints = {
+    BANK_TRANSFER: 'Use account_number|bank_code. Example: 1234567890|FNB.',
+    MOBILE_MONEY: 'Use phone|provider. Example: 260974221154|Airtel.',
+  };
+
+  function money(value) {
+    const number = Number(value || 0);
+    return '$' + number.toFixed(2);
+  }
+
+  function selectedMethodLabel() {
+    if (!methodSelect) return 'Bank Transfer';
+    const option = methodSelect.options[methodSelect.selectedIndex];
+    return option ? option.text : methodSelect.value;
+  }
+
+  function updateReview() {
+    if (reviewAmount && amountInput) {
+      reviewAmount.textContent = money(amountInput.value);
     }
-    
-    // Initial state
-    toggleFields();
-    
-    // Listen for changes
-    useSavedCheckbox.addEventListener('change', toggleFields);
-    
-    // If saved method is selected, update payment method dropdown
-    if (savedMethodSelect) {
-      savedMethodSelect.addEventListener('change', function() {
-        const selectedOption = this.options[this.selectedIndex];
-        if (selectedOption && selectedOption.dataset.paymentMethod) {
-          const paymentMethodSelect = document.getElementById('{{ form.payment_method.id_for_label }}');
-          if (paymentMethodSelect) {
-            paymentMethodSelect.value = selectedOption.dataset.paymentMethod;
-          }
-        }
-      });
+    if (reviewMethod) {
+      reviewMethod.textContent = selectedMethodLabel();
+    }
+    if (methodHint && methodSelect) {
+      methodHint.textContent = hints[methodSelect.value] || 'Enter the details needed to send this payout.';
     }
   }
-});
+
+  function toggleSavedMethod() {
+    const useSaved = Boolean(useSavedCheckbox && useSavedCheckbox.checked);
+    if (savedMethodGroup) savedMethodGroup.style.display = useSaved ? '' : 'none';
+    if (accountDetailsGroup) accountDetailsGroup.style.display = useSaved ? 'none' : '';
+    if (savedMethodSelect) savedMethodSelect.required = useSaved;
+    if (accountDetails) accountDetails.required = !useSaved;
+  }
+
+  document.querySelectorAll('.quick-amount').forEach(function (button) {
+    button.addEventListener('click', function () {
+      const amount = Math.min(Number(button.dataset.amount || 0), maxBalance);
+      if (amountInput) {
+        amountInput.value = amount.toFixed(2);
+        amountInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
+  });
+
+  if (savedMethodSelect) {
+    savedMethodSelect.addEventListener('change', function () {
+      const selectedId = savedMethodSelect.value;
+      document.querySelectorAll('.saved-method-card').forEach(function (card) {
+        const active = card.dataset.methodId === selectedId;
+        card.classList.toggle('is-selected', active);
+        if (active && methodSelect && card.dataset.paymentMethod) {
+          methodSelect.value = card.dataset.paymentMethod;
+        }
+      });
+      updateReview();
+    });
+  }
+
+  if (amountInput) amountInput.addEventListener('input', updateReview);
+  if (methodSelect) methodSelect.addEventListener('change', updateReview);
+  if (useSavedCheckbox) useSavedCheckbox.addEventListener('change', toggleSavedMethod);
+
+  toggleSavedMethod();
+  if (savedMethodSelect) savedMethodSelect.dispatchEvent(new Event('change'));
+  updateReview();
+})();
 </script>
-
 {% endblock %}
-

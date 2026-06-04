@@ -180,8 +180,6 @@ def deposit_status_json(request, deposit_id):
 
 @ratelimit(key=_get_rate_limit_key, rate='5/m', method='POST', block=True)
 @login_required
-@require_POST
-@transaction.atomic
 def withdraw_view(request):
     """
     Process withdrawal request
@@ -194,41 +192,51 @@ def withdraw_view(request):
         messages.error(request, 'Wallet not found')
         return redirect('wallet')
     
+    saved_methods = SavedPaymentMethod.objects.filter(
+        user=request.user,
+        is_active=True,
+        payment_method_type__in=['BANK_TRANSFER', 'MOBILE_MONEY'],
+    ).order_by('-is_default', '-created_at')
+    recent_withdrawals = request.user.withdrawals.all()[:5]
+
     if request.method == 'POST':
         form = WithdrawalForm(request.POST, user=request.user)
         if form.is_valid():
             try:
                 amount = form.cleaned_data['amount']
                 payment_method = form.cleaned_data['payment_method']
+                account_details = form.cleaned_data['account_details']
                 
-                if wallet.balance < amount:
-                    messages.error(request, 'Insufficient balance for withdrawal')
-                    return render(request, 'wallet/withdraw.html', {'form': form, 'wallet': wallet})
-                
-                # Create withdrawal record
-                withdrawal = Withdrawal(
-                    user=request.user,
-                    amount=amount,
-                    payment_method=payment_method,
-                    status='PENDING',
-                    wallet=wallet
-                )
-                
-                # Deduct from wallet immediately
-                wallet.balance -= amount
-                wallet.save()
-                
-                withdrawal.save()
-                
-                # Create transaction record
-                Transaction.objects.create(
-                    wallet=wallet,
-                    amount=-amount,
-                    transaction_type='WITHDRAWAL',
-                    description=f'Withdrawal request - {payment_method}',
-                    reference_code=f'WD{withdrawal.id:06d}',
-                    status='PENDING'
-                )
+                with transaction.atomic():
+                    wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
+
+                    if wallet.balance < amount:
+                        messages.error(request, 'Insufficient balance for withdrawal')
+                        return render(request, 'wallet/withdraw.html', {
+                            'form': form,
+                            'wallet': wallet,
+                            'saved_methods': saved_methods,
+                            'recent_withdrawals': recent_withdrawals,
+                        })
+
+                    withdrawal = Withdrawal.objects.create(
+                        user=request.user,
+                        amount=amount,
+                        payment_method=payment_method,
+                        account_details=account_details,
+                        status='PENDING',
+                        wallet=wallet,
+                    )
+
+                    wallet.balance -= amount
+                    wallet.save(update_fields=['balance'])
+
+                    Transaction.objects.create(
+                        wallet=wallet,
+                        amount=-amount,
+                        transaction_type='WITHDRAWAL',
+                        description=f'Withdrawal request - {withdrawal.get_payment_method_display()}',
+                    )
                 
                 messages.success(request, f'Withdrawal request for ${amount} submitted successfully!')
                 return redirect('wallet')
@@ -239,7 +247,12 @@ def withdraw_view(request):
     else:
         form = WithdrawalForm(user=request.user)
     
-    return render(request, 'wallet/withdraw.html', {'form': form, 'wallet': wallet})
+    return render(request, 'wallet/withdraw.html', {
+        'form': form,
+        'wallet': wallet,
+        'saved_methods': saved_methods,
+        'recent_withdrawals': recent_withdrawals,
+    })
 
 
 @login_required

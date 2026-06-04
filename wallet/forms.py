@@ -14,8 +14,9 @@ class DepositForm(forms.Form):
         max_value=Decimal('10000.00'),
         widget=forms.NumberInput(attrs={
             'class': 'form-control',
-            'placeholder': 'Enter amount',
-            'step': '0.01'
+            'placeholder': '0.00',
+            'step': '0.01',
+            'inputmode': 'decimal',
         }),
         label='Deposit Amount',
         help_text='Minimum: $1.00, Maximum: $10,000.00'
@@ -114,8 +115,9 @@ class WithdrawalForm(forms.Form):
         max_length=500,
         widget=forms.Textarea(attrs={
             'class': 'form-control',
-            'placeholder': 'Enter account details (account number, mobile number, etc.)',
-            'rows': 4
+            'placeholder': 'Bank: account_number|bank_code or Mobile Money: 26097xxxxxxx|Airtel',
+            'rows': 4,
+            'spellcheck': 'false',
         }),
         label='Account Details',
         help_text='Required: Provide account information for withdrawal (account number, mobile number, email, etc.)'
