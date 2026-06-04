@@ -127,9 +127,9 @@ class LipilaService:
         """Try Lipila's documented collection status endpoint."""
         for path in ('/collections/check-status', '/api/v1/collections/check-status'):
             url = _build_url(self.base_url, path)
-            resp = requests.get(
+            resp = requests.post(
                 url,
-                params={'referenceId': reference_id},
+                json={'referenceId': reference_id},
                 headers=self._headers(),
                 timeout=self.timeout,
             )
@@ -141,6 +141,21 @@ class LipilaService:
             )
             if resp.ok:
                 return resp.json() if resp.content else {}
+            if resp.status_code == 405:
+                resp = requests.get(
+                    url,
+                    params={'referenceId': reference_id},
+                    headers=self._headers(),
+                    timeout=self.timeout,
+                )
+                logger.info(
+                    'Lipila collection status check fallback: ref=%s url=%s http=%s',
+                    reference_id,
+                    url,
+                    resp.status_code,
+                )
+                if resp.ok:
+                    return resp.json() if resp.content else {}
             if resp.status_code == 400:
                 logger.warning(
                     'Lipila collection status check rejected ref=%s body=%s',
