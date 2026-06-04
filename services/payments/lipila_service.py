@@ -95,8 +95,6 @@ class LipilaService:
             'accountNumber': account_number,
             'phoneNumber': account_number,
         }
-        if callback_url:
-            payload['callbackUrl'] = callback_url
         if email:
             payload['email'] = email
 
@@ -141,13 +139,6 @@ class LipilaService:
             )
             if resp.ok:
                 return resp.json() if resp.content else {}
-            if resp.status_code == 400:
-                logger.warning(
-                    'Lipila collection status check rejected ref=%s body=%s',
-                    reference_id,
-                    resp.text[:300],
-                )
-                return None
             if resp.status_code != 404:
                 resp.raise_for_status()
         return None
@@ -186,8 +177,6 @@ class LipilaService:
             'accountNumber': kwargs['account_number'],
             'currency': kwargs['currency'],
         }
-        if kwargs.get('callback_url'):
-            payload['callbackUrl'] = kwargs['callback_url']
         if kwargs.get('email'):
             payload['email'] = kwargs['email']
         headers = {
