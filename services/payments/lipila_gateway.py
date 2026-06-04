@@ -183,6 +183,7 @@ class LipilaGateway(PaymentGateway):
             )
 
         last_error = None
+        pending_result = None
         try:
             for ref in refs:
                 try:
@@ -194,18 +195,35 @@ class LipilaGateway(PaymentGateway):
 
                 normalized, msg = LipilaService.interpret_status(resp)
                 lipila_status = LipilaService.normalize_status(
-                    str(resp.get('status', normalized))
+                    LipilaService.extract_status(resp) or normalized
                 )
-                return PaymentVerifyResult(
+                result = PaymentVerifyResult(
                     success=normalized == 'COMPLETED',
                     payment_status=lipila_status,
                     provider_transaction_id=LipilaService.extract_transaction_id(resp) or ref,
                     message=msg,
                     raw_response=resp,
                 )
+                if normalized in ('COMPLETED', 'FAILED'):
+                    return result
+                if pending_result is None:
+                    pending_result = result
+
+            if pending_result is not None:
+                return pending_result
 
             if last_error:
-                raise last_error
+                logger.warning(
+                    'Lipila verify unavailable: deposit_id=%s refs=%s last_error=%s',
+                    deposit.id,
+                    refs,
+                    last_error,
+                )
+                return PaymentVerifyResult(
+                    success=False,
+                    payment_status='Pending',
+                    message='Awaiting Lipila callback confirmation',
+                )
         except Exception as e:
             logger.error('Lipila verify error: deposit_id=%s', deposit.id, exc_info=True)
             return PaymentVerifyResult(
@@ -230,19 +248,18 @@ class LipilaGateway(PaymentGateway):
             logger.warning('Lipila webhook signature verification failed')
             return WebhookResult(processed=False, message='Invalid webhook signature')
 
-        reference = str(
+        lipila_reference = str(
             payload.get('referenceId')
             or payload.get('reference_id')
-            or payload.get('externalReference')
-            or payload.get('order_id')
-            or payload.get('orderId')
             or ''
         ).strip()
         identifier = str(payload.get('identifier') or '').strip()
+        external_id = str(payload.get('externalId') or payload.get('external_id') or '').strip()
         transaction_id = str(
             payload.get('transactionId')
             or payload.get('transaction_id')
-            or identifier
+            or lipila_reference
+            or external_id
             or ''
         ).strip()
         status_raw = LipilaService.extract_status(payload)
@@ -260,7 +277,7 @@ class LipilaGateway(PaymentGateway):
         from wallet.payment_processing import apply_deposit_webhook_status
 
         deposit = None
-        for value in (reference, identifier, transaction_id):
+        for value in (identifier, lipila_reference, transaction_id, external_id):
             if not value:
                 continue
             deposit = (
@@ -286,7 +303,7 @@ class LipilaGateway(PaymentGateway):
             )
 
         provider_transaction_id = None
-        for candidate in (transaction_id, reference, identifier, payload.get('externalId')):
+        for candidate in (transaction_id, lipila_reference, external_id):
             if candidate and str(candidate) != str(deposit.payment_reference):
                 provider_transaction_id = str(candidate)
                 break
