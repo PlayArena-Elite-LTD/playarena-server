@@ -245,12 +245,13 @@ class LipilaGateway(PaymentGateway):
             or identifier
             or ''
         ).strip()
-        status_raw = str(payload.get('status') or payload.get('paymentStatus') or '').strip()
+        status_raw = LipilaService.extract_status(payload)
         payment_status = LipilaService.normalize_status(status_raw)
 
         logger.info(
-            'Lipila webhook received: ref=%s txn=%s status=%s',
-            reference,
+            'Lipila webhook received: referenceId=%s identifier=%s txn=%s status=%s',
+            lipila_reference,
+            identifier,
             transaction_id,
             payment_status,
         )
@@ -271,7 +272,13 @@ class LipilaGateway(PaymentGateway):
                 break
 
         if not deposit:
-            logger.warning('Lipila webhook: deposit not found ref=%s txn=%s', reference, transaction_id)
+            logger.warning(
+                'Lipila webhook: deposit not found referenceId=%s identifier=%s txn=%s externalId=%s',
+                lipila_reference,
+                identifier,
+                transaction_id,
+                external_id,
+            )
             return WebhookResult(
                 processed=True,
                 message='Deposit not found',

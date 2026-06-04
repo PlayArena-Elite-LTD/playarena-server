@@ -1,6 +1,9 @@
+import json
 from decimal import Decimal
+from requests import HTTPError
 
 from django.contrib.auth import get_user_model
+from django.test import RequestFactory, TestCase
 from rest_framework import status
 from rest_framework.test import APITestCase, APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -10,8 +13,127 @@ from matches.models import Match
 from messenger.models import Message, ReadMessage
 from panel.models import Dispute
 from wallet.models import Wallet, Transaction
+from wallet.models import Deposit
+from services.payments.lipila_gateway import LipilaGateway
 
 User = get_user_model()
+
+
+class LipilaGatewayVerifyTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='payer',
+            email='payer@test.com',
+            password='pass1234',
+        )
+        self.wallet, _ = Wallet.objects.get_or_create(user=self.user)
+
+    def test_verify_payment_checks_provider_transaction_after_pending_reference(self):
+        deposit = Deposit.objects.create(
+            user=self.user,
+            wallet=self.wallet,
+            amount=Decimal('1.00'),
+            status='PROCESSING',
+            payment_method='LIPILA_MOMO',
+            payment_provider='lipila',
+            provider_payment_status='Pending',
+            payment_reference='DEP_4_1780478276',
+            provider_transaction_id='LPLXC-20260603-091757-624-2954',
+            transaction_id='LPLXC-20260603-091757-624-2954',
+        )
+
+        class FakeLipilaService:
+            def __init__(self):
+                self.refs = []
+
+            def get_transaction_status(self, reference_id):
+                self.refs.append(reference_id)
+                if reference_id == 'DEP_4_1780478276':
+                    return {'status': 'Pending', 'referenceId': reference_id}
+                return {
+                    'data': {
+                        'status': 'Successful',
+                        'transactionId': 'LPLXC-20260603-091757-624-2954',
+                    }
+                }
+
+        service = FakeLipilaService()
+        result = LipilaGateway(service=service).verify_payment(deposit)
+
+        self.assertEqual(
+            service.refs,
+            ['DEP_4_1780478276', 'LPLXC-20260603-091757-624-2954'],
+        )
+        self.assertTrue(result.success)
+        self.assertEqual(result.payment_status, 'Successful')
+        self.assertEqual(result.provider_transaction_id, 'LPLXC-20260603-091757-624-2954')
+
+    def test_webhook_matches_deposit_by_identifier_and_stores_lipila_reference(self):
+        deposit = Deposit.objects.create(
+            user=self.user,
+            wallet=self.wallet,
+            amount=Decimal('1.75'),
+            status='PROCESSING',
+            payment_method='LIPILA_MOMO',
+            payment_provider='lipila',
+            provider_payment_status='Pending',
+            payment_reference='DEP_5_1780478276',
+        )
+        payload = {
+            'referenceId': 'b4c9a8f1-7c4d-4b3e-bc8a-5d9e2b15f7a1',
+            'currency': 'ZMW',
+            'amount': 1.75,
+            'accountNumber': '260971234567',
+            'status': 'Successful',
+            'paymentType': 'MTNMoney',
+            'type': 'Collection',
+            'identifier': 'DEP_5_1780478276',
+            'message': 'Payment completed successfully.',
+            'externalId': 'MP250000987654321',
+            'referenceData': 'Payment for food',
+        }
+        request = RequestFactory().post(
+            '/api/payments/lipila/webhook/',
+            data=json.dumps(payload),
+            content_type='application/json',
+        )
+
+        result = LipilaGateway().handle_webhook(request)
+
+        deposit.refresh_from_db()
+        self.wallet.refresh_from_db()
+        self.assertTrue(result.processed)
+        self.assertEqual(result.deposit_id, deposit.id)
+        self.assertEqual(deposit.status, 'COMPLETED')
+        self.assertEqual(deposit.provider_payment_status, 'Successful')
+        self.assertEqual(deposit.provider_transaction_id, 'b4c9a8f1-7c4d-4b3e-bc8a-5d9e2b15f7a1')
+        self.assertEqual(self.wallet.balance, Decimal('1.75'))
+
+    def test_verify_payment_stays_pending_when_lipila_status_lookup_rejects_refs(self):
+        deposit = Deposit.objects.create(
+            user=self.user,
+            wallet=self.wallet,
+            amount=Decimal('1.00'),
+            status='PROCESSING',
+            payment_method='LIPILA_MOMO',
+            payment_provider='lipila',
+            provider_payment_status='Pending',
+            payment_reference='DEP_38_1780478927',
+            provider_transaction_id='LPLXC-20260603-092848-254-2478',
+            transaction_id='LPLXC-20260603-092848-254-2478',
+        )
+
+        class FakeLipilaService:
+            def get_transaction_status(self, reference_id):
+                raise HTTPError(
+                    f'400 Client Error: Bad Request for referenceId={reference_id}'
+                )
+
+        result = LipilaGateway(service=FakeLipilaService()).verify_payment(deposit)
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.payment_status, 'Pending')
+        self.assertEqual(result.message, 'Awaiting Lipila callback confirmation')
 
 
 class MatchApiTests(APITestCase):
