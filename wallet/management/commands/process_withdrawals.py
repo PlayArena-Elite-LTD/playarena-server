@@ -17,15 +17,15 @@ Security features:
 """
 
 import logging
-from decimal import Decimal
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 from django.conf import settings
 
-from wallet.models import Withdrawal, Transaction, Wallet
+from wallet.models import Withdrawal
 from wallet.payment_manager import get_payment_manager
+from wallet.utils import refund_withdrawal_reservation
 from wallet.notifications import (
     notify_withdrawal_processing,
     notify_withdrawal_completed,
@@ -152,20 +152,8 @@ class Command(BaseCommand):
                     result = payment_manager.process_withdrawal(withdrawal)
                     
                     if result['success']:
-                        # Withdrawal successful
+                        # Withdrawal successful; amount was reserved when request was created.
                         wallet = withdrawal.wallet
-                        
-                        # Update wallet balance (subtract amount)
-                        wallet.balance -= withdrawal.amount
-                        wallet.save()
-                        
-                        # Create transaction record
-                        Transaction.objects.create(
-                            wallet=wallet,
-                            amount=-withdrawal.amount,
-                            transaction_type='WITHDRAWAL',
-                            description=f"Withdrawal of ${withdrawal.amount} via {withdrawal.get_payment_method_display()}"
-                        )
                         
                         # Update withdrawal status to COMPLETED
                         Withdrawal.objects.filter(id=withdrawal.id).update(
@@ -208,6 +196,7 @@ class Command(BaseCommand):
                                 retry_count=new_retry_count,
                                 updated_at=timezone.now()
                             )
+                            refund_withdrawal_reservation(withdrawal, result['failure_reason'])
                             
                             failed_count += 1
                             
@@ -273,6 +262,7 @@ class Command(BaseCommand):
                             failure_reason=f'Processing error: {str(e)}',
                             updated_at=timezone.now()
                         )
+                        refund_withdrawal_reservation(withdrawal, f'Processing error: {str(e)}')
                         
                         # Send failure notification
                         withdrawal.refresh_from_db()
@@ -293,4 +283,3 @@ class Command(BaseCommand):
         self.stdout.write(f'  Retry scheduled: {retry_count}')
         self.stdout.write(f'  Errors: {error_count}')
         self.stdout.write('='*60)
-

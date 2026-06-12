@@ -8,6 +8,7 @@ from django.utils.html import format_html
 from django.http import HttpResponseRedirect
 from django.urls import path, reverse
 from .models import Wallet, Transaction, Deposit, Withdrawal, SavedPaymentMethod
+from .utils import refund_withdrawal_reservation
 
 @admin.register(Wallet)
 class WalletAdmin(admin.ModelAdmin):
@@ -316,20 +317,8 @@ class WithdrawalAdmin(admin.ModelAdmin):
             result = payment_manager.process_withdrawal(withdrawal)
             
             if result['success']:
-                # Withdrawal successful
+                # Withdrawal amount was already reserved when the request was created.
                 wallet = withdrawal.wallet
-                
-                # Update wallet balance (subtract amount)
-                wallet.balance -= withdrawal.amount
-                wallet.save()
-                
-                # Create transaction record
-                Transaction.objects.create(
-                    wallet=wallet,
-                    amount=-withdrawal.amount,
-                    transaction_type='WITHDRAWAL',
-                    description=f"Withdrawal of ${withdrawal.amount} via {withdrawal.get_payment_method_display()}"
-                )
                 
                 # Update withdrawal status to COMPLETED
                 Withdrawal.objects.filter(id=withdrawal.id).update(
@@ -384,6 +373,10 @@ class WithdrawalAdmin(admin.ModelAdmin):
                         retry_count=new_retry_count,
                         updated_at=timezone.now()
                     )
+                    refund_result = refund_withdrawal_reservation(
+                        withdrawal,
+                        result.get('failure_reason', 'Withdrawal failed'),
+                    )
                     
                     # Send failure notification
                     withdrawal.refresh_from_db()
@@ -401,6 +394,8 @@ class WithdrawalAdmin(admin.ModelAdmin):
                             'failure_reason': result.get('failure_reason', 'Unknown error'),
                             'retry_count': new_retry_count,
                             'failed_by': 'admin',
+                            'refunded': refund_result['refunded'],
+                            'new_balance': str(refund_result['new_balance']),
                         },
                         request=request
                     )
@@ -453,6 +448,7 @@ class WithdrawalAdmin(admin.ModelAdmin):
                     failure_reason=f'Processing error: {str(e)}',
                     updated_at=timezone.now()
                 )
+                refund_withdrawal_reservation(withdrawal, f'Processing error: {str(e)}')
                 
                 # Send failure notification
                 withdrawal.refresh_from_db()
@@ -571,26 +567,15 @@ class WithdrawalAdmin(admin.ModelAdmin):
     @admin.action(description='Mark selected withdrawals as COMPLETED')
     @transaction.atomic
     def mark_as_completed(self, request, queryset):
-        """Mark withdrawals as COMPLETED and update wallet balance"""
+        """Mark withdrawals as COMPLETED after funds were reserved at request time."""
         count = 0
         for withdrawal in queryset:
             if withdrawal.status == 'COMPLETED':
                 continue  # Already completed
             if withdrawal.status in ['FAILED', 'CANCELLED']:
                 continue  # Cannot change from final states
-            
-            # Update wallet balance (subtract amount)
+
             wallet = withdrawal.wallet
-            wallet.balance -= withdrawal.amount
-            wallet.save()
-            
-            # Create transaction record (negative amount for withdrawal)
-            Transaction.objects.create(
-                wallet=wallet,
-                amount=-withdrawal.amount,
-                transaction_type='WITHDRAWAL',
-                description=f"Withdrawal of ${withdrawal.amount} via {withdrawal.get_payment_method_display()}"
-            )
             
             # Update withdrawal status (use update() to bypass clean() validation)
             Withdrawal.objects.filter(id=withdrawal.id).update(status='COMPLETED', updated_at=timezone.now())
@@ -615,17 +600,20 @@ class WithdrawalAdmin(admin.ModelAdmin):
         self.message_user(request, f'{count} withdrawal(s) marked as completed.')
     
     @admin.action(description='Mark selected withdrawals as FAILED')
+    @transaction.atomic
     def mark_as_failed(self, request, queryset):
-        """Mark withdrawals as FAILED"""
+        """Mark withdrawals as FAILED and return reserved funds."""
         withdrawals_to_fail = Withdrawal.objects.filter(
             id__in=queryset.values_list('id', flat=True),
             status__in=['PENDING', 'PROCESSING']
         )
-        count = withdrawals_to_fail.update(status='FAILED', updated_at=timezone.now())
+        count = 0
         
         # Audit log: Withdrawals failed via admin
         from audit.utils import log_action
         for withdrawal in withdrawals_to_fail:
+            Withdrawal.objects.filter(id=withdrawal.id).update(status='FAILED', updated_at=timezone.now())
+            refund_result = refund_withdrawal_reservation(withdrawal, 'Withdrawal failed by admin')
             log_action(
                 action='withdrawal_failed',
                 user=request.user,
@@ -634,24 +622,30 @@ class WithdrawalAdmin(admin.ModelAdmin):
                     'amount': str(withdrawal.amount),
                     'payment_method': withdrawal.payment_method,
                     'failed_by': 'admin',
+                    'refunded': refund_result['refunded'],
+                    'new_balance': str(refund_result['new_balance']),
                 },
                 request=request
             )
+            count += 1
         
         self.message_user(request, f'{count} withdrawal(s) marked as failed.')
     
     @admin.action(description='Mark selected withdrawals as CANCELLED')
+    @transaction.atomic
     def mark_as_cancelled(self, request, queryset):
-        """Mark withdrawals as CANCELLED"""
+        """Mark withdrawals as CANCELLED and return reserved funds."""
         withdrawals_to_cancel = Withdrawal.objects.filter(
             id__in=queryset.values_list('id', flat=True),
             status__in=['PENDING', 'PROCESSING']
         )
-        count = withdrawals_to_cancel.update(status='CANCELLED', updated_at=timezone.now())
+        count = 0
         
         # Audit log: Withdrawals cancelled via admin
         from audit.utils import log_action
         for withdrawal in withdrawals_to_cancel:
+            Withdrawal.objects.filter(id=withdrawal.id).update(status='CANCELLED', updated_at=timezone.now())
+            refund_result = refund_withdrawal_reservation(withdrawal, 'Withdrawal cancelled by admin')
             log_action(
                 action='withdrawal_cancelled',
                 user=request.user,
@@ -660,9 +654,12 @@ class WithdrawalAdmin(admin.ModelAdmin):
                     'amount': str(withdrawal.amount),
                     'payment_method': withdrawal.payment_method,
                     'cancelled_by': 'admin',
+                    'refunded': refund_result['refunded'],
+                    'new_balance': str(refund_result['new_balance']),
                 },
                 request=request
             )
+            count += 1
         
         self.message_user(request, f'{count} withdrawal(s) marked as cancelled.')
     
@@ -725,20 +722,8 @@ class WithdrawalAdmin(admin.ModelAdmin):
                 result = payment_manager.process_withdrawal(withdrawal)
                 
                 if result['success']:
-                    # Withdrawal successful
+                    # Withdrawal successful; amount was reserved when request was created.
                     wallet = withdrawal.wallet
-                    
-                    # Update wallet balance (subtract amount)
-                    wallet.balance -= withdrawal.amount
-                    wallet.save()
-                    
-                    # Create transaction record
-                    Transaction.objects.create(
-                        wallet=wallet,
-                        amount=-withdrawal.amount,
-                        transaction_type='WITHDRAWAL',
-                        description=f"Withdrawal of ${withdrawal.amount} via {withdrawal.get_payment_method_display()}"
-                    )
                     
                     # Update withdrawal status to COMPLETED
                     Withdrawal.objects.filter(id=withdrawal.id).update(
@@ -790,6 +775,10 @@ class WithdrawalAdmin(admin.ModelAdmin):
                             retry_count=new_retry_count,
                             updated_at=timezone.now()
                         )
+                        refund_result = refund_withdrawal_reservation(
+                            withdrawal,
+                            result['failure_reason'],
+                        )
                         
                         failed_count += 1
                         
@@ -809,6 +798,8 @@ class WithdrawalAdmin(admin.ModelAdmin):
                                 'failure_reason': result['failure_reason'],
                                 'retry_count': new_retry_count,
                                 'failed_by': 'admin_bulk_action',
+                                'refunded': refund_result['refunded'],
+                                'new_balance': str(refund_result['new_balance']),
                             },
                             request=request
                         )
@@ -852,6 +843,7 @@ class WithdrawalAdmin(admin.ModelAdmin):
                         failure_reason=f'Processing error: {str(e)}',
                         updated_at=timezone.now()
                     )
+                    refund_withdrawal_reservation(withdrawal, f'Processing error: {str(e)}')
                     failed_count += 1
                     
                     # Send failure notification

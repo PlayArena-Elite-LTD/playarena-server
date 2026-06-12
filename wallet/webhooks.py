@@ -24,6 +24,7 @@ from django.utils import timezone
 from django.contrib import messages
 
 from wallet.models import Deposit, Withdrawal, Transaction, Wallet
+from wallet.utils import refund_withdrawal_reservation
 from services.payments.factory import get_payment_gateway
 from wallet.notifications import (
     notify_deposit_completed,
@@ -417,26 +418,8 @@ def handle_paystack_withdrawal_success(data):
         withdrawal.gateway_response = transfer_data
         withdrawal.save()
         
-        # Update wallet balance (if not already deducted)
+        # The wallet was debited when the withdrawal request was created.
         wallet = withdrawal.wallet
-        # Check if balance was already deducted (should be done during processing)
-        # If not, deduct it now
-        if wallet.balance >= withdrawal.amount:
-            wallet.balance -= withdrawal.amount
-            wallet.save()
-            
-            # Create transaction record if not exists
-            if not Transaction.objects.filter(
-                wallet=wallet,
-                amount=-withdrawal.amount,
-                transaction_type='WITHDRAWAL'
-            ).exists():
-                Transaction.objects.create(
-                    wallet=wallet,
-                    amount=-withdrawal.amount,
-                    transaction_type='WITHDRAWAL',
-                    description=f"Withdrawal of ${withdrawal.amount} via {withdrawal.get_payment_method_display()}"
-                )
         
         # Send notification
         notify_withdrawal_completed(withdrawal)
@@ -497,6 +480,7 @@ def handle_paystack_withdrawal_failed(data):
         withdrawal.failure_reason = reason
         withdrawal.gateway_response = transfer_data
         withdrawal.save()
+        refund_result = refund_withdrawal_reservation(withdrawal, reason)
         
         # Send notification
         notify_withdrawal_failed(withdrawal, reason)
@@ -512,6 +496,8 @@ def handle_paystack_withdrawal_failed(data):
                 'payment_method': withdrawal.payment_method,
                 'failure_reason': reason,
                 'failed_via': 'paystack_webhook',
+                'refunded': refund_result['refunded'],
+                'new_balance': str(refund_result['new_balance']),
             }
         )
         
@@ -547,18 +533,9 @@ def handle_paystack_withdrawal_reversed(data):
         
         # If withdrawal was completed, reverse it
         if withdrawal.status == 'COMPLETED':
-            wallet = withdrawal.wallet
-            
-            # Refund the amount
-            wallet.balance += withdrawal.amount
-            wallet.save()
-            
-            # Create reversal transaction
-            Transaction.objects.create(
-                wallet=wallet,
-                amount=withdrawal.amount,
-                transaction_type='DEPOSIT',  # Reversal is a credit
-                description=f"Withdrawal reversal for ${withdrawal.amount} (Transaction: {transfer_code})"
+            refund_result = refund_withdrawal_reservation(
+                withdrawal,
+                f'Withdrawal reversed by payment gateway ({transfer_code})',
             )
             
             # Update withdrawal status
@@ -578,7 +555,8 @@ def handle_paystack_withdrawal_reversed(data):
                     'payment_method': withdrawal.payment_method,
                     'transaction_id': transfer_code,
                     'reversed_via': 'paystack_webhook',
-                    'new_balance': str(wallet.balance),
+                    'refunded': refund_result['refunded'],
+                    'new_balance': str(refund_result['new_balance']),
                 }
             )
             
@@ -690,24 +668,8 @@ def handle_flutterwave_withdrawal_success(data):
         withdrawal.gateway_response = transfer_data
         withdrawal.save()
         
-        # Update wallet balance (if not already deducted)
+        # The wallet was debited when the withdrawal request was created.
         wallet = withdrawal.wallet
-        if wallet.balance >= withdrawal.amount:
-            wallet.balance -= withdrawal.amount
-            wallet.save()
-            
-            # Create transaction record if not exists
-            if not Transaction.objects.filter(
-                wallet=wallet,
-                amount=-withdrawal.amount,
-                transaction_type='WITHDRAWAL'
-            ).exists():
-                Transaction.objects.create(
-                    wallet=wallet,
-                    amount=-withdrawal.amount,
-                    transaction_type='WITHDRAWAL',
-                    description=f"Withdrawal of ${withdrawal.amount} via {withdrawal.get_payment_method_display()}"
-                )
         
         # Send notification
         notify_withdrawal_completed(withdrawal)
@@ -768,6 +730,7 @@ def handle_flutterwave_withdrawal_failed(data):
         withdrawal.failure_reason = reason
         withdrawal.gateway_response = transfer_data
         withdrawal.save()
+        refund_result = refund_withdrawal_reservation(withdrawal, reason)
         
         # Send notification
         notify_withdrawal_failed(withdrawal, reason)
@@ -783,6 +746,8 @@ def handle_flutterwave_withdrawal_failed(data):
                 'payment_method': withdrawal.payment_method,
                 'failure_reason': reason,
                 'failed_via': 'flutterwave_webhook',
+                'refunded': refund_result['refunded'],
+                'new_balance': str(refund_result['new_balance']),
             }
         )
         
