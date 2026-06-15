@@ -160,7 +160,7 @@ def settings_view(request):
 # Custom password reset view with rate limiting
 from django.contrib.auth.views import PasswordResetView as BasePasswordResetView
 
-def get_email_from_form(request):
+def get_email_from_form(group, request):
     """Extract email from password reset form for rate limiting"""
     if request.method == 'POST' and 'email' in request.POST:
         email = request.POST['email']

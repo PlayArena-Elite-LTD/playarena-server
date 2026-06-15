@@ -16,7 +16,7 @@ from alert.models import Notification
 logger = logging.getLogger('django_ratelimit')
 
 
-def _get_rate_limit_key(request):
+def _get_rate_limit_key(group, request):
     """
     Get rate limit key: use user ID if authenticated, otherwise use IP.
     This ensures rate limiting works correctly even when @ratelimit is outermost.
@@ -69,6 +69,7 @@ def create_match(request):
     
     return render(request, 'matches/create_match.html', context)
 
+@ratelimit(key=_get_rate_limit_key, rate='20/h', method='POST', block=True)
 @login_required
 @transaction.atomic
 def join_match(request):
@@ -80,17 +81,27 @@ def join_match(request):
             return redirect('available_matches')
         
         try:
-            match = Match.objects.get(joining_code=joining_code, status='OPEN')
+            match = Match.objects.select_for_update().get(joining_code=joining_code, status='OPEN')
             
             # Check if user is trying to join their own match
             if match.creator == request.user:
                 messages.error(request, "You cannot join your own match.")
                 return redirect('available_matches')
             
-            # Check if user has enough funds
-            wallet = request.user.wallet
-            if wallet.balance < Decimal(match.amount):
-                messages.error(request, f"Insufficient funds. You need ${match.amount} to join this match.")
+            # Check if user has enough funds before mutating the match.
+            try:
+                wallet = Wallet.objects.select_for_update().get(user=request.user)
+            except Wallet.DoesNotExist:
+                messages.error(request, "Wallet not found. Please open your wallet and try again.")
+                return redirect('available_matches')
+
+            match_amount = Decimal(match.amount)
+            if wallet.balance < match_amount:
+                messages.error(
+                    request,
+                    f"Insufficient funds. Your balance is ${wallet.balance:.2f}, "
+                    f"but you need ${match_amount:.2f} to join this match."
+                )
                 return redirect('available_matches')
             
             # Update match with joiner and change status first
@@ -99,13 +110,13 @@ def join_match(request):
             match.save()
             
             # Then deduct match amount from user's wallet
-            wallet.balance -= Decimal(match.amount)
+            wallet.balance -= match_amount
             wallet.save()
             
             # Record transaction
             Transaction.objects.create(
                 wallet=wallet,
-                amount=-Decimal(match.amount),
+                amount=-match_amount,
                 transaction_type='MATCH_JOINING',
                 description=f"Joined {match.get_game_display()} match against {match.creator.username} for ${match.amount}",
                 related_match=match
