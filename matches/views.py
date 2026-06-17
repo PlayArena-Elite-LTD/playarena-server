@@ -385,6 +385,9 @@ def submit_match_result(request, match_id):
             return redirect('match_detail', match_id=match_id)
         
         # Handle winner gets winnings - update wallet first
+        match.winner = winner
+        match.save(update_fields=['winner'])
+
         winner_wallet = winner.wallet
         winner_wallet.balance += Decimal(match.winnings)
         winner_wallet.save()

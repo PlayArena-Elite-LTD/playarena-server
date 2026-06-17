@@ -50,6 +50,26 @@ class WithdrawalViewTests(TestCase):
         self.assertContains(response, 'Available Balance')
 
 
+class TransactionHistoryViewTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username='transaction-user',
+            email='transaction-user@test.com',
+            password='pass1234',
+        )
+        self.wallet, _ = Wallet.objects.get_or_create(user=self.user)
+        self.wallet.balance = Decimal('25.50')
+        self.wallet.save(update_fields=['balance'])
+        self.client.force_login(self.user)
+
+    def test_transaction_history_shows_available_balance(self):
+        response = self.client.get(reverse('transaction_history'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Available Balance')
+        self.assertContains(response, '$25.50')
+
+
 class WithdrawalAdminTests(TestCase):
     def setUp(self):
         User = get_user_model()

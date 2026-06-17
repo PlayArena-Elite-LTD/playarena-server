@@ -258,13 +258,11 @@ def withdraw_view(request):
 @login_required
 def transaction_history(request):
     """Display user's transaction history"""
-    try:
-        wallet = request.user.wallet
-        transactions = wallet.transactions.all().order_by('-created_at')
-    except Wallet.DoesNotExist:
-        transactions = []
+    wallet, _created = Wallet.objects.get_or_create(user=request.user)
+    transactions = wallet.transactions.all().order_by('-created_at')
     
     return render(request, 'wallet/transactions.html', {
+        'wallet': wallet,
         'transactions': transactions
     })
 

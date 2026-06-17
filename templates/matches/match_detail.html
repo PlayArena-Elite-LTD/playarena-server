@@ -83,7 +83,7 @@
     <!-- Joiner -->
     <div class="match-participant">
       <div class="participant-header">
-        <span class="participant-role">Joiner</span>
+        <span class="participant-role">Joiner: {{ match.joiner.username }}</span>
         {% if request.user == match.joiner %}
         <span class="participant-you-badge">You</span>
         {% endif %}
@@ -346,7 +346,13 @@
   <div class="match-result">
     <h3 class="match-result-title">Match Completed</h3>
     <div class="match-result-message">
-      Winner: <strong>{{ match.winner.username }}</strong>
+      {% if match.winner %}
+        Winner: <strong>{{ match.winner.username }}</strong>
+      {% elif match_result.creator_submission == 'DRAW' and match_result.joiner_submission == 'DRAW' %}
+        Result: <strong>Draw</strong>
+      {% else %}
+        Winner: <strong>Not recorded</strong>
+      {% endif %}
     </div>
   </div>
 {% endif %}
