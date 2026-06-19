@@ -9,12 +9,13 @@ import hashlib
 class Match(models.Model):
     # Game choices
     GAME_CHOICES = [
-        ('FIFA_MOBILE', 'FIFA 25'),
-        ('DREAM_LEAGUE_SOCCER', 'Dream League Soccer'),
-        ('LI_CHESS', 'Li Chess'),
-        ('CHESS.COM', 'Chess.com'),
+        ('FIFA_MOBILE', 'EA SPORTS FC 26'),
+        ('DREAM_LEAGUE_SOCCER', 'Dream League Soccer 2026'),
+        ('EFOOTBALL', 'eFootball 2026'),
+        ('LI_CHESS', 'Lichess'),
+        ('MORTAL_KOMBAT', 'Mortal Kombat 1'),
         ('NBA_2K', 'NBA 2K'),
-        ('MORTAL_KOMBAT', 'Mortal Kombat'),
+        ('EIGHT_BALL_POOL', '8 Ball Pool'),
     ]
     
     # Device choices
