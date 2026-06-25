@@ -54,6 +54,31 @@ def process_withdrawal_now(withdrawal, *, actor=None) -> Dict[str, Any]:
 
         result = get_payment_manager().process_withdrawal(withdrawal)
         gateway_response = result.get('gateway_response') or {}
+        if gateway_response.get('status') == 'unknown_timeout':
+            transaction_id = result.get('transaction_id')
+            Withdrawal.objects.filter(id=withdrawal.id).update(
+                status='PROCESSING',
+                transaction_id=transaction_id,
+                gateway_transaction_id=transaction_id,
+                gateway_response=gateway_response,
+                failure_reason=result.get('failure_reason'),
+                updated_at=timezone.now(),
+            )
+            withdrawal.refresh_from_db()
+            logger.warning(
+                'Withdrawal %s Lipila state unknown after timeout: reference=%s actor=%s',
+                withdrawal.id,
+                transaction_id,
+                getattr(actor, 'username', None),
+            )
+            return {
+                'processed': True,
+                'status': withdrawal.status,
+                'gateway_status': 'Unknown',
+                'transaction_id': transaction_id,
+                'gateway_response': gateway_response,
+                'message': 'Withdrawal sent to Lipila; awaiting callback confirmation.',
+            }
 
         if result.get('success'):
             provider_status = LipilaService.normalize_status(

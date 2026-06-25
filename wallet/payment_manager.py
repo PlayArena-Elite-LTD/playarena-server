@@ -324,7 +324,7 @@ class PaymentManager:
                 'failure_reason': 'Account details must include a valid mobile money number (e.g. 26097xxxxxxx)',
             }
 
-        reference_id = f'WDR_{withdrawal.id}_{int(timezone.now().timestamp())}'
+        reference_id = self._withdrawal_reference_id(withdrawal)
         try:
             client = get_lipila_service()
             callback_url = self._lipila_disbursement_callback_url()
@@ -353,6 +353,20 @@ class PaymentManager:
                 'gateway_response': resp,
                 'failure_reason': resp.get('message', 'Lipila disbursement failed'),
             }
+        except requests.exceptions.Timeout as e:
+            logger.error(f'Lipila disbursement timeout for withdrawal {withdrawal.id}: {str(e)}', exc_info=True)
+            return {
+                'success': False,
+                'transaction_id': reference_id,
+                'gateway_response': {
+                    'status': 'unknown_timeout',
+                    'error': str(e),
+                    'gateway': 'lipila',
+                    'reference_id': reference_id,
+                    'referenceId': reference_id,
+                },
+                'failure_reason': 'Lipila request timed out after submission; awaiting callback or manual verification.',
+            }
         except requests.exceptions.RequestException as e:
             logger.error(f'Lipila disbursement error for withdrawal {withdrawal.id}: {str(e)}', exc_info=True)
             return {
@@ -379,6 +393,17 @@ class PaymentManager:
         if digits_only.startswith('260') and len(digits_only) == 12:
             return digits_only
         return None
+
+    @staticmethod
+    def _withdrawal_reference_id(withdrawal) -> str:
+        if isinstance(withdrawal.gateway_response, dict):
+            for key in ('reference_id', 'referenceId'):
+                value = str(withdrawal.gateway_response.get(key) or '').strip()
+                if value:
+                    return value
+        if withdrawal.transaction_id and str(withdrawal.transaction_id).startswith('WDR_'):
+            return str(withdrawal.transaction_id)
+        return f'WDR_{withdrawal.id}'
 
     @staticmethod
     def _lipila_disbursement_callback_url() -> Optional[str]:

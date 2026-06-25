@@ -11,6 +11,7 @@ from wallet.models import Transaction, Wallet, Withdrawal
 from wallet.withdrawal_processing import apply_lipila_withdrawal_webhook
 
 
+@override_settings(RATELIMIT_ENABLE=False)
 class WithdrawalViewTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(
@@ -108,6 +109,37 @@ class WithdrawalViewTests(TestCase):
         self.assertEqual(withdrawal.status, 'FAILED')
         self.assertEqual(self.wallet.balance, Decimal('10.00'))
 
+    @override_settings(WALLET_AUTO_PROCESS_WITHDRAWALS=True)
+    @patch('wallet.withdrawal_processing.get_payment_manager')
+    def test_lipila_timeout_keeps_withdrawal_processing_with_reference(self, get_payment_manager):
+        manager = Mock()
+        manager.process_withdrawal.return_value = {
+            'success': False,
+            'transaction_id': 'WDR_1',
+            'gateway_response': {
+                'status': 'unknown_timeout',
+                'reference_id': 'WDR_1',
+                'referenceId': 'WDR_1',
+                'gateway': 'lipila',
+            },
+            'failure_reason': 'Lipila request timed out after submission; awaiting callback or manual verification.',
+        }
+        get_payment_manager.return_value = manager
+
+        response = self.client.post(reverse('withdraw'), {
+            'amount': '10.00',
+            'payment_method': 'MOBILE_MONEY',
+            'account_details': '260974221154|Airtel',
+        })
+
+        self.assertRedirects(response, reverse('wallet'))
+        withdrawal = Withdrawal.objects.get(user=self.user)
+        self.assertEqual(withdrawal.status, 'PROCESSING')
+        self.assertEqual(withdrawal.transaction_id, 'WDR_1')
+        self.assertEqual(withdrawal.retry_count, 0)
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, Decimal('0.00'))
+
 
 class TransactionHistoryViewTests(TestCase):
     def setUp(self):
@@ -129,6 +161,7 @@ class TransactionHistoryViewTests(TestCase):
         self.assertContains(response, '$25.50')
 
 
+@override_settings(RATELIMIT_ENABLE=False)
 class WithdrawalAdminTests(TestCase):
     def setUp(self):
         User = get_user_model()
