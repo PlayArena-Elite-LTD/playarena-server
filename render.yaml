@@ -33,5 +33,13 @@ services:
         value: "false"
       - key: LIPILA_MOCK_MODE
         value: "false"
+      - key: LIPILA_BASE_URL
+        value: "https://api.lipila.dev"
+      - key: LIPILA_TIMEOUT_SECONDS
+        value: "60"
+      - key: LIPILA_MOBILE_MONEY_DISBURSEMENT_PATH
+        value: "/api/v1/disbursements/mobile-money"
+      - key: LIPILA_SECRET_KEY
+        sync: false
       - key: BANK_PAYOUT_MODE
         value: "mock"

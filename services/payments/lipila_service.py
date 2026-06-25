@@ -58,6 +58,16 @@ class LipilaService:
             headers['callbackUrl'] = callback_url
         return headers
 
+    def _api_key_headers(self, *, callback_url: Optional[str] = None) -> Dict[str, str]:
+        headers = {
+            'accept': 'application/json',
+            'Content-Type': 'application/json',
+            'x-api-key': self.secret_key,
+        }
+        if callback_url:
+            headers['callbackUrl'] = callback_url
+        return headers
+
     def initiate_mobile_money(
         self,
         *,
@@ -102,7 +112,7 @@ class LipilaService:
         if email:
             payload['email'] = email
 
-        headers = self._headers(callback_url=callback_url)
+        headers = self._api_key_headers(callback_url=callback_url)
         if idempotency_key:
             headers['Idempotency-Key'] = idempotency_key
 
@@ -360,7 +370,7 @@ def get_lipila_service() -> LipilaService:
     legacy = str(getattr(settings, 'LIPILA_API_STYLE', 'uat')).strip().lower() == 'legacy'
     return LipilaService(
         secret_key=secret,
-        base_url=getattr(settings, 'LIPILA_BASE_URL', 'https://lipila-uat.hobbiton.app'),
+        base_url=getattr(settings, 'LIPILA_BASE_URL', 'https://api.lipila.dev'),
         mobile_money_path=getattr(
             settings,
             'LIPILA_MOBILE_MONEY_PATH',
@@ -377,5 +387,5 @@ def get_lipila_service() -> LipilaService:
             '/collections/{reference_id}',
         ),
         legacy_collections=legacy,
-        timeout=int(getattr(settings, 'LIPILA_TIMEOUT_SECONDS', 30)),
+        timeout=int(getattr(settings, 'LIPILA_TIMEOUT_SECONDS', 60)),
     )
