@@ -1,0 +1,16 @@
+{% load i18n %}
+
+<button class="sticky toggle-nav-sidebar" id="toggle-nav-sidebar" aria-label="{% translate 'Toggle navigation' %}"></button>
+<nav class="sticky admin-sidebar" id="nav-sidebar" aria-label="{% translate 'Sidebar' %}">
+  <div class="admin-sidebar__header">
+    <span class="admin-sidebar__eyebrow">Admin</span>
+    <strong>Workspace</strong>
+  </div>
+  <label class="admin-sidebar__search" for="nav-filter">
+    <span>{% translate "Search" %}</span>
+    <input type="search" id="nav-filter"
+           placeholder="{% translate 'Filter modules' %}"
+           aria-label="{% translate 'Filter navigation items' %}">
+  </label>
+  {% include 'admin/app_list.html' with app_list=available_apps show_changelinks=False %}
+</nav>
