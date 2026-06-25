@@ -289,8 +289,19 @@ class LipilaGateway(PaymentGateway):
                 break
 
         if not deposit:
+            from wallet.withdrawal_processing import apply_lipila_withdrawal_webhook
+
+            withdrawal_result = apply_lipila_withdrawal_webhook(payload)
+            if withdrawal_result:
+                return WebhookResult(
+                    processed=bool(withdrawal_result.get('processed')),
+                    payment_status=payment_status,
+                    message=withdrawal_result.get('message', 'Withdrawal webhook handled'),
+                    raw_payload=payload,
+                )
+
             logger.warning(
-                'Lipila webhook: deposit not found referenceId=%s identifier=%s txn=%s externalId=%s',
+                'Lipila webhook: payment target not found referenceId=%s identifier=%s txn=%s externalId=%s',
                 lipila_reference,
                 identifier,
                 transaction_id,
@@ -298,7 +309,7 @@ class LipilaGateway(PaymentGateway):
             )
             return WebhookResult(
                 processed=True,
-                message='Deposit not found',
+                message='Payment target not found',
                 raw_payload=payload,
             )
 

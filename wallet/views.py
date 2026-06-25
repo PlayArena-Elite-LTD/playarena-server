@@ -1,6 +1,7 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from django.conf import settings
 from django.views.decorators.http import require_POST
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -12,6 +13,7 @@ import time
 from .models import Wallet, Transaction, Deposit, Withdrawal, SavedPaymentMethod
 from .forms import DepositForm, WithdrawalForm
 from wallet.utils import initialize_lipila_deposit_payment
+from wallet.withdrawal_processing import process_withdrawal_now
 from .payment_method_forms import SavedPaymentMethodForm, DeletePaymentMethodForm
 from wallet.payment_debug import payment_debug_enabled, mask_secret
 
@@ -238,7 +240,20 @@ def withdraw_view(request):
                         description=f'Withdrawal request - {withdrawal.get_payment_method_display()}',
                     )
                 
-                messages.success(request, f'Withdrawal request for ${amount} submitted successfully!')
+                process_result = None
+                if (
+                    payment_method == 'MOBILE_MONEY'
+                    and getattr(settings, 'WALLET_AUTO_PROCESS_WITHDRAWALS', True)
+                ):
+                    process_result = process_withdrawal_now(withdrawal, actor=request.user)
+
+                if process_result and process_result.get('processed'):
+                    messages.success(
+                        request,
+                        f'Withdrawal request for ${amount} submitted and sent to Lipila.'
+                    )
+                else:
+                    messages.success(request, f'Withdrawal request for ${amount} submitted successfully!')
                 return redirect('wallet')
                 
             except Exception as e:

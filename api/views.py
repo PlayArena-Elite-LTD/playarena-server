@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.views.decorators.csrf import csrf_exempt
+from django.conf import settings
 from django.utils.decorators import method_decorator
 from rest_framework.exceptions import PermissionDenied
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -43,6 +44,7 @@ from messenger.models import Message, ReadMessage
 from alert.models import Notification, ReadNotification
 from wallet.models import Wallet, Transaction
 from wallet.notifications import notify_withdrawal_created
+from wallet.withdrawal_processing import process_withdrawal_now
 
 User = get_user_model()
 logger = logging.getLogger('payments.lipila')
@@ -1059,13 +1061,27 @@ class WithdrawalCreateView(APIView):
 
         notify_withdrawal_created(withdrawal)
 
+        process_result = None
+        if (
+            withdrawal.payment_method == 'MOBILE_MONEY'
+            and getattr(settings, 'WALLET_AUTO_PROCESS_WITHDRAWALS', True)
+        ):
+            process_result = process_withdrawal_now(withdrawal, actor=request.user)
+            withdrawal.refresh_from_db()
+
         return Response(
             {
                 'withdrawal_id': withdrawal.id,
                 'status': withdrawal.status,
                 'amount': str(withdrawal.amount),
                 'payment_method': withdrawal.payment_method,
-                'message': 'Withdrawal request created and queued for processing.',
+                'transaction_id': withdrawal.transaction_id,
+                'gateway_transaction_id': withdrawal.gateway_transaction_id,
+                'message': (
+                    process_result.get('message')
+                    if process_result
+                    else 'Withdrawal request created and queued for processing.'
+                ),
             },
             status=status.HTTP_201_CREATED,
         )

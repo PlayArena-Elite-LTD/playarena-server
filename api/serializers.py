@@ -2,7 +2,7 @@ from rest_framework import serializers
 from decimal import Decimal
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth import get_user_model
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from accounts.models import CustomUser, Profile
 from accounts.forms import signup_integrity_error_messages
 from matches.models import Match, MatchResult
@@ -279,22 +279,39 @@ class WithdrawalCreateSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         request = self.context.get('request')
         user = request.user
-        wallet, _created = Wallet.objects.get_or_create(user=user)
         ip_address = request.META.get('REMOTE_ADDR')
         user_agent = request.META.get('HTTP_USER_AGENT', '')[:500]
 
-        withdrawal = Withdrawal(
-            user=user,
-            amount=validated_data['amount'],
-            payment_method=validated_data['payment_method'],
-            account_details=validated_data['account_details'],
-            status='PENDING',
-            wallet=wallet,
-            ip_address=ip_address,
-            user_agent=user_agent,
-        )
-        withdrawal.full_clean()
-        withdrawal.save()
+        with transaction.atomic():
+            wallet, _created = Wallet.objects.get_or_create(user=user)
+            wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
+
+            withdrawal = Withdrawal(
+                user=user,
+                amount=validated_data['amount'],
+                payment_method=validated_data['payment_method'],
+                account_details=validated_data['account_details'],
+                status='PENDING',
+                wallet=wallet,
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
+            withdrawal.full_clean()
+
+            if wallet.balance < withdrawal.amount:
+                raise serializers.ValidationError({
+                    'amount': f'Insufficient balance. Your balance is ${wallet.balance:.2f}'
+                })
+
+            withdrawal.save()
+            wallet.balance -= withdrawal.amount
+            wallet.save(update_fields=['balance'])
+            Transaction.objects.create(
+                wallet=wallet,
+                amount=-withdrawal.amount,
+                transaction_type='WITHDRAWAL',
+                description=f'Withdrawal request - {withdrawal.get_payment_method_display()}',
+            )
         return withdrawal
 
 
@@ -509,4 +526,3 @@ class NotificationSerializer(serializers.ModelSerializer):
                 user=request.user
             ).exists()
         return False
-

@@ -1,12 +1,14 @@
 from decimal import Decimal
+from unittest.mock import Mock, patch
 
 from django.contrib import admin
 from django.contrib.auth import get_user_model
-from django.test import RequestFactory, TestCase
+from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 
 from wallet.admin import WithdrawalAdmin
 from wallet.models import Transaction, Wallet, Withdrawal
+from wallet.withdrawal_processing import apply_lipila_withdrawal_webhook
 
 
 class WithdrawalViewTests(TestCase):
@@ -48,6 +50,63 @@ class WithdrawalViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Withdraw Funds')
         self.assertContains(response, 'Available Balance')
+
+    @override_settings(WALLET_AUTO_PROCESS_WITHDRAWALS=True)
+    @patch('wallet.withdrawal_processing.get_payment_manager')
+    def test_mobile_money_withdrawal_auto_processes_to_lipila_pending(self, get_payment_manager):
+        manager = Mock()
+        manager.process_withdrawal.return_value = {
+            'success': True,
+            'transaction_id': 'LPLXC-20260625-0001',
+            'gateway_response': {
+                'reference_id': 'WDR_1_1782389900',
+                'referenceId': 'WDR_1_1782389900',
+                'identifier': 'LPLXC-20260625-0001',
+                'status': 'Pending',
+            },
+            'failure_reason': None,
+        }
+        get_payment_manager.return_value = manager
+
+        response = self.client.post(reverse('withdraw'), {
+            'amount': '10.00',
+            'payment_method': 'MOBILE_MONEY',
+            'account_details': '260974221154|Airtel',
+        })
+
+        self.assertRedirects(response, reverse('wallet'))
+        withdrawal = Withdrawal.objects.get(user=self.user)
+        self.assertEqual(withdrawal.status, 'PROCESSING')
+        self.assertEqual(withdrawal.gateway_transaction_id, 'LPLXC-20260625-0001')
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, Decimal('0.00'))
+
+    def test_lipila_failed_withdrawal_webhook_refunds_reserved_balance(self):
+        self.client.post(reverse('withdraw'), {
+            'amount': '10.00',
+            'payment_method': 'MOBILE_MONEY',
+            'account_details': '260974221154|Airtel',
+        })
+        withdrawal = Withdrawal.objects.get(user=self.user)
+        Withdrawal.objects.filter(id=withdrawal.id).update(
+            status='PROCESSING',
+            transaction_id='LPLXC-20260625-0001',
+            gateway_transaction_id='LPLXC-20260625-0001',
+            gateway_response={'reference_id': 'WDR_1_1782389900'},
+        )
+
+        result = apply_lipila_withdrawal_webhook({
+            'referenceId': 'WDR_1_1782389900',
+            'identifier': 'LPLXC-20260625-0001',
+            'status': 'Failed',
+            'message': 'Transaction is not found',
+        })
+
+        self.assertTrue(result['processed'])
+        withdrawal.refresh_from_db()
+        self.wallet.refresh_from_db()
+        self.assertEqual(withdrawal.status, 'FAILED')
+        self.assertEqual(self.wallet.balance, Decimal('10.00'))
 
 
 class TransactionHistoryViewTests(TestCase):

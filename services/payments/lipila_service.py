@@ -34,6 +34,7 @@ class LipilaService:
         base_url: str,
         *,
         mobile_money_path: str = '/collections/mobile-money',
+        mobile_money_disbursement_path: str = '/api/v1/disbursements/mobile-money',
         status_path_template: str = '/collections/{reference_id}',
         legacy_collections: bool = False,
         timeout: int = 30,
@@ -41,6 +42,7 @@ class LipilaService:
         self.secret_key = (secret_key or '').strip()
         self.base_url = (base_url or '').rstrip('/')
         self.mobile_money_path = mobile_money_path
+        self.mobile_money_disbursement_path = mobile_money_disbursement_path
         self.status_path_template = status_path_template
         self.legacy_collections = legacy_collections
         self.timeout = timeout
@@ -126,6 +128,53 @@ class LipilaService:
         data = resp.json() if resp.content else {}
         logger.debug('Lipila initiate body keys: %s', list(data.keys()) if isinstance(data, dict) else type(data))
         return data
+
+    def disburse_mobile_money(
+        self,
+        *,
+        reference_id: str,
+        amount: float,
+        account_number: str,
+        currency: str,
+        narration: str = '',
+        callback_url: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Initiate a Lipila mobile money disbursement."""
+        url = _build_url(self.base_url, self.mobile_money_disbursement_path)
+        payload: Dict[str, Any] = {
+            'referenceId': reference_id,
+            'amount': amount,
+            'accountNumber': account_number,
+            'currency': currency,
+        }
+        if narration:
+            payload['narration'] = narration
+
+        headers = self._headers(callback_url=callback_url)
+        if idempotency_key:
+            headers['Idempotency-Key'] = idempotency_key
+
+        logger.info(
+            'Lipila mobile-money disbursement: ref=%s amount=%s currency=%s',
+            reference_id,
+            amount,
+            currency,
+        )
+        resp = requests.post(url, json=payload, headers=headers, timeout=self.timeout)
+        logger.info(
+            'Lipila disbursement response: http=%s body=%s',
+            resp.status_code,
+            resp.text[:500],
+        )
+        if not resp.ok:
+            logger.error(
+                'Lipila disbursement failed: http=%s body=%s',
+                resp.status_code,
+                resp.text[:500],
+            )
+        resp.raise_for_status()
+        return resp.json() if resp.content else {}
 
     def _get_collection_status(self, reference_id: str) -> Optional[Dict[str, Any]]:
         """Try Lipila's documented collection status endpoint."""
@@ -316,6 +365,11 @@ def get_lipila_service() -> LipilaService:
             settings,
             'LIPILA_MOBILE_MONEY_PATH',
             '/collections/mobile-money',
+        ),
+        mobile_money_disbursement_path=getattr(
+            settings,
+            'LIPILA_MOBILE_MONEY_DISBURSEMENT_PATH',
+            '/api/v1/disbursements/mobile-money',
         ),
         status_path_template=getattr(
             settings,

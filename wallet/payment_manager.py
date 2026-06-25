@@ -15,9 +15,10 @@ import logging
 import requests
 from decimal import Decimal
 from typing import Dict, Optional, Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 import ipaddress
 from django.conf import settings
+from django.urls import reverse
 from django.utils import timezone
 
 from services.payments.factory import get_payment_gateway
@@ -326,12 +327,15 @@ class PaymentManager:
         reference_id = f'WDR_{withdrawal.id}_{int(timezone.now().timestamp())}'
         try:
             client = get_lipila_service()
+            callback_url = self._lipila_disbursement_callback_url()
             resp = client.disburse_mobile_money(
                 reference_id=reference_id,
                 amount=float(withdrawal.amount),
                 account_number=account_number,
                 currency=getattr(settings, 'LIPILA_CURRENCY', 'ZMW'),
                 narration=f'Withdrawal for {withdrawal.user.username}',
+                callback_url=callback_url,
+                idempotency_key=f'withdrawal-{withdrawal.id}',
             )
             identifier = resp.get('identifier') or reference_id
             status = str(resp.get('status', 'Pending'))
@@ -375,6 +379,21 @@ class PaymentManager:
         if digits_only.startswith('260') and len(digits_only) == 12:
             return digits_only
         return None
+
+    @staticmethod
+    def _lipila_disbursement_callback_url() -> Optional[str]:
+        configured = (
+            getattr(settings, 'LIPILA_DISBURSEMENT_CALLBACK_URL', '')
+            or getattr(settings, 'LIPILA_WEBHOOK_URL', '')
+            or ''
+        ).strip()
+        if configured:
+            return configured
+
+        public_base = (getattr(settings, 'PUBLIC_BASE_URL', '') or '').strip()
+        if not public_base:
+            return None
+        return urljoin(public_base.rstrip('/') + '/', reverse('api_lipila_webhook').lstrip('/'))
 
     def _initialize_lipila_via_gateway(
         self,
@@ -701,4 +720,3 @@ def get_payment_manager() -> PaymentManager:
     if _payment_manager is None:
         _payment_manager = PaymentManager()
     return _payment_manager
-

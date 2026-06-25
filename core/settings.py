@@ -481,7 +481,10 @@ CSP_FONT_SRC = ("'self'",)
 # Wallet Settings
 # Enable/disable automatic withdrawal processing
 # When False, withdrawals must be manually approved via admin panel
-WALLET_AUTO_PROCESS_WITHDRAWALS = True
+WALLET_AUTO_PROCESS_WITHDRAWALS = _env_bool(
+    'WALLET_AUTO_PROCESS_WITHDRAWALS',
+    False if 'test' in sys.argv else True,
+)
 
 # Payment Gateway Settings
 # Test mode: explicitly enable for local/mock testing. Production defaults to real provider calls.
@@ -506,10 +509,15 @@ LIPILA_BASE_URL = os.environ.get('LIPILA_BASE_URL', 'https://lipila-uat.hobbiton
 LIPILA_CURRENCY = os.environ.get('LIPILA_CURRENCY', 'ZMW').strip()
 LIPILA_WEBHOOK_SECRET = os.environ.get('LIPILA_WEBHOOK_SECRET', '').strip()
 LIPILA_WEBHOOK_URL = os.environ.get('LIPILA_WEBHOOK_URL', '').strip()
+LIPILA_DISBURSEMENT_CALLBACK_URL = os.environ.get('LIPILA_DISBURSEMENT_CALLBACK_URL', '').strip()
 LIPILA_MOCK_MODE = _env_bool('LIPILA_MOCK_MODE', PAYMENT_GATEWAY_TEST_MODE)
 # uat = Bearer + /transactions/... ; legacy = x-api-key + /api/v1/collections/...
 LIPILA_API_STYLE = os.environ.get('LIPILA_API_STYLE', 'uat').strip().lower()
 LIPILA_MOBILE_MONEY_PATH = os.environ.get('LIPILA_MOBILE_MONEY_PATH', '/collections/mobile-money')
+LIPILA_MOBILE_MONEY_DISBURSEMENT_PATH = os.environ.get(
+    'LIPILA_MOBILE_MONEY_DISBURSEMENT_PATH',
+    '/api/v1/disbursements/mobile-money',
+)
 LIPILA_STATUS_PATH_TEMPLATE = os.environ.get('LIPILA_STATUS_PATH_TEMPLATE', '/collections/{reference_id}')
 LIPILA_TIMEOUT_SECONDS = int(os.environ.get('LIPILA_TIMEOUT_SECONDS', '30'))
 PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '').strip()
