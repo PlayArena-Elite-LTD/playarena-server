@@ -33,7 +33,7 @@ class LipilaService:
         secret_key: str,
         base_url: str,
         *,
-        mobile_money_path: str = '/collections/mobile-money',
+        mobile_money_path: str = '/api/v1/collections/mobile-money',
         mobile_money_disbursement_path: str = '/api/v1/disbursements/mobile-money',
         status_path_template: str = '/collections/{reference_id}',
         legacy_collections: bool = False,
@@ -81,8 +81,9 @@ class LipilaService:
         idempotency_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        POST {LIPILA_BASE_URL}/collections/mobile-money (UAT/production style)
-        or legacy /api/v1/collections/mobile-money when LIPILA_API_STYLE=legacy.
+        POST {LIPILA_BASE_URL}/api/v1/collections/mobile-money by default.
+        Some older deployments configured /collections/mobile-money; if Lipila
+        returns a missing-route response for that path, retry the api/v1 route.
         """
         if self.legacy_collections:
             return self._legacy_collect_mobile_money(
@@ -128,6 +129,21 @@ class LipilaService:
             resp.status_code,
             resp.text[:500],
         )
+        if self._should_retry_legacy_collection(resp, url):
+            logger.warning(
+                'Lipila collection endpoint missing at %s; retrying /api/v1/collections/mobile-money',
+                url,
+            )
+            return self._legacy_collect_mobile_money(
+                reference_id=reference_id,
+                amount=amount,
+                account_number=account_number,
+                currency=currency,
+                narration=narration,
+                email=email,
+                callback_url=callback_url,
+                idempotency_key=idempotency_key,
+            )
         if not resp.ok:
             logger.error(
                 'Lipila initiate failed: http=%s body=%s',
@@ -138,6 +154,16 @@ class LipilaService:
         data = resp.json() if resp.content else {}
         logger.debug('Lipila initiate body keys: %s', list(data.keys()) if isinstance(data, dict) else type(data))
         return data
+
+    @staticmethod
+    def _should_retry_legacy_collection(resp: requests.Response, url: str) -> bool:
+        body = (getattr(resp, 'text', '') or '').strip()
+        return (
+            not resp.ok
+            and '/collections/mobile-money' in url
+            and '/api/v1/collections/mobile-money' not in url
+            and 'Cannot POST /collections/mobile-money' in body
+        )
 
     def disburse_mobile_money(
         self,
@@ -275,6 +301,8 @@ class LipilaService:
         }
         if kwargs.get('callback_url'):
             headers['callbackUrl'] = kwargs['callback_url']
+        if kwargs.get('idempotency_key'):
+            headers['Idempotency-Key'] = kwargs['idempotency_key']
         resp = requests.post(url, json=payload, headers=headers, timeout=self.timeout)
         resp.raise_for_status()
         return resp.json() if resp.content else {}
@@ -374,7 +402,7 @@ def get_lipila_service() -> LipilaService:
         mobile_money_path=getattr(
             settings,
             'LIPILA_MOBILE_MONEY_PATH',
-            '/collections/mobile-money',
+            '/api/v1/collections/mobile-money',
         ),
         mobile_money_disbursement_path=getattr(
             settings,

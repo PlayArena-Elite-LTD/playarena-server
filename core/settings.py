@@ -511,9 +511,9 @@ LIPILA_WEBHOOK_SECRET = os.environ.get('LIPILA_WEBHOOK_SECRET', '').strip()
 LIPILA_WEBHOOK_URL = os.environ.get('LIPILA_WEBHOOK_URL', '').strip()
 LIPILA_DISBURSEMENT_CALLBACK_URL = os.environ.get('LIPILA_DISBURSEMENT_CALLBACK_URL', '').strip()
 LIPILA_MOCK_MODE = _env_bool('LIPILA_MOCK_MODE', PAYMENT_GATEWAY_TEST_MODE)
-# uat = Bearer + /transactions/... ; legacy = x-api-key + /api/v1/collections/...
+# legacy = x-api-key + /api/v1/collections/...
 LIPILA_API_STYLE = os.environ.get('LIPILA_API_STYLE', 'uat').strip().lower()
-LIPILA_MOBILE_MONEY_PATH = os.environ.get('LIPILA_MOBILE_MONEY_PATH', '/collections/mobile-money')
+LIPILA_MOBILE_MONEY_PATH = os.environ.get('LIPILA_MOBILE_MONEY_PATH', '/api/v1/collections/mobile-money')
 LIPILA_MOBILE_MONEY_DISBURSEMENT_PATH = os.environ.get(
     'LIPILA_MOBILE_MONEY_DISBURSEMENT_PATH',
     '/api/v1/disbursements/mobile-money',

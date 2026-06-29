@@ -37,6 +37,8 @@ services:
         value: "https://api.lipila.dev"
       - key: LIPILA_TIMEOUT_SECONDS
         value: "60"
+      - key: LIPILA_MOBILE_MONEY_PATH
+        value: "/api/v1/collections/mobile-money"
       - key: LIPILA_MOBILE_MONEY_DISBURSEMENT_PATH
         value: "/api/v1/disbursements/mobile-money"
       - key: LIPILA_SECRET_KEY

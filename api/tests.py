@@ -1,6 +1,7 @@
 import json
 from decimal import Decimal
 from requests import HTTPError
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase
@@ -15,8 +16,66 @@ from panel.models import Dispute
 from wallet.models import Wallet, Transaction
 from wallet.models import Deposit
 from services.payments.lipila_gateway import LipilaGateway
+from services.payments.lipila_service import LipilaService
 
 User = get_user_model()
+
+
+class LipilaServiceTests(TestCase):
+    def test_mobile_money_retries_api_v1_when_old_collection_route_is_missing(self):
+        class FakeResponse:
+            def __init__(self, status_code, body):
+                self.status_code = status_code
+                self._body = body
+                self.text = json.dumps(body)
+                self.content = self.text.encode()
+                self.ok = 200 <= status_code < 300
+
+            def json(self):
+                return self._body
+
+            def raise_for_status(self):
+                if not self.ok:
+                    raise HTTPError(f'{self.status_code} error', response=self)
+
+        responses = [
+            FakeResponse(404, {
+                'message': 'Cannot POST /collections/mobile-money',
+                'error': 'Not Found',
+                'statusCode': 404,
+            }),
+            FakeResponse(200, {
+                'status': 'Pending',
+                'identifier': 'LPLXC-123',
+            }),
+        ]
+        posted_urls = []
+
+        def fake_post(url, **kwargs):
+            posted_urls.append(url)
+            return responses.pop(0)
+
+        service = LipilaService(
+            secret_key='secret',
+            base_url='https://api.lipila.io',
+            mobile_money_path='/collections/mobile-money',
+        )
+
+        with patch('services.payments.lipila_service.requests.post', side_effect=fake_post):
+            result = service.initiate_mobile_money(
+                reference_id='DEP_122_1782728784',
+                amount=20.0,
+                account_number='260971234567',
+                currency='ZMW',
+                narration='Deposit for payer',
+                idempotency_key='dep-122',
+            )
+
+        self.assertEqual(result['identifier'], 'LPLXC-123')
+        self.assertEqual(posted_urls, [
+            'https://api.lipila.io/collections/mobile-money',
+            'https://api.lipila.io/api/v1/collections/mobile-money',
+        ])
 
 
 class LipilaGatewayVerifyTests(TestCase):
