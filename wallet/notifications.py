@@ -41,11 +41,10 @@ def notify_withdrawal_created(withdrawal):
                 subject='Withdrawal request received',
                 message=(
                     f"Hi {withdrawal.user.get_username()},\n\n"
-                    f"We received your withdrawal request for ${withdrawal.amount:.2f} via "
+                    f"We received your withdrawal request for ZMW{withdrawal.amount:.2f} via "
                     f"{withdrawal.get_payment_method_display()}.\n\n"
                     "Your request is pending review. Your wallet will be debited only after "
                     "the withdrawal is completed.\n\n"
-                    f"Withdrawal ID: {withdrawal.id}"
                 ),
                 from_email=from_email,
                 recipient_list=[user_email],
