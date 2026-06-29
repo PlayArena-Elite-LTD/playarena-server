@@ -8,7 +8,7 @@ from django.utils.html import format_html
 from django.http import HttpResponseRedirect
 from django.urls import path, reverse
 from .models import Wallet, Transaction, Deposit, Withdrawal, SavedPaymentMethod
-from .utils import refund_withdrawal_reservation
+from .utils import refund_withdrawal_reservation, process_withdrawal_and_debit_wallet
 
 @admin.register(Wallet)
 class WalletAdmin(admin.ModelAdmin):
@@ -317,21 +317,23 @@ class WithdrawalAdmin(admin.ModelAdmin):
             result = payment_manager.process_withdrawal(withdrawal)
             
             if result['success']:
-                # Withdrawal amount was already reserved when the request was created.
-                wallet = withdrawal.wallet
-                
-                # Update withdrawal status to COMPLETED
-                Withdrawal.objects.filter(id=withdrawal.id).update(
-                    status='COMPLETED',
-                    transaction_id=result.get('transaction_id'),
-                    gateway_transaction_id=result.get('transaction_id'),
-                    gateway_response=result.get('gateway_response', {}),
-                    failure_reason=None,
-                    updated_at=timezone.now()
+                completion = process_withdrawal_and_debit_wallet(
+                    withdrawal,
+                    {
+                        'transaction_id': result.get('transaction_id'),
+                        'gateway_response': result.get('gateway_response', {}),
+                    },
                 )
+                if not completion.get('success'):
+                    messages.error(
+                        request,
+                        f'Withdrawal {withdrawal.id} could not be completed: {completion.get("message")}'
+                    )
+                    return redirect('admin:wallet_withdrawal_change', withdrawal.id)
                 
                 # Send completion notification
                 withdrawal.refresh_from_db()
+                wallet = withdrawal.wallet
                 notify_withdrawal_completed(withdrawal)
                 
                 # Audit log: Withdrawal completed via admin
@@ -567,7 +569,7 @@ class WithdrawalAdmin(admin.ModelAdmin):
     @admin.action(description='Mark selected withdrawals as COMPLETED')
     @transaction.atomic
     def mark_as_completed(self, request, queryset):
-        """Mark withdrawals as COMPLETED after funds were reserved at request time."""
+        """Mark withdrawals as COMPLETED and debit the wallet."""
         count = 0
         for withdrawal in queryset:
             if withdrawal.status == 'COMPLETED':
@@ -575,10 +577,11 @@ class WithdrawalAdmin(admin.ModelAdmin):
             if withdrawal.status in ['FAILED', 'CANCELLED']:
                 continue  # Cannot change from final states
 
+            completion = process_withdrawal_and_debit_wallet(withdrawal)
+            if not completion.get('success'):
+                continue
+            withdrawal.refresh_from_db()
             wallet = withdrawal.wallet
-            
-            # Update withdrawal status (use update() to bypass clean() validation)
-            Withdrawal.objects.filter(id=withdrawal.id).update(status='COMPLETED', updated_at=timezone.now())
             
             # Audit log: Withdrawal completed via admin
             from audit.utils import log_action
@@ -602,7 +605,7 @@ class WithdrawalAdmin(admin.ModelAdmin):
     @admin.action(description='Mark selected withdrawals as FAILED')
     @transaction.atomic
     def mark_as_failed(self, request, queryset):
-        """Mark withdrawals as FAILED and return reserved funds."""
+        """Mark withdrawals as FAILED and reverse any existing debit."""
         withdrawals_to_fail = Withdrawal.objects.filter(
             id__in=queryset.values_list('id', flat=True),
             status__in=['PENDING', 'PROCESSING']
@@ -634,7 +637,7 @@ class WithdrawalAdmin(admin.ModelAdmin):
     @admin.action(description='Mark selected withdrawals as CANCELLED')
     @transaction.atomic
     def mark_as_cancelled(self, request, queryset):
-        """Mark withdrawals as CANCELLED and return reserved funds."""
+        """Mark withdrawals as CANCELLED and reverse any existing debit."""
         withdrawals_to_cancel = Withdrawal.objects.filter(
             id__in=queryset.values_list('id', flat=True),
             status__in=['PENDING', 'PROCESSING']
@@ -722,23 +725,25 @@ class WithdrawalAdmin(admin.ModelAdmin):
                 result = payment_manager.process_withdrawal(withdrawal)
                 
                 if result['success']:
-                    # Withdrawal successful; amount was reserved when request was created.
-                    wallet = withdrawal.wallet
-                    
-                    # Update withdrawal status to COMPLETED
-                    Withdrawal.objects.filter(id=withdrawal.id).update(
-                        status='COMPLETED',
-                        transaction_id=result['transaction_id'],
-                        gateway_transaction_id=result['transaction_id'],
-                        gateway_response=result['gateway_response'],
-                        failure_reason=None,
-                        updated_at=timezone.now()
+                    completion = process_withdrawal_and_debit_wallet(
+                        withdrawal,
+                        {
+                            'transaction_id': result['transaction_id'],
+                            'gateway_response': result['gateway_response'],
+                        },
                     )
+                    if not completion.get('success'):
+                        failed_count += 1
+                        logger.error(
+                            f'Withdrawal {withdrawal.id} could not be completed: {completion.get("message")}'
+                        )
+                        continue
                     
                     completed_count += 1
                     
                     # Send completion notification
                     withdrawal.refresh_from_db()
+                    wallet = withdrawal.wallet
                     notify_withdrawal_completed(withdrawal)
                     
                     # Audit log: Withdrawal completed via admin bulk action

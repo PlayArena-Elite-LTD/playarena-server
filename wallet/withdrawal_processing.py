@@ -16,6 +16,7 @@ from wallet.notifications import (
 )
 from wallet.payment_manager import get_payment_manager
 from wallet.utils import refund_withdrawal_reservation
+from wallet.utils import process_withdrawal_and_debit_wallet
 
 logger = logging.getLogger(__name__)
 
@@ -100,17 +101,40 @@ def process_withdrawal_now(withdrawal, *, actor=None) -> Dict[str, Any]:
                     'message': withdrawal.failure_reason or 'Withdrawal failed.',
                 }
 
-            Withdrawal.objects.filter(id=withdrawal.id).update(
-                status=next_status,
-                transaction_id=transaction_id,
-                gateway_transaction_id=transaction_id,
-                gateway_response=gateway_response,
-                failure_reason=failure_reason,
-                updated_at=timezone.now(),
-            )
-            withdrawal.refresh_from_db()
             if next_status == 'COMPLETED':
+                completion = process_withdrawal_and_debit_wallet(
+                    withdrawal,
+                    {
+                        'transaction_id': transaction_id,
+                        'gateway_response': gateway_response,
+                    },
+                )
+                withdrawal.refresh_from_db()
+                if not completion.get('success'):
+                    logger.error(
+                        'Withdrawal %s gateway completed but wallet debit failed: %s',
+                        withdrawal.id,
+                        completion.get('message'),
+                    )
+                    return {
+                        'processed': True,
+                        'status': withdrawal.status,
+                        'gateway_status': provider_status,
+                        'transaction_id': transaction_id,
+                        'gateway_response': gateway_response,
+                        'message': completion.get('message') or 'Wallet debit failed.',
+                    }
                 notify_withdrawal_completed(withdrawal)
+            else:
+                Withdrawal.objects.filter(id=withdrawal.id).update(
+                    status=next_status,
+                    transaction_id=transaction_id,
+                    gateway_transaction_id=transaction_id,
+                    gateway_response=gateway_response,
+                    failure_reason=failure_reason,
+                    updated_at=timezone.now(),
+                )
+                withdrawal.refresh_from_db()
 
             logger.info(
                 'Withdrawal %s processed via gateway: status=%s transaction_id=%s actor=%s',
@@ -221,15 +245,21 @@ def apply_lipila_withdrawal_webhook(payload: Dict[str, Any]) -> Optional[Dict[st
 
         if payment_status == 'Successful':
             transaction_id = LipilaService.extract_transaction_id(payload) or withdrawal.transaction_id
-            Withdrawal.objects.filter(id=withdrawal.id).update(
-                status='COMPLETED',
-                transaction_id=transaction_id,
-                gateway_transaction_id=transaction_id,
-                gateway_response=payload,
-                failure_reason=None,
-                updated_at=timezone.now(),
+            completion = process_withdrawal_and_debit_wallet(
+                withdrawal,
+                {
+                    'transaction_id': transaction_id,
+                    'gateway_response': payload,
+                },
             )
             withdrawal.refresh_from_db()
+            if not completion.get('success'):
+                return {
+                    'processed': False,
+                    'withdrawal_id': withdrawal.id,
+                    'status': withdrawal.status,
+                    'message': completion.get('message') or 'Wallet debit failed.',
+                }
             notify_withdrawal_completed(withdrawal)
             return {
                 'processed': True,

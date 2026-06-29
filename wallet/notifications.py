@@ -6,10 +6,14 @@ when payment-related events occur (withdrawals, deposits, etc.).
 """
 
 import logging
+from django.conf import settings
+from django.core.mail import send_mail
 from django.utils import timezone
 from alert.models import Notification
 
 logger = logging.getLogger(__name__)
+
+WITHDRAWAL_ADMIN_EMAIL = 'josephmbuzi9@gmail.com'
 
 
 def notify_withdrawal_created(withdrawal):
@@ -28,6 +32,42 @@ def notify_withdrawal_created(withdrawal):
         Notification.objects.create(
             user=withdrawal.user,
             message=message
+        )
+
+        user_email = getattr(withdrawal.user, 'email', '') or ''
+        from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', None)
+        if user_email:
+            send_mail(
+                subject='Withdrawal request received',
+                message=(
+                    f"Hi {withdrawal.user.get_username()},\n\n"
+                    f"We received your withdrawal request for ${withdrawal.amount:.2f} via "
+                    f"{withdrawal.get_payment_method_display()}.\n\n"
+                    "Your request is pending review. Your wallet will be debited only after "
+                    "the withdrawal is completed.\n\n"
+                    f"Withdrawal ID: {withdrawal.id}"
+                ),
+                from_email=from_email,
+                recipient_list=[user_email],
+                fail_silently=False,
+            )
+
+        send_mail(
+            subject=f'New withdrawal request #{withdrawal.id}',
+            message=(
+                "A new withdrawal request has been submitted.\n\n"
+                f"Withdrawal ID: {withdrawal.id}\n"
+                f"User: {withdrawal.user.get_username()}\n"
+                f"Email: {user_email or 'N/A'}\n"
+                f"Amount: ${withdrawal.amount:.2f}\n"
+                f"Payment method: {withdrawal.get_payment_method_display()}\n"
+                f"Account details: {withdrawal.account_details}\n"
+                f"Status: {withdrawal.status}\n"
+                f"Created at: {timezone.localtime(withdrawal.created_at):%Y-%m-%d %H:%M:%S %Z}"
+            ),
+            from_email=from_email,
+            recipient_list=[WITHDRAWAL_ADMIN_EMAIL],
+            fail_silently=False,
         )
         
         logger.info(f'Notification sent to {withdrawal.user.username} for withdrawal {withdrawal.id} creation')
@@ -184,4 +224,3 @@ def notify_deposit_failed(deposit, failure_reason=None):
         logger.info(f'Notification sent to {deposit.user.username} for deposit {deposit.id} failure')
     except Exception as e:
         logger.error(f'Error sending deposit failure notification: {str(e)}', exc_info=True)
-

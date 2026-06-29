@@ -14,6 +14,7 @@ from .models import Wallet, Transaction, Deposit, Withdrawal, SavedPaymentMethod
 from .forms import DepositForm, WithdrawalForm
 from wallet.utils import initialize_lipila_deposit_payment
 from wallet.withdrawal_processing import process_withdrawal_now
+from wallet.notifications import notify_withdrawal_created
 from .payment_method_forms import SavedPaymentMethodForm, DeletePaymentMethodForm
 from wallet.payment_debug import payment_debug_enabled, mask_secret
 
@@ -186,7 +187,7 @@ def withdraw_view(request):
     """
     Process withdrawal request
     Creates a Withdrawal record with PENDING status. Wallet balance is deducted
-    immediately but can be restored if withdrawal fails.
+    only when the withdrawal is completed.
     """
     try:
         wallet = request.user.wallet
@@ -230,16 +231,8 @@ def withdraw_view(request):
                         wallet=wallet,
                     )
 
-                    wallet.balance -= amount
-                    wallet.save(update_fields=['balance'])
+                notify_withdrawal_created(withdrawal)
 
-                    Transaction.objects.create(
-                        wallet=wallet,
-                        amount=-amount,
-                        transaction_type='WITHDRAWAL',
-                        description=f'Withdrawal request - {withdrawal.get_payment_method_display()}',
-                    )
-                
                 process_result = None
                 if (
                     payment_method == 'MOBILE_MONEY'

@@ -25,7 +25,7 @@ from django.conf import settings
 
 from wallet.models import Withdrawal
 from wallet.payment_manager import get_payment_manager
-from wallet.utils import refund_withdrawal_reservation
+from wallet.utils import refund_withdrawal_reservation, process_withdrawal_and_debit_wallet
 from wallet.notifications import (
     notify_withdrawal_processing,
     notify_withdrawal_completed,
@@ -152,18 +152,25 @@ class Command(BaseCommand):
                     result = payment_manager.process_withdrawal(withdrawal)
                     
                     if result['success']:
-                        # Withdrawal successful; amount was reserved when request was created.
-                        wallet = withdrawal.wallet
-                        
-                        # Update withdrawal status to COMPLETED
-                        Withdrawal.objects.filter(id=withdrawal.id).update(
-                            status='COMPLETED',
-                            transaction_id=result['transaction_id'],
-                            gateway_transaction_id=result['transaction_id'],
-                            gateway_response=result['gateway_response'],
-                            failure_reason=None,
-                            updated_at=timezone.now()
+                        completion = process_withdrawal_and_debit_wallet(
+                            withdrawal,
+                            {
+                                'transaction_id': result['transaction_id'],
+                                'gateway_response': result['gateway_response'],
+                            },
                         )
+                        if not completion.get('success'):
+                            failed_count += 1
+                            logger.error(
+                                f'Withdrawal {withdrawal.id} could not be completed: {completion.get("message")}'
+                            )
+                            self.stdout.write(
+                                self.style.ERROR(
+                                    f'✗ Failed to complete withdrawal {withdrawal.id}: '
+                                    f'{completion.get("message")}'
+                                )
+                            )
+                            continue
                         
                         completed_count += 1
                         

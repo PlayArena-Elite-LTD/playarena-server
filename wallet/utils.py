@@ -13,6 +13,19 @@ from .models import Wallet, Transaction, Deposit, Withdrawal
 logger = logging.getLogger(__name__)
 
 
+def find_withdrawal_debit(withdrawal):
+    """Return the wallet debit transaction for a withdrawal, if one exists."""
+    return Transaction.objects.filter(
+        wallet=withdrawal.wallet,
+        amount=-withdrawal.amount,
+        transaction_type='WITHDRAWAL',
+        created_at__gte=withdrawal.created_at,
+    ).filter(
+        Q(description__startswith='Withdrawal request')
+        | Q(description__startswith=f"Withdrawal of ${withdrawal.amount}")
+    ).first()
+
+
 def build_public_url(request, path_or_url: str) -> str:
     from services.payments.url_utils import build_public_url as _build
     return _build(request, path_or_url)
@@ -116,14 +129,23 @@ def get_deposit_payment_status_payload(deposit):
 @transaction.atomic
 def refund_withdrawal_reservation(withdrawal, reason: str = ''):
     """
-    Return funds reserved when a pending withdrawal fails or is cancelled.
+    Return funds for a withdrawal only if the wallet was actually debited.
 
-    Withdrawal requests debit the wallet when the request is created. Completion
-    should not debit again; only failed/cancelled withdrawals need a compensating
-    credit so wallet reconciliation remains correct.
+    New withdrawals are debited on completion, so pending failures/cancellations
+    do not need a credit. The debit lookup keeps this safe for older pending
+    withdrawals that were debited when the request was created.
     """
     withdrawal = Withdrawal.objects.select_for_update().get(id=withdrawal.id)
     wallet = Wallet.objects.select_for_update().get(id=withdrawal.wallet_id)
+    existing_debit = find_withdrawal_debit(withdrawal)
+    if not existing_debit:
+        return {
+            'refunded': False,
+            'transaction_created': False,
+            'new_balance': wallet.balance,
+            'transaction_id': None,
+        }
+
     description = f"Withdrawal {withdrawal.id} refund"
     if reason:
         description = f"{description} - {reason}"
@@ -256,16 +278,11 @@ def complete_deposit_and_credit_wallet(deposit):
 
 @transaction.atomic
 def process_withdrawal_and_debit_wallet(withdrawal, gateway_result: dict | None = None):
-    """Securely complete a withdrawal whose funds were reserved at request time."""
+    """Securely complete a withdrawal and debit the wallet exactly once."""
     try:
         withdrawal = Withdrawal.objects.select_for_update().get(id=withdrawal.id)
         if withdrawal.status == 'COMPLETED':
-            existing_transaction = Transaction.objects.filter(
-                wallet=withdrawal.wallet,
-                transaction_type='WITHDRAWAL',
-                description__contains=f"Withdrawal of ${withdrawal.amount}",
-                created_at__gte=withdrawal.created_at,
-            ).first()
+            existing_transaction = find_withdrawal_debit(withdrawal)
             if existing_transaction:
                 return {
                     'success': True,
@@ -284,6 +301,31 @@ def process_withdrawal_and_debit_wallet(withdrawal, gateway_result: dict | None 
             }
         wallet = Wallet.objects.select_for_update().get(id=withdrawal.wallet.id)
         gateway_result = gateway_result or {}
+        existing_transaction = find_withdrawal_debit(withdrawal)
+        transaction_record = None
+        if not existing_transaction:
+            if wallet.balance < withdrawal.amount:
+                return {
+                    'success': False,
+                    'wallet_debited': False,
+                    'transaction_created': False,
+                    'message': 'Insufficient wallet balance to complete withdrawal',
+                    'new_balance': wallet.balance,
+                    'transaction_id': None,
+                }
+
+            wallet.balance -= withdrawal.amount
+            wallet.save(update_fields=['balance'])
+            transaction_record = Transaction.objects.create(
+                wallet=wallet,
+                amount=-withdrawal.amount,
+                transaction_type='WITHDRAWAL',
+                description=(
+                    f"Withdrawal of ${withdrawal.amount:.2f} via "
+                    f"{withdrawal.get_payment_method_display()}"
+                ),
+            )
+
         withdrawal.status = 'COMPLETED'
         txid = gateway_result.get('transaction_id') or gateway_result.get('transfer_code')
         if txid:
@@ -304,10 +346,10 @@ def process_withdrawal_and_debit_wallet(withdrawal, gateway_result: dict | None 
         return {
             'success': True,
             'wallet_debited': True,
-            'transaction_created': False,
-            'message': 'Withdrawal completed; reserved wallet debit was already applied',
+            'transaction_created': transaction_record is not None,
+            'message': 'Withdrawal completed and wallet debited',
             'new_balance': wallet.balance,
-            'transaction_id': None,
+            'transaction_id': transaction_record.id if transaction_record else existing_transaction.id,
         }
     except Withdrawal.DoesNotExist:
         return {

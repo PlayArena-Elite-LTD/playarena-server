@@ -24,7 +24,7 @@ from django.utils import timezone
 from django.contrib import messages
 
 from wallet.models import Deposit, Withdrawal, Transaction, Wallet
-from wallet.utils import refund_withdrawal_reservation
+from wallet.utils import refund_withdrawal_reservation, process_withdrawal_and_debit_wallet
 from services.payments.factory import get_payment_gateway
 from wallet.notifications import (
     notify_deposit_completed,
@@ -411,14 +411,20 @@ def handle_paystack_withdrawal_success(data):
             logger.info(f'Withdrawal {withdrawal.id} already completed, ignoring webhook')
             return JsonResponse({'status': 'ok', 'message': 'Already processed'})
         
-        # Update withdrawal status
-        withdrawal.status = 'COMPLETED'
-        withdrawal.transaction_id = transfer_code
-        withdrawal.gateway_transaction_id = transfer_code
-        withdrawal.gateway_response = transfer_data
-        withdrawal.save()
-        
-        # The wallet was debited when the withdrawal request was created.
+        completion = process_withdrawal_and_debit_wallet(
+            withdrawal,
+            {
+                'transaction_id': transfer_code,
+                'transfer_code': transfer_code,
+                'gateway_response': transfer_data,
+            },
+        )
+        if not completion.get('success'):
+            return JsonResponse(
+                {'status': 'error', 'message': completion.get('message') or 'Wallet debit failed'},
+                status=400,
+            )
+        withdrawal.refresh_from_db()
         wallet = withdrawal.wallet
         
         # Send notification
@@ -661,14 +667,19 @@ def handle_flutterwave_withdrawal_success(data):
             logger.info(f'Withdrawal {withdrawal.id} already completed, ignoring webhook')
             return JsonResponse({'status': 'ok', 'message': 'Already processed'})
         
-        # Update withdrawal status
-        withdrawal.status = 'COMPLETED'
-        withdrawal.transaction_id = str(transfer_id)
-        withdrawal.gateway_transaction_id = str(transfer_id)
-        withdrawal.gateway_response = transfer_data
-        withdrawal.save()
-        
-        # The wallet was debited when the withdrawal request was created.
+        completion = process_withdrawal_and_debit_wallet(
+            withdrawal,
+            {
+                'transaction_id': str(transfer_id),
+                'gateway_response': transfer_data,
+            },
+        )
+        if not completion.get('success'):
+            return JsonResponse(
+                {'status': 'error', 'message': completion.get('message') or 'Wallet debit failed'},
+                status=400,
+            )
+        withdrawal.refresh_from_db()
         wallet = withdrawal.wallet
         
         # Send notification

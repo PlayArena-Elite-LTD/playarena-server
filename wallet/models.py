@@ -485,8 +485,8 @@ class Withdrawal(models.Model):
         if not self.account_details or not self.account_details.strip():
             raise ValidationError({'account_details': 'Account details are required for withdrawal'})
         
-        # Security: Validate balance only when creating the withdrawal. After
-        # creation, the amount is already reserved by debiting the wallet.
+        # Security: Validate balance when creating the withdrawal. The actual
+        # wallet debit is applied only after the withdrawal is completed.
         if self.user and not self.pk and hasattr(self.user, 'wallet'):
             wallet = self.user.wallet
             if self.amount > wallet.balance:
