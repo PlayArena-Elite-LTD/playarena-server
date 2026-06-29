@@ -77,7 +77,7 @@ class LipilaServiceTests(TestCase):
             'https://api.lipila.io/api/v1/collections/mobile-money',
         ])
 
-    def test_disbursement_uses_dedicated_base_url(self):
+    def test_disbursement_defaults_to_base_url(self):
         class FakeResponse:
             status_code = 200
             text = '{"status": "Pending", "identifier": "WDR-123"}'
@@ -91,15 +91,16 @@ class LipilaServiceTests(TestCase):
                 return None
 
         posted_urls = []
+        posted_headers = []
 
         def fake_post(url, **kwargs):
             posted_urls.append(url)
+            posted_headers.append(kwargs['headers'])
             return FakeResponse()
 
         service = LipilaService(
             secret_key='secret',
-            base_url='https://collections.lipila.example',
-            disbursement_base_url='https://blz.lipila.io',
+            base_url='https://api.lipila.dev',
         )
 
         with patch('services.payments.lipila_service.requests.post', side_effect=fake_post):
@@ -112,8 +113,10 @@ class LipilaServiceTests(TestCase):
 
         self.assertEqual(result['identifier'], 'WDR-123')
         self.assertEqual(posted_urls, [
-            'https://blz.lipila.io/api/v1/disbursements/mobile-money',
+            'https://api.lipila.dev/api/v1/disbursements/mobile-money',
         ])
+        self.assertEqual(posted_headers[0]['x-api-key'], 'secret')
+        self.assertEqual(posted_headers[0]['Authorization'], 'Bearer secret')
 
 
 class LipilaGatewayVerifyTests(TestCase):

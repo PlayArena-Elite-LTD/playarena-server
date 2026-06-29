@@ -35,8 +35,6 @@ services:
         value: "false"
       - key: LIPILA_BASE_URL
         value: "https://api.lipila.dev"
-      - key: LIPILA_DISBURSEMENT_BASE_URL
-        value: "https://blz.lipila.io"
       - key: LIPILA_TIMEOUT_SECONDS
         value: "60"
       - key: LIPILA_MOBILE_MONEY_PATH
