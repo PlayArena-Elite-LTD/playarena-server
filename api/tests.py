@@ -118,6 +118,50 @@ class LipilaServiceTests(TestCase):
         self.assertEqual(posted_headers[0]['x-api-key'], 'secret')
         self.assertEqual(posted_headers[0]['Authorization'], 'Bearer secret')
 
+    def test_disbursement_retries_with_api_key_only_after_unauthorized(self):
+        class FakeResponse:
+            def __init__(self, status_code, body):
+                self.status_code = status_code
+                self._body = body
+                self.text = json.dumps(body)
+                self.content = self.text.encode()
+                self.ok = 200 <= status_code < 300
+
+            def json(self):
+                return self._body
+
+            def raise_for_status(self):
+                if not self.ok:
+                    raise HTTPError(f'{self.status_code} error', response=self)
+
+        responses = [
+            FakeResponse(401, {}),
+            FakeResponse(200, {'status': 'Pending', 'identifier': 'WDR-123'}),
+        ]
+        posted_headers = []
+
+        def fake_post(url, **kwargs):
+            posted_headers.append(kwargs['headers'])
+            return responses.pop(0)
+
+        service = LipilaService(
+            secret_key='secret',
+            base_url='https://api.lipila.dev',
+        )
+
+        with patch('services.payments.lipila_service.requests.post', side_effect=fake_post):
+            result = service.disburse_mobile_money(
+                reference_id='WDR_1',
+                amount=20.0,
+                account_number='260971234567',
+                currency='ZMW',
+            )
+
+        self.assertEqual(result['identifier'], 'WDR-123')
+        self.assertEqual(posted_headers[0]['Authorization'], 'Bearer secret')
+        self.assertNotIn('Authorization', posted_headers[1])
+        self.assertEqual(posted_headers[1]['x-api-key'], 'secret')
+
 
 class LipilaGatewayVerifyTests(TestCase):
     def setUp(self):
