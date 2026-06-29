@@ -1,214 +1,223 @@
-{% extends "admin/index.html" %}
-{% load static %}
+{% extends "admin/base_site.html" %}
+{% load i18n static %}
 
 {% block extrastyle %}
 {{ block.super }}
-<link rel="stylesheet" type="text/css" href="{% static 'styles/admin_custom.css' %}?v=2.1">
+<link rel="stylesheet" type="text/css" href="{% static 'styles/admin_custom.css' %}?v=3.1">
 {% endblock %}
+
+{% block content_title %}{% endblock %}
 
 {% block content %}
 <div class="admin-dashboard">
-    <div class="dashboard-header">
-        <div class="dashboard-header-content">
-            <h1>Dashboard Overview</h1>
-            <p class="dashboard-subtitle">Welcome to PlayyArena Administration Portal</p>
+    <section class="dashboard-hero" aria-labelledby="dashboard-title">
+        <div>
+            <p class="dashboard-kicker">Operations Center</p>
+            <h1 id="dashboard-title">PlayyArena Dashboard</h1>
+            <p class="dashboard-subtitle">Monitor users, matches, wallet activity, disputes, and platform messaging from one workspace.</p>
         </div>
-        <div class="dashboard-header-meta">
-            <span class="dashboard-date">{% now "F j, Y" %}</span>
+        <div class="dashboard-date-panel">
+            <span class="dashboard-date-label">Today</span>
+            <span class="dashboard-date">{% now "M j, Y" %}</span>
         </div>
-    </div>
+    </section>
 
-    <div class="stats-grid">
-        <div class="stat-card stat-primary">
-            <div class="stat-icon">👥</div>
-            <div class="stat-content">
-                <h3 class="stat-value">{{ total_users|default:0 }}</h3>
-                <p class="stat-label">Total Users</p>
-                <a href="{% url 'admin:accounts_customuser_changelist' %}" class="stat-link">View All →</a>
+    <section class="kpi-grid" aria-label="Platform summary">
+        <a class="kpi-card" href="{% url 'admin:accounts_customuser_changelist' %}">
+            <span class="kpi-label">Users</span>
+            <strong class="kpi-value">{{ total_users|default:0 }}</strong>
+            <span class="kpi-meta">{{ recent_users|default:0 }} joined in 7 days</span>
+        </a>
+        <a class="kpi-card" href="{% url 'admin:matches_match_changelist' %}">
+            <span class="kpi-label">Matches</span>
+            <strong class="kpi-value">{{ total_matches|default:0 }}</strong>
+            <span class="kpi-meta">{{ recent_matches|default:0 }} created today</span>
+        </a>
+        <a class="kpi-card" href="{% url 'admin:wallet_wallet_changelist' %}">
+            <span class="kpi-label">Wallet Balance</span>
+            <strong class="kpi-value">${{ total_wallet_balance|default:0|floatformat:2 }}</strong>
+            <span class="kpi-meta">Across player wallets</span>
+        </a>
+        <a class="kpi-card kpi-card--alert" href="{% url 'admin:panel_dispute_changelist' %}?status__exact=OPEN">
+            <span class="kpi-label">Open Disputes</span>
+            <strong class="kpi-value">{{ open_disputes|default:0 }}</strong>
+            <span class="kpi-meta">{{ escalated_disputes|default:0 }} escalated</span>
+        </a>
+    </section>
+
+    <section class="dashboard-layout" aria-label="Operational dashboard">
+        <div class="dashboard-main">
+            <div class="panel-grid">
+                <section class="dashboard-panel">
+                    <div class="panel-header">
+                        <div>
+                            <h2>Review Queue</h2>
+                            <p>Items that need staff attention.</p>
+                        </div>
+                        <a href="{% url 'admin:panel_dispute_changelist' %}">All disputes</a>
+                    </div>
+                    <div class="queue-list">
+                        <a class="queue-item queue-item--danger" href="{% url 'admin:panel_dispute_changelist' %}?status__exact=OPEN">
+                            <span>
+                                <strong>{{ open_disputes|default:0 }}</strong>
+                                <small>Open disputes</small>
+                            </span>
+                            <em>Review</em>
+                        </a>
+                        <a class="queue-item queue-item--warning" href="{% url 'admin:panel_dispute_changelist' %}?status__exact=PENDING">
+                            <span>
+                                <strong>{{ pending_disputes|default:0 }}</strong>
+                                <small>Pending decisions</small>
+                            </span>
+                            <em>Process</em>
+                        </a>
+                        <a class="queue-item" href="{% url 'admin:wallet_deposit_changelist' %}">
+                            <span>
+                                <strong>{{ pending_deposits|default:0 }}</strong>
+                                <small>Pending deposits</small>
+                            </span>
+                            <em>Check</em>
+                        </a>
+                        <a class="queue-item" href="{% url 'admin:wallet_withdrawal_changelist' %}">
+                            <span>
+                                <strong>{{ pending_withdrawals|default:0 }}</strong>
+                                <small>Pending withdrawals</small>
+                            </span>
+                            <em>Check</em>
+                        </a>
+                    </div>
+                </section>
+
+                <section class="dashboard-panel">
+                    <div class="panel-header">
+                        <div>
+                            <h2>Money Movement</h2>
+                            <p>Today's wallet transaction flow.</p>
+                        </div>
+                        <a href="{% url 'admin:wallet_transaction_changelist' %}">Transactions</a>
+                    </div>
+                    <div class="finance-grid">
+                        <div><span>Credits</span><strong>${{ today_credits|default:0|floatformat:2 }}</strong></div>
+                        <div><span>Debits</span><strong>${{ today_debits|default:0|floatformat:2 }}</strong></div>
+                        <div><span>Net Today</span><strong>${{ recent_transactions|default:0|floatformat:2 }}</strong></div>
+                        <div><span>Failed Payments</span><strong>{{ failed_payments|default:0 }}</strong></div>
+                    </div>
+                </section>
             </div>
-        </div>
 
-        <div class="stat-card stat-success">
-            <div class="stat-icon">🎯</div>
-            <div class="stat-content">
-                <h3 class="stat-value">{{ total_matches|default:0 }}</h3>
-                <p class="stat-label">Total Matches</p>
-                <a href="{% url 'admin:matches_match_changelist' %}" class="stat-link">View All →</a>
-            </div>
-        </div>
-
-        <div class="stat-card stat-warning">
-            <div class="stat-icon">💰</div>
-            <div class="stat-content">
-                <h3 class="stat-value">${{ total_wallet_balance|default:0|floatformat:2 }}</h3>
-                <p class="stat-label">Total Wallet Balance</p>
-                <a href="{% url 'admin:wallet_wallet_changelist' %}" class="stat-link">View All →</a>
-            </div>
-        </div>
-
-        <div class="stat-card stat-danger">
-            <div class="stat-icon">⚖️</div>
-            <div class="stat-content">
-                <h3 class="stat-value">{{ open_disputes|default:0 }}</h3>
-                <p class="stat-label">Open Disputes</p>
-                <a href="{% url 'admin:panel_dispute_changelist' %}?status__exact=OPEN" class="stat-link">View Open →</a>
-            </div>
-        </div>
-
-        <div class="stat-card stat-warning">
-            <div class="stat-icon">⏳</div>
-            <div class="stat-content">
-                <h3 class="stat-value">{{ pending_disputes|default:0 }}</h3>
-                <p class="stat-label">Pending Disputes</p>
-                <a href="{% url 'admin:panel_dispute_changelist' %}?status__exact=PENDING" class="stat-link">View Pending →</a>
-            </div>
-        </div>
-
-        <div class="stat-card stat-success">
-            <div class="stat-icon">✅</div>
-            <div class="stat-content">
-                <h3 class="stat-value">{{ resolved_disputes|default:0 }}</h3>
-                <p class="stat-label">Resolved Disputes</p>
-                <a href="{% url 'admin:panel_dispute_changelist' %}?status__exact=RESOLVED" class="stat-link">View Resolved →</a>
-            </div>
-        </div>
-
-        <div class="stat-card stat-info">
-            <div class="stat-icon">💬</div>
-            <div class="stat-content">
-                <h3 class="stat-value">{{ total_messages|default:0 }}</h3>
-                <p class="stat-label">Total Messages</p>
-                <a href="{% url 'admin:messenger_message_changelist' %}" class="stat-link">View All →</a>
-            </div>
-        </div>
-
-        <div class="stat-card stat-secondary">
-            <div class="stat-icon">🔔</div>
-            <div class="stat-content">
-                <h3 class="stat-value">{{ total_notifications|default:0 }}</h3>
-                <p class="stat-label">Total Notifications</p>
-                <a href="{% url 'admin:alert_notification_changelist' %}" class="stat-link">View All →</a>
-            </div>
-        </div>
-    </div>
-
-    <div class="dashboard-sections">
-        <div class="dashboard-section">
-            <h2 class="section-title">Quick Actions</h2>
-            <div class="action-grid">
-                <a href="{% url 'admin:accounts_customuser_add' %}" class="action-card">
-                    <span class="action-icon">➕</span>
-                    <span class="action-text">Add New User</span>
-                </a>
-                <a href="{% url 'admin:matches_match_changelist' %}?status__exact=OPEN" class="action-card">
-                    <span class="action-icon">🎮</span>
-                    <span class="action-text">View Open Matches</span>
-                </a>
-                <a href="{% url 'admin:panel_dispute_changelist' %}?status__exact=OPEN" class="action-card">
-                    <span class="action-icon">⚖️</span>
-                    <span class="action-text">Review Open Disputes</span>
-                </a>
-                <a href="{% url 'admin:panel_dispute_changelist' %}" class="action-card">
-                    <span class="action-icon">📋</span>
-                    <span class="action-text">View All Disputes</span>
-                </a>
-                <a href="{% url 'admin:wallet_transaction_changelist' %}" class="action-card">
-                    <span class="action-icon">💳</span>
-                    <span class="action-text">View Transactions</span>
-                </a>
-            </div>
-        </div>
-
-        <div class="dashboard-section">
-            <h2 class="section-title">Recent Activity</h2>
-            <div class="activity-list">
-                <div class="activity-item">
-                    <span class="activity-icon">👤</span>
-                    <div class="activity-content">
-                        <p class="activity-text"><strong>{{ recent_users|default:0 }}</strong> new users this week</p>
-                        <span class="activity-time">Last 7 days</span>
+            <section class="dashboard-panel">
+                <div class="panel-header">
+                    <div>
+                        <h2>Match Health</h2>
+                        <p>Current lifecycle distribution and most played games.</p>
+                    </div>
+                    <a href="{% url 'admin:matches_match_changelist' %}">Matches</a>
+                </div>
+                <div class="match-health">
+                    <div class="status-bars">
+                        <a href="{% url 'admin:matches_match_changelist' %}?status__exact=OPEN"><span>Open</span><strong>{{ open_matches|default:0 }}</strong></a>
+                        <a href="{% url 'admin:matches_match_changelist' %}?status__exact=JOINED"><span>Joined</span><strong>{{ joined_matches|default:0 }}</strong></a>
+                        <a href="{% url 'admin:matches_match_changelist' %}?status__exact=COMPLETED"><span>Completed</span><strong>{{ completed_matches|default:0 }}</strong></a>
+                        <a href="{% url 'admin:matches_match_changelist' %}?status__exact=DISPUTED"><span>Disputed</span><strong>{{ disputed_matches|default:0 }}</strong></a>
+                    </div>
+                    <div class="top-games">
+                        {% for game in top_games %}
+                            <div class="top-game-row"><span>{{ game.label }}</span><strong>{{ game.total }}</strong></div>
+                        {% empty %}
+                            <div class="empty-state">No match data yet.</div>
+                        {% endfor %}
                     </div>
                 </div>
-                <div class="activity-item">
-                    <span class="activity-icon">🎯</span>
-                    <div class="activity-content">
-                        <p class="activity-text"><strong>{{ recent_matches|default:0 }}</strong> matches created today</p>
-                        <span class="activity-time">Last 24 hours</span>
-                    </div>
-                </div>
-                <div class="activity-item">
-                    <span class="activity-icon">💰</span>
-                    <div class="activity-content">
-                        <p class="activity-text"><strong>${{ recent_transactions|default:0|floatformat:2 }}</strong> in transactions today</p>
-                        <span class="activity-time">Last 24 hours</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+            </section>
 
-    <div class="dashboard-apps">
+            <section class="dashboard-panel">
+                <div class="panel-header">
+                    <div>
+                        <h2>Recent Disputes</h2>
+                        <p>Latest match issues opened by players.</p>
+                    </div>
+                    <a href="{% url 'admin:panel_dispute_changelist' %}">Manage</a>
+                </div>
+                <div class="data-list">
+                    {% for dispute in recent_disputes %}
+                        <a class="data-row" href="{% url 'admin:panel_dispute_change' dispute.pk %}">
+                            <span>
+                                <strong>{{ dispute.match.get_game_display }}</strong>
+                                <small>{{ dispute.match.creator }}{% if dispute.match.joiner %} vs {{ dispute.match.joiner }}{% endif %}</small>
+                            </span>
+                            <span class="status-pill status-pill--{{ dispute.status|lower }}">{{ dispute.get_status_display }}</span>
+                        </a>
+                    {% empty %}
+                        <div class="empty-state">No recent disputes.</div>
+                    {% endfor %}
+                </div>
+            </section>
+        </div>
+
+        <aside class="dashboard-side" aria-label="Admin shortcuts">
+            <section class="dashboard-panel">
+                <div class="panel-header">
+                    <div>
+                        <h2>Quick Actions</h2>
+                        <p>Common admin workflows.</p>
+                    </div>
+                </div>
+                <div class="shortcut-list">
+                    <a href="{% url 'admin:accounts_customuser_add' %}">Add user</a>
+                    <a href="{% url 'admin:matches_match_changelist' %}?status__exact=OPEN">Open matches</a>
+                    <a href="{% url 'admin:wallet_deposit_changelist' %}">Deposits</a>
+                    <a href="{% url 'admin:wallet_withdrawal_changelist' %}">Withdrawals</a>
+                    <a href="{% url 'admin:alert_notification_changelist' %}">Notifications</a>
+                    <a href="{% url 'admin:messenger_message_changelist' %}">Messages</a>
+                </div>
+            </section>
+
+            <section class="dashboard-panel">
+                <div class="panel-header">
+                    <div>
+                        <h2>Platform Signals</h2>
+                        <p>Activity snapshots.</p>
+                    </div>
+                </div>
+                <div class="signal-list">
+                    <div><span>Active users</span><strong>{{ active_users|default:0 }}</strong></div>
+                    <div><span>Staff accounts</span><strong>{{ staff_users|default:0 }}</strong></div>
+                    <div><span>Messages today</span><strong>{{ messages_today|default:0 }}</strong></div>
+                    <div><span>Notifications today</span><strong>{{ notifications_today|default:0 }}</strong></div>
+                    <div><span>Resolved disputes</span><strong>{{ resolved_disputes|default:0 }}</strong></div>
+                </div>
+            </section>
+
+            <section class="dashboard-panel">
+                <div class="panel-header">
+                    <div>
+                        <h2>New Users</h2>
+                        <p>Latest player registrations.</p>
+                    </div>
+                    <a href="{% url 'admin:accounts_customuser_changelist' %}">Users</a>
+                </div>
+                <div class="user-list">
+                    {% for user in latest_users %}
+                        <a href="{% url 'admin:accounts_customuser_change' user.pk %}">
+                            <span class="avatar">{{ user.username|first|upper }}</span>
+                            <span><strong>{{ user.username }}</strong><small>{{ user.date_joined|date:"M j, H:i" }}</small></span>
+                        </a>
+                    {% empty %}
+                        <div class="empty-state">No users yet.</div>
+                    {% endfor %}
+                </div>
+            </section>
+        </aside>
+    </section>
+
+    <section class="dashboard-apps">
         <div class="section-header">
-            <h2 class="section-title">Application Modules</h2>
-            <p class="section-description">Manage all application data and settings</p>
+            <div>
+                <h2 class="section-title">Application Modules</h2>
+                <p class="section-description">Browse models and administrative tools by app.</p>
+            </div>
         </div>
-        {{ block.super }}
-    </div>
+        {% include "admin/app_list.html" with app_list=app_list show_changelinks=True %}
+    </section>
 </div>
-
-<style>
-    .dashboard-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        flex-wrap: wrap;
-        gap: 1.5rem;
-    }
-    
-    .dashboard-header-content {
-        flex: 1;
-        min-width: 0;
-    }
-    
-    .dashboard-header-meta {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-end;
-        gap: 0.5rem;
-    }
-    
-    .dashboard-date {
-        font-size: 0.875rem;
-        color: var(--text-tertiary, #718096);
-        font-weight: 500;
-        padding: 0.5rem 1rem;
-        background: var(--bg-primary, #FFFFFF);
-        border-radius: 8px;
-        border: 1px solid var(--border-light, #E2E8F0);
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-    }
-    
-    .section-header {
-        margin-bottom: 1.5rem;
-    }
-    
-    .section-description {
-        font-size: 0.875rem;
-        color: var(--text-secondary, #4A5568);
-        margin: 0.5rem 0 0 0;
-        font-weight: 400;
-    }
-    
-    @media (max-width: 768px) {
-        .dashboard-header {
-            flex-direction: column;
-        }
-        
-        .dashboard-header-meta {
-            align-items: flex-start;
-            width: 100%;
-        }
-    }
-</style>
 {% endblock %}
-

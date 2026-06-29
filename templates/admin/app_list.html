@@ -1,34 +1,57 @@
 {% load i18n %}
 
-<div class="app-grid">
-  {% for app in app_list %}
-    <div class="app-card">
-      <div class="app-card__header">
-        <h2 class="app-card__title">{{ app.name }}</h2>
-        {% if app.app_url %}
-          <a class="app-card__link" href="{{ app.app_url }}">{% trans "Open" %}</a>
-        {% endif %}
-      </div>
+{% if show_changelinks %}
+  <div class="app-grid">
+    {% for app in app_list %}
+      <div class="app-card">
+        <div class="app-card__header">
+          <h2 class="app-card__title">{{ app.name }}</h2>
+          {% if app.app_url %}
+            <a class="app-card__link" href="{{ app.app_url }}">{% trans "Open" %}</a>
+          {% endif %}
+        </div>
 
-      <div class="app-card__models">
-        {% for model in app.models %}
-          <div class="app-card__model">
-            {% if model.admin_url %}
-              <a class="app-card__model-name" href="{{ model.admin_url }}">{{ model.name }}</a>
-            {% else %}
-              <span class="app-card__model-name">{{ model.name }}</span>
-            {% endif %}
-            <div class="app-card__actions">
-              {% if model.add_url %}
-                <a href="{{ model.add_url }}">{% trans "Add" %}</a>
-              {% endif %}
+        <div class="app-card__models">
+          {% for model in app.models %}
+            <div class="app-card__model">
               {% if model.admin_url %}
-                <a href="{{ model.admin_url }}">{% trans "Change" %}</a>
+                <a class="app-card__model-name" href="{{ model.admin_url }}">{{ model.name }}</a>
+              {% else %}
+                <span class="app-card__model-name">{{ model.name }}</span>
               {% endif %}
+              <div class="app-card__actions">
+                {% if model.add_url %}
+                  <a href="{{ model.add_url }}">{% trans "Add" %}</a>
+                {% endif %}
+                {% if model.admin_url %}
+                  <a href="{{ model.admin_url }}">{% trans "Change" %}</a>
+                {% endif %}
+              </div>
             </div>
-          </div>
-        {% endfor %}
+          {% endfor %}
+        </div>
       </div>
-    </div>
-  {% endfor %}
-</div>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="sidebar-app-list">
+    {% for app in app_list %}
+      <section class="sidebar-app">
+        <h2 class="sidebar-app__title">{{ app.name }}</h2>
+        <div class="sidebar-app__models">
+          {% for model in app.models %}
+            {% if model.admin_url %}
+              <a class="sidebar-model" href="{{ model.admin_url }}">
+                <span class="sidebar-model__name">{{ model.name }}</span>
+              </a>
+            {% else %}
+              <span class="sidebar-model sidebar-model--disabled">
+                <span class="sidebar-model__name">{{ model.name }}</span>
+              </span>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </section>
+    {% endfor %}
+  </div>
+{% endif %}

@@ -22,77 +22,153 @@ def custom_admin_index(request, extra_context=None):
     """
     Custom admin dashboard with statistics
     """
+    now = timezone.now()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = now - timedelta(days=7)
+
     # Calculate statistics
     total_users = User.objects.count()
+    staff_users = User.objects.filter(Q(is_staff=True) | Q(is_support_staff=True)).count()
+    active_users = User.objects.filter(is_active=True).count()
     
     # Get match statistics
     try:
         from matches.models import Match
         total_matches = Match.objects.count()
         recent_matches = Match.objects.filter(
-            created_at__gte=timezone.now() - timedelta(days=1)
+            created_at__gte=today_start
         ).count()
+        open_matches = Match.objects.filter(status='OPEN').count()
+        joined_matches = Match.objects.filter(status='JOINED').count()
+        completed_matches = Match.objects.filter(status='COMPLETED').count()
+        disputed_matches = Match.objects.filter(status='DISPUTED').count()
+        top_games = list(
+            Match.objects.values('game')
+            .annotate(total=Count('id'))
+            .order_by('-total')[:4]
+        )
+        game_labels = dict(Match.GAME_CHOICES)
+        for game in top_games:
+            game['label'] = game_labels.get(game['game'], game['game'])
     except (ImportError, Exception):
         total_matches = 0
         recent_matches = 0
+        open_matches = 0
+        joined_matches = 0
+        completed_matches = 0
+        disputed_matches = 0
+        top_games = []
     
     # Get wallet statistics
     try:
-        from wallet.models import Wallet, Transaction
+        from wallet.models import Deposit, Transaction, Wallet, Withdrawal
         total_wallet_balance = Wallet.objects.aggregate(
             total=Sum('balance')
         )['total'] or 0
         
         recent_transactions = Transaction.objects.filter(
-            created_at__gte=timezone.now() - timedelta(days=1)
+            created_at__gte=today_start
         ).aggregate(
             total=Sum('amount')
         )['total'] or 0
+        today_credits = Transaction.objects.filter(
+            created_at__gte=today_start,
+            amount__gt=0,
+        ).aggregate(total=Sum('amount'))['total'] or 0
+        today_debits_raw = Transaction.objects.filter(
+            created_at__gte=today_start,
+            amount__lt=0,
+        ).aggregate(total=Sum('amount'))['total'] or 0
+        today_debits = abs(today_debits_raw)
+        pending_deposits = Deposit.objects.filter(status__in=['PENDING', 'PROCESSING']).count()
+        pending_withdrawals = Withdrawal.objects.filter(status__in=['PENDING', 'PROCESSING']).count()
+        failed_payments = (
+            Deposit.objects.filter(status='FAILED').count()
+            + Withdrawal.objects.filter(status='FAILED').count()
+        )
     except (ImportError, Exception):
         total_wallet_balance = 0
         recent_transactions = 0
+        today_credits = 0
+        today_debits = 0
+        pending_deposits = 0
+        pending_withdrawals = 0
+        failed_payments = 0
     
     # Get dispute statistics
     try:
         from panel.models import Dispute
         open_disputes = Dispute.objects.filter(status='OPEN').count()
         pending_disputes = Dispute.objects.filter(status='PENDING').count()
+        escalated_disputes = Dispute.objects.filter(status='ESCALATED').count()
         total_disputes = Dispute.objects.count()
         resolved_disputes = Dispute.objects.filter(status='RESOLVED').count()
+        recent_disputes = Dispute.objects.select_related(
+            'match',
+            'match__creator',
+            'match__joiner',
+            'assigned_to',
+        ).order_by('-created_at')[:5]
     except (ImportError, Exception):
         open_disputes = 0
         pending_disputes = 0
+        escalated_disputes = 0
         total_disputes = 0
         resolved_disputes = 0
+        recent_disputes = []
     
     # Get message statistics
     try:
         from messenger.models import Message
         total_messages = Message.objects.count()
+        messages_today = Message.objects.filter(created_at__gte=today_start).count()
     except (ImportError, Exception):
         total_messages = 0
+        messages_today = 0
     
     # Get notification statistics
     try:
         from alert.models import Notification
         total_notifications = Notification.objects.count()
+        notifications_today = Notification.objects.filter(created_at__gte=today_start).count()
     except (ImportError, Exception):
         total_notifications = 0
+        notifications_today = 0
     
     # Recent users (last 7 days)
     recent_users = User.objects.filter(
-        date_joined__gte=timezone.now() - timedelta(days=7)
+        date_joined__gte=week_start
     ).count()
+    latest_users = User.objects.order_by('-date_joined')[:5]
     
     context = {
         **admin.site.each_context(request),
+        'title': 'Dashboard',
+        'app_list': admin.site.get_app_list(request),
         'total_users': total_users,
+        'staff_users': staff_users,
+        'active_users': active_users,
         'total_matches': total_matches,
+        'open_matches': open_matches,
+        'joined_matches': joined_matches,
+        'completed_matches': completed_matches,
+        'disputed_matches': disputed_matches,
+        'top_games': top_games,
         'total_wallet_balance': total_wallet_balance,
+        'today_credits': today_credits,
+        'today_debits': today_debits,
+        'pending_deposits': pending_deposits,
+        'pending_withdrawals': pending_withdrawals,
+        'failed_payments': failed_payments,
         'open_disputes': open_disputes,
+        'escalated_disputes': escalated_disputes,
+        'recent_disputes': recent_disputes,
         'total_messages': total_messages,
+        'messages_today': messages_today,
         'total_notifications': total_notifications,
+        'notifications_today': notifications_today,
         'recent_users': recent_users,
+        'latest_users': latest_users,
         'recent_matches': recent_matches,
         'recent_transactions': recent_transactions,
         'pending_disputes': pending_disputes,
@@ -219,4 +295,3 @@ admin.site.logout = admin_logout_view
 
 # Export admin_site alias for compatibility
 admin_site = admin.site
-
