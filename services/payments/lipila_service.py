@@ -34,6 +34,7 @@ class LipilaService:
         base_url: str,
         *,
         mobile_money_path: str = '/api/v1/collections/mobile-money',
+        disbursement_base_url: Optional[str] = None,
         mobile_money_disbursement_path: str = '/api/v1/disbursements/mobile-money',
         status_path_template: str = '/collections/{reference_id}',
         legacy_collections: bool = False,
@@ -41,6 +42,7 @@ class LipilaService:
     ) -> None:
         self.secret_key = (secret_key or '').strip()
         self.base_url = (base_url or '').rstrip('/')
+        self.disbursement_base_url = (disbursement_base_url or self.base_url).rstrip('/')
         self.mobile_money_path = mobile_money_path
         self.mobile_money_disbursement_path = mobile_money_disbursement_path
         self.status_path_template = status_path_template
@@ -177,7 +179,7 @@ class LipilaService:
         idempotency_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Initiate a Lipila mobile money disbursement."""
-        url = _build_url(self.base_url, self.mobile_money_disbursement_path)
+        url = _build_url(self.disbursement_base_url, self.mobile_money_disbursement_path)
         payload: Dict[str, Any] = {
             'referenceId': reference_id,
             'amount': amount,
@@ -390,8 +392,9 @@ def get_lipila_service() -> LipilaService:
         or getattr(settings, 'LIPILA_API_KEY', '')
     ).strip()
     logger.info(
-        "Lipila Config: base_url=%s secret_present=%s secret_prefix=%s",
+        "Lipila Config: base_url=%s disbursement_base_url=%s secret_present=%s secret_prefix=%s",
         getattr(settings, 'LIPILA_BASE_URL', ''),
+        getattr(settings, 'LIPILA_DISBURSEMENT_BASE_URL', ''),
         bool(secret),
         secret[:8] if secret else 'EMPTY'
     )
@@ -399,6 +402,11 @@ def get_lipila_service() -> LipilaService:
     return LipilaService(
         secret_key=secret,
         base_url=getattr(settings, 'LIPILA_BASE_URL', 'https://api.lipila.dev'),
+        disbursement_base_url=getattr(
+            settings,
+            'LIPILA_DISBURSEMENT_BASE_URL',
+            getattr(settings, 'LIPILA_BASE_URL', 'https://api.lipila.dev'),
+        ),
         mobile_money_path=getattr(
             settings,
             'LIPILA_MOBILE_MONEY_PATH',

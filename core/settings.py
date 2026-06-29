@@ -506,6 +506,7 @@ PAYMENT_PROVIDER = os.environ.get('PAYMENT_PROVIDER', 'lipila').strip().lower()
 LIPILA_SECRET_KEY = os.environ.get('LIPILA_SECRET_KEY', os.environ.get('LIPILA_API_KEY', '')).strip()
 LIPILA_API_KEY = LIPILA_SECRET_KEY  # backward compatibility
 LIPILA_BASE_URL = os.environ.get('LIPILA_BASE_URL', 'https://api.lipila.dev').strip()
+LIPILA_DISBURSEMENT_BASE_URL = os.environ.get('LIPILA_DISBURSEMENT_BASE_URL', LIPILA_BASE_URL).strip()
 LIPILA_CURRENCY = os.environ.get('LIPILA_CURRENCY', 'ZMW').strip()
 LIPILA_WEBHOOK_SECRET = os.environ.get('LIPILA_WEBHOOK_SECRET', '').strip()
 LIPILA_WEBHOOK_URL = os.environ.get('LIPILA_WEBHOOK_URL', '').strip()

@@ -77,6 +77,44 @@ class LipilaServiceTests(TestCase):
             'https://api.lipila.io/api/v1/collections/mobile-money',
         ])
 
+    def test_disbursement_uses_dedicated_base_url(self):
+        class FakeResponse:
+            status_code = 200
+            text = '{"status": "Pending", "identifier": "WDR-123"}'
+            content = text.encode()
+            ok = True
+
+            def json(self):
+                return {'status': 'Pending', 'identifier': 'WDR-123'}
+
+            def raise_for_status(self):
+                return None
+
+        posted_urls = []
+
+        def fake_post(url, **kwargs):
+            posted_urls.append(url)
+            return FakeResponse()
+
+        service = LipilaService(
+            secret_key='secret',
+            base_url='https://collections.lipila.example',
+            disbursement_base_url='https://blz.lipila.io',
+        )
+
+        with patch('services.payments.lipila_service.requests.post', side_effect=fake_post):
+            result = service.disburse_mobile_money(
+                reference_id='WDR_1',
+                amount=20.0,
+                account_number='260971234567',
+                currency='ZMW',
+            )
+
+        self.assertEqual(result['identifier'], 'WDR-123')
+        self.assertEqual(posted_urls, [
+            'https://blz.lipila.io/api/v1/disbursements/mobile-money',
+        ])
+
 
 class LipilaGatewayVerifyTests(TestCase):
     def setUp(self):
