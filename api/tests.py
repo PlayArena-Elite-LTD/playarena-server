@@ -1,10 +1,14 @@
+import base64
+import hashlib
+import hmac
 import json
 from decimal import Decimal
 from requests import HTTPError
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.test import RequestFactory, TestCase
+from django.test import RequestFactory, TestCase, override_settings
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase, APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -171,6 +175,64 @@ class LipilaGatewayVerifyTests(TestCase):
             password='pass1234',
         )
         self.wallet, _ = Wallet.objects.get_or_create(user=self.user)
+
+    @staticmethod
+    def _signed_webhook_request(payload, secret, *, timestamp=None, signatures=None):
+        raw_body = json.dumps(payload).encode()
+        webhook_id = '3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c'
+        webhook_timestamp = str(timestamp or int(timezone.now().timestamp()))
+        signed_payload = (
+            webhook_id.encode()
+            + b'.'
+            + webhook_timestamp.encode()
+            + b'.'
+            + raw_body
+        )
+        signature = 'v1,' + base64.b64encode(
+            hmac.new(secret, signed_payload, hashlib.sha256).digest()
+        ).decode()
+        return RequestFactory().post(
+            '/api/payments/lipila/webhook/',
+            data=raw_body,
+            content_type='application/json',
+            headers={
+                'webhook-id': webhook_id,
+                'webhook-timestamp': webhook_timestamp,
+                'webhook-signature': signatures or signature,
+            },
+        )
+
+    def test_webhook_signature_uses_lipila_standard_webhooks_format(self):
+        key = b'0123456789abcdef0123456789abcdef'
+        request = self._signed_webhook_request({'status': 'Successful'}, key)
+
+        with override_settings(LIPILA_WEBHOOK_SECRET=base64.b64encode(key).decode()):
+            self.assertTrue(
+                LipilaGateway._verify_webhook_signature(request, request.body)
+            )
+
+    def test_webhook_signature_accepts_matching_signature_during_key_rotation(self):
+        key = b'0123456789abcdef0123456789abcdef'
+        request = self._signed_webhook_request({'status': 'Successful'}, key)
+        valid_signature = request.META['HTTP_WEBHOOK_SIGNATURE']
+        request.META['HTTP_WEBHOOK_SIGNATURE'] = f'v1,invalid {valid_signature}'
+
+        with override_settings(LIPILA_WEBHOOK_SECRET=base64.b64encode(key).decode()):
+            self.assertTrue(
+                LipilaGateway._verify_webhook_signature(request, request.body)
+            )
+
+    def test_webhook_signature_rejects_stale_timestamp(self):
+        key = b'0123456789abcdef0123456789abcdef'
+        stale_timestamp = int(timezone.now().timestamp()) - 301
+        request = self._signed_webhook_request(
+            {'status': 'Successful'}, key, timestamp=stale_timestamp
+        )
+
+        with override_settings(LIPILA_WEBHOOK_SECRET=base64.b64encode(key).decode()):
+            self.assertFalse(
+                LipilaGateway._verify_webhook_signature(request, request.body)
+            )
 
     def test_verify_payment_checks_provider_transaction_after_pending_reference(self):
         deposit = Deposit.objects.create(

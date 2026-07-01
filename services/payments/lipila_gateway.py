@@ -3,6 +3,8 @@ Lipila payment gateway — server-to-server initiation, webhook confirmation onl
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import hmac
 import json
@@ -375,23 +377,43 @@ class LipilaGateway(PaymentGateway):
         secret = (getattr(settings, 'LIPILA_WEBHOOK_SECRET', '') or '').strip()
         if not secret:
             return True
-        signature = (
-            request.headers.get('X-Signature')
-            or request.headers.get('X-Webhook-Signature')
-            or request.headers.get('webhook-signature')
-            or request.headers.get('X-Lipila-Signature')
-            or ''
-        ).strip()
-        if not signature:
+
+        webhook_id = (request.headers.get('webhook-id') or '').strip()
+        webhook_timestamp = (request.headers.get('webhook-timestamp') or '').strip()
+        webhook_signature = (request.headers.get('webhook-signature') or '').strip()
+        if not webhook_id or not webhook_timestamp or not webhook_signature:
             return False
-        expected = hmac.new(
-            secret.encode('utf-8'),
-            raw_body,
-            hashlib.sha256,
-        ).hexdigest()
-        return hmac.compare_digest(signature, expected) or hmac.compare_digest(
-            signature,
-            f'sha256={expected}',
+
+        try:
+            timestamp = int(webhook_timestamp)
+        except (TypeError, ValueError):
+            return False
+        if abs(int(timezone.now().timestamp()) - timestamp) > 300:
+            return False
+
+        # Lipila uses the Standard Webhooks signing scheme. The dashboard secret
+        # is base64 encoded; ``whsec_`` is accepted for compatibility with
+        # values copied in the library-ready format.
+        encoded_secret = secret.removeprefix('whsec_')
+        try:
+            key = base64.b64decode(encoded_secret, validate=True)
+        except (binascii.Error, ValueError):
+            logger.warning('Lipila webhook signing secret is not valid base64')
+            return False
+
+        signed_payload = (
+            webhook_id.encode('utf-8')
+            + b'.'
+            + webhook_timestamp.encode('ascii')
+            + b'.'
+            + raw_body
+        )
+        expected = 'v1,' + base64.b64encode(
+            hmac.new(key, signed_payload, hashlib.sha256).digest()
+        ).decode('ascii')
+        return any(
+            hmac.compare_digest(expected, candidate)
+            for candidate in webhook_signature.split()
         )
 
     @staticmethod
