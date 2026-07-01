@@ -110,13 +110,36 @@
 
           <div class="form-group" id="accountDetailsGroup">
             <label for="{{ form.account_details.id_for_label }}" class="form-label">
-              Account Details <span class="required">*</span>
+              Bank Account Details <span class="required">*</span>
             </label>
             {{ form.account_details }}
             {% if form.account_details.errors %}
             <div class="form-error">{{ form.account_details.errors }}</div>
             {% endif %}
             <div class="method-hint" id="methodHint"></div>
+          </div>
+
+          <div id="mobileMoneyGroup">
+            <div class="form-group">
+              <label for="{{ form.mobile_provider.id_for_label }}" class="form-label">
+                Mobile Network <span class="required">*</span>
+              </label>
+              {{ form.mobile_provider }}
+              {% if form.mobile_provider.errors %}
+              <div class="form-error">{{ form.mobile_provider.errors }}</div>
+              {% endif %}
+            </div>
+
+            <div class="form-group">
+              <label for="{{ form.mobile_number.id_for_label }}" class="form-label">
+                Mobile Money Number <span class="required">*</span>
+              </label>
+              {{ form.mobile_number }}
+              {% if form.mobile_number.errors %}
+              <div class="form-error">{{ form.mobile_number.errors }}</div>
+              {% endif %}
+              <small class="form-help">Use 097XXXXXXX or 26097XXXXXXX.</small>
+            </div>
           </div>
 
           <div class="form-actions">
@@ -180,7 +203,10 @@
   const useSavedCheckbox = document.getElementById('{{ form.use_saved_method.id_for_label }}');
   const savedMethodGroup = document.getElementById('savedMethodGroup');
   const accountDetailsGroup = document.getElementById('accountDetailsGroup');
+  const mobileMoneyGroup = document.getElementById('mobileMoneyGroup');
   const accountDetails = document.getElementById('{{ form.account_details.id_for_label }}');
+  const mobileProvider = document.getElementById('{{ form.mobile_provider.id_for_label }}');
+  const mobileNumber = document.getElementById('{{ form.mobile_number.id_for_label }}');
   const savedMethodSelect = document.getElementById('{{ form.saved_payment_method.id_for_label }}');
   const methodHint = document.getElementById('methodHint');
   const reviewAmount = document.getElementById('reviewAmount');
@@ -189,7 +215,6 @@
 
   const hints = {
     BANK_TRANSFER: 'Use account_number|bank_code. Example: 1234567890|FNB.',
-    MOBILE_MONEY: 'Use phone|provider. Example: 260974221154|Airtel.',
   };
 
   function money(value) {
@@ -217,10 +242,14 @@
 
   function toggleSavedMethod() {
     const useSaved = Boolean(useSavedCheckbox && useSavedCheckbox.checked);
+    const isMobileMoney = Boolean(methodSelect && methodSelect.value === 'MOBILE_MONEY');
     if (savedMethodGroup) savedMethodGroup.style.display = useSaved ? '' : 'none';
-    if (accountDetailsGroup) accountDetailsGroup.style.display = useSaved ? 'none' : '';
+    if (accountDetailsGroup) accountDetailsGroup.style.display = !useSaved && !isMobileMoney ? '' : 'none';
+    if (mobileMoneyGroup) mobileMoneyGroup.style.display = !useSaved && isMobileMoney ? '' : 'none';
     if (savedMethodSelect) savedMethodSelect.required = useSaved;
-    if (accountDetails) accountDetails.required = !useSaved;
+    if (accountDetails) accountDetails.required = !useSaved && !isMobileMoney;
+    if (mobileProvider) mobileProvider.required = !useSaved && isMobileMoney;
+    if (mobileNumber) mobileNumber.required = !useSaved && isMobileMoney;
   }
 
   document.querySelectorAll('.quick-amount').forEach(function (button) {
@@ -248,7 +277,10 @@
   }
 
   if (amountInput) amountInput.addEventListener('input', updateReview);
-  if (methodSelect) methodSelect.addEventListener('change', updateReview);
+  if (methodSelect) methodSelect.addEventListener('change', function () {
+    toggleSavedMethod();
+    updateReview();
+  });
   if (useSavedCheckbox) useSavedCheckbox.addEventListener('change', toggleSavedMethod);
 
   toggleSavedMethod();

@@ -1,5 +1,6 @@
 from django import forms
 from decimal import Decimal
+import re
 from django.conf import settings
 from .models import SavedPaymentMethod
 from .models import Deposit, Withdrawal
@@ -90,6 +91,12 @@ class DepositForm(forms.Form):
 
 class WithdrawalForm(forms.Form):
     """Form for creating withdrawal requests"""
+
+    MOBILE_PROVIDER_CHOICES = [
+        ('', 'Select mobile network'),
+        ('Airtel', 'Airtel Money'),
+        ('MTN', 'MTN Mobile Money'),
+    ]
     
     amount = forms.DecimalField(
         max_digits=10,
@@ -113,14 +120,35 @@ class WithdrawalForm(forms.Form):
     
     account_details = forms.CharField(
         max_length=500,
+        required=False,
         widget=forms.Textarea(attrs={
             'class': 'form-control',
-            'placeholder': 'Bank: account_number|bank_code or Mobile Money: 26097xxxxxxx|Airtel',
+            'placeholder': 'Bank account number and bank code',
             'rows': 4,
             'spellcheck': 'false',
         }),
-        label='Account Details',
-        help_text='Required: Provide account information for withdrawal (account number, mobile number, email, etc.)'
+        label='Bank Account Details',
+        help_text='Required for bank withdrawals.'
+    )
+
+    mobile_provider = forms.ChoiceField(
+        choices=MOBILE_PROVIDER_CHOICES,
+        required=False,
+        widget=forms.Select(attrs={'class': 'form-control'}),
+        label='Mobile Network',
+    )
+
+    mobile_number = forms.CharField(
+        max_length=24,
+        required=False,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': '097XXXXXXX or 26097XXXXXXX',
+            'autocomplete': 'tel',
+            'inputmode': 'tel',
+        }),
+        label='Mobile Money Number',
+        help_text='Enter a Zambian number beginning with 0 or 260.',
     )
     
     use_saved_method = forms.BooleanField(
@@ -261,6 +289,7 @@ class WithdrawalForm(forms.Form):
         cleaned_data = super().clean()
         use_saved = cleaned_data.get('use_saved_method', False)
         saved_method = cleaned_data.get('saved_payment_method')
+        payment_method = cleaned_data.get('payment_method')
         account_details = cleaned_data.get('account_details', '')
         
         # If using saved method, validate it exists and is active
@@ -272,25 +301,52 @@ class WithdrawalForm(forms.Form):
             # Set account_details from saved method
             cleaned_data['account_details'] = saved_method.account_details
             cleaned_data['payment_method'] = saved_method.payment_method_type
+        elif payment_method == 'MOBILE_MONEY':
+            mobile_number = (cleaned_data.get('mobile_number') or '').strip()
+            mobile_provider = (cleaned_data.get('mobile_provider') or '').strip()
+
+            # Continue accepting the old phone|provider value for API clients
+            # and already-rendered forms during deployment.
+            if not mobile_number and account_details:
+                legacy_parts = [part.strip() for part in account_details.split('|', 1)]
+                mobile_number = legacy_parts[0]
+                if not mobile_provider and len(legacy_parts) == 2:
+                    provider_names = {'airtel': 'Airtel', 'mtn': 'MTN'}
+                    mobile_provider = provider_names.get(legacy_parts[1].lower(), '')
+
+            normalized_number = self._normalize_zambian_mobile_number(mobile_number)
+            if not normalized_number:
+                self.add_error(
+                    'mobile_number',
+                    'Enter a valid Zambian mobile number, e.g. 097XXXXXXX or 26097XXXXXXX.',
+                )
+            if mobile_provider not in {'Airtel', 'MTN'}:
+                self.add_error('mobile_provider', 'Select Airtel or MTN.')
+
+            if normalized_number and mobile_provider in {'Airtel', 'MTN'}:
+                cleaned_data['mobile_number'] = normalized_number
+                cleaned_data['mobile_provider'] = mobile_provider
+                cleaned_data['account_details'] = f'{normalized_number}|{mobile_provider}'
         else:
-            # If not using saved method, account_details is required
+            # Bank withdrawals retain the existing free-text account details.
             if not account_details or not account_details.strip():
                 raise forms.ValidationError({
-                    'account_details': 'Account details are required when not using a saved payment method.'
+                    'account_details': 'Bank account details are required.'
                 })
             cleaned_data['account_details'] = account_details.strip()
         
         return cleaned_data
     
     def clean_account_details(self):
-        """Validate account details are provided"""
+        """Trim bank/legacy details; method-specific validation happens in clean()."""
         account_details = self.cleaned_data.get('account_details', '')
-        use_saved = self.data.get('use_saved_method', False)
-        
-        # Only validate if not using saved method
-        if not use_saved:
-            if not account_details or not account_details.strip():
-                raise forms.ValidationError('Account details are required for withdrawal')
-            return account_details.strip()
-        
-        return account_details
+        return account_details.strip()
+
+    @staticmethod
+    def _normalize_zambian_mobile_number(value):
+        digits = re.sub(r'\D', '', value or '')
+        if digits.startswith('0') and len(digits) == 10:
+            return '260' + digits[1:]
+        if digits.startswith('260') and len(digits) == 12:
+            return digits
+        return None

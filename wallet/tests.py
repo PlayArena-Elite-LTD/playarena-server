@@ -63,6 +63,47 @@ class WithdrawalViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Withdraw Funds')
         self.assertContains(response, 'Available Balance')
+        self.assertContains(response, 'Airtel Money')
+        self.assertContains(response, 'MTN Mobile Money')
+
+    @override_settings(WALLET_AUTO_PROCESS_WITHDRAWALS=False)
+    def test_mobile_money_fields_normalize_airtel_number(self):
+        response = self.client.post(reverse('withdraw'), {
+            'amount': '5.00',
+            'payment_method': 'MOBILE_MONEY',
+            'mobile_provider': 'Airtel',
+            'mobile_number': '0974 221 154',
+        })
+
+        self.assertRedirects(response, reverse('wallet'))
+        withdrawal = Withdrawal.objects.get(user=self.user)
+        self.assertEqual(withdrawal.account_details, '260974221154|Airtel')
+
+    @override_settings(WALLET_AUTO_PROCESS_WITHDRAWALS=False)
+    def test_mobile_money_fields_accept_mtn_number(self):
+        response = self.client.post(reverse('withdraw'), {
+            'amount': '5.00',
+            'payment_method': 'MOBILE_MONEY',
+            'mobile_provider': 'MTN',
+            'mobile_number': '260964221154',
+        })
+
+        self.assertRedirects(response, reverse('wallet'))
+        withdrawal = Withdrawal.objects.get(user=self.user)
+        self.assertEqual(withdrawal.account_details, '260964221154|MTN')
+
+    @override_settings(WALLET_AUTO_PROCESS_WITHDRAWALS=False)
+    def test_mobile_money_fields_reject_invalid_number(self):
+        response = self.client.post(reverse('withdraw'), {
+            'amount': '5.00',
+            'payment_method': 'MOBILE_MONEY',
+            'mobile_provider': 'Airtel',
+            'mobile_number': '12345',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Enter a valid Zambian mobile number')
+        self.assertFalse(Withdrawal.objects.filter(user=self.user).exists())
 
     @override_settings(WALLET_AUTO_PROCESS_WITHDRAWALS=True)
     @patch('wallet.withdrawal_processing.get_payment_manager')
