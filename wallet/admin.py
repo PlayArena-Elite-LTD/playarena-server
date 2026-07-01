@@ -226,10 +226,14 @@ class WithdrawalAdmin(admin.ModelAdmin):
     list_filter = ['status', 'payment_method', 'created_at', 'retry_count']
     search_fields = ['user__username', 'user__email', 'transaction_id', 'gateway_transaction_id', 'account_details']
     readonly_fields = ['created_at', 'updated_at', 'retry_info_display', 'gateway_response_display', 'failure_reason_display']
+    change_form_template = 'admin/wallet/withdrawal/change_form.html'
     date_hierarchy = 'created_at'
     list_per_page = 50
     ordering = ['-created_at']
     actions = ['mark_as_completed', 'mark_as_failed', 'mark_as_cancelled', 'process_withdrawals', 'bulk_retry_failed']
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('user', 'wallet')
     
     def get_urls(self):
         """Add custom URLs for withdrawal processing"""

@@ -1,0 +1,336 @@
+{% extends "admin/change_form.html" %}
+{% load i18n admin_urls static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+body.model-withdrawal.change-form #content > h1 {
+    display: none;
+}
+
+body.model-withdrawal.change-form .object-tools {
+    margin: 0 0 16px;
+}
+
+.withdrawal-admin-hero {
+    display: flex;
+    align-items: stretch;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 16px;
+    padding: clamp(18px, 2.5vw, 28px);
+    background: #101828;
+    border: 1px solid #1D2939;
+    border-radius: 8px;
+    color: #FFFFFF;
+    box-shadow: 0 16px 34px rgba(16, 24, 40, 0.16);
+}
+
+.withdrawal-admin-hero__main {
+    min-width: 0;
+}
+
+.withdrawal-admin-eyebrow {
+    margin-bottom: 8px;
+    color: #B7C4D6;
+    font-size: 0.76rem;
+    font-weight: 800;
+    letter-spacing: 0;
+    text-transform: uppercase;
+}
+
+.withdrawal-admin-hero h1 {
+    margin: 0;
+    color: #FFFFFF;
+    font-size: clamp(1.5rem, 2.2vw, 2.2rem);
+    line-height: 1.12;
+}
+
+.withdrawal-admin-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 14px;
+}
+
+.withdrawal-admin-meta span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 5px 10px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 999px;
+    color: #E4E7EC;
+    font-size: 0.82rem;
+    font-weight: 800;
+}
+
+.withdrawal-admin-hero__action {
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-end;
+    min-width: 180px;
+}
+
+.withdrawal-primary-action,
+.withdrawal-primary-action:link,
+.withdrawal-primary-action:visited,
+.object-tools a.withdrawal-process-link,
+.object-tools a.withdrawal-process-link:link,
+.object-tools a.withdrawal-process-link:visited {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 42px;
+    padding: 0 16px;
+    background: #12B76A !important;
+    border: 1px solid #12B76A;
+    border-radius: 8px;
+    color: #FFFFFF !important;
+    font-size: 0.84rem;
+    font-weight: 800;
+    line-height: 1;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.withdrawal-primary-action:hover,
+.object-tools a.withdrawal-process-link:hover {
+    background: #079455 !important;
+    border-color: #079455;
+    color: #FFFFFF !important;
+}
+
+.withdrawal-action-note {
+    display: inline-flex;
+    align-items: center;
+    min-height: 34px;
+    padding: 0 12px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 999px;
+    color: #D0D5DD;
+    font-size: 0.82rem;
+    font-weight: 800;
+}
+
+.withdrawal-status {
+    text-transform: uppercase;
+}
+
+.withdrawal-status--pending {
+    background: #FFFAEB !important;
+    border-color: #FEDF89 !important;
+    color: #B54708 !important;
+}
+
+.withdrawal-status--processing {
+    background: #EFF8FF !important;
+    border-color: #B2DDFF !important;
+    color: #175CD3 !important;
+}
+
+.withdrawal-status--completed {
+    background: #ECFDF3 !important;
+    border-color: #ABEFC6 !important;
+    color: #067647 !important;
+}
+
+.withdrawal-status--failed {
+    background: #FEF3F2 !important;
+    border-color: #FECDCA !important;
+    color: #B42318 !important;
+}
+
+.withdrawal-status--cancelled {
+    background: #F2F4F7 !important;
+    border-color: #D0D5DD !important;
+    color: #475467 !important;
+}
+
+.withdrawal-admin-summary {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.withdrawal-summary-card {
+    min-width: 0;
+    padding: 14px;
+    background: #FFFFFF;
+    border: 1px solid #EAECF0;
+    border-radius: 8px;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+}
+
+.withdrawal-summary-card span,
+.withdrawal-summary-card small {
+    display: block;
+    color: #667085;
+    font-size: 0.76rem;
+    font-weight: 800;
+}
+
+.withdrawal-summary-card span {
+    text-transform: uppercase;
+}
+
+.withdrawal-summary-card strong {
+    display: block;
+    overflow: hidden;
+    margin: 8px 0 4px;
+    color: #101828;
+    font-size: clamp(1rem, 1.2vw, 1.25rem);
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.withdrawal-admin-alert {
+    margin-bottom: 16px;
+    padding: 14px 16px;
+    background: #FEF3F2;
+    border: 1px solid #FECDCA;
+    border-radius: 8px;
+}
+
+.withdrawal-admin-alert strong {
+    display: block;
+    margin-bottom: 4px;
+    color: #B42318;
+    font-size: 0.86rem;
+}
+
+.withdrawal-admin-alert p {
+    margin: 0;
+    color: #7A271A;
+    font-size: 0.88rem;
+}
+
+body.model-withdrawal.change-form fieldset.module h2 {
+    background: #182230 !important;
+}
+
+body.model-withdrawal.change-form .field-gateway_response_display .readonly,
+body.model-withdrawal.change-form .field-account_details textarea,
+body.model-withdrawal.change-form .field-user_agent input {
+    font-family: var(--font-family-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+}
+
+body.model-withdrawal.change-form .readonly {
+    overflow-wrap: anywhere;
+}
+
+body.model-withdrawal.change-form .field-gateway_response_display .readonly {
+    max-width: 900px;
+    padding: 12px;
+    background: #0B1220;
+    border-radius: 8px;
+    color: #D1E0FF;
+    white-space: pre-wrap;
+}
+
+@media (max-width: 1040px) {
+    .withdrawal-admin-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 760px) {
+    .withdrawal-admin-hero {
+        flex-direction: column;
+    }
+
+    .withdrawal-admin-hero__action {
+        justify-content: flex-start;
+        min-width: 0;
+    }
+
+    .withdrawal-admin-summary {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .withdrawal-primary-action,
+    .object-tools a.withdrawal-process-link {
+        width: 100%;
+    }
+}
+</style>
+{% endblock %}
+
+{% block object-tools-items %}
+  {{ block.super }}
+  {% if original %}
+    {% if not original.is_final %}
+      {% if original.status == 'PENDING' or original.status == 'PROCESSING' %}
+        <li>
+          <a href="{% url 'admin:wallet_withdrawal_process' original.pk %}" class="withdrawal-process-link">
+            Process withdrawal
+          </a>
+        </li>
+      {% endif %}
+    {% endif %}
+  {% endif %}
+{% endblock %}
+
+{% block form_top %}
+{% if original %}
+<section class="withdrawal-admin-hero" aria-label="Withdrawal summary">
+  <div class="withdrawal-admin-hero__main">
+    <div class="withdrawal-admin-eyebrow">Withdrawal request #{{ original.pk }}</div>
+    <h1>${{ original.amount|floatformat:2 }} to {{ original.user }}</h1>
+    <div class="withdrawal-admin-meta">
+      <span class="withdrawal-status withdrawal-status--{{ original.status|lower }}">{{ original.get_status_display }}</span>
+      <span>{{ original.get_payment_method_display }}</span>
+      <span>Created {{ original.created_at|date:"M j, Y, H:i" }}</span>
+    </div>
+  </div>
+  <div class="withdrawal-admin-hero__action">
+    {% if not original.is_final %}
+      {% if original.status == 'PENDING' or original.status == 'PROCESSING' %}
+        <a href="{% url 'admin:wallet_withdrawal_process' original.pk %}" class="withdrawal-primary-action">
+          Process now
+        </a>
+      {% else %}
+        <span class="withdrawal-action-note">Not in a processable state</span>
+      {% endif %}
+    {% else %}
+      <span class="withdrawal-action-note">Final state</span>
+    {% endif %}
+  </div>
+</section>
+
+<section class="withdrawal-admin-summary" aria-label="Withdrawal operational details">
+  <div class="withdrawal-summary-card">
+    <span>Amount</span>
+    <strong>${{ original.amount|floatformat:2 }}</strong>
+    <small>Requested payout value</small>
+  </div>
+  <div class="withdrawal-summary-card">
+    <span>Wallet balance</span>
+    <strong>${{ original.wallet.balance|default_if_none:"0.00"|floatformat:2 }}</strong>
+    <small>{{ original.wallet|default:"No wallet linked" }}</small>
+  </div>
+  <div class="withdrawal-summary-card">
+    <span>Retries</span>
+    <strong>{{ original.retry_count }} / {{ original.max_retry_count }}</strong>
+    <small>{% if original.retry_count >= original.max_retry_count %}Maximum reached{% elif original.retry_count %}Retry history present{% else %}No retries yet{% endif %}</small>
+  </div>
+  <div class="withdrawal-summary-card">
+    <span>Gateway reference</span>
+    <strong>{{ original.transaction_id|default:original.gateway_transaction_id|default:"Pending" }}</strong>
+    <small>Transaction tracking</small>
+  </div>
+</section>
+
+{% if original.failure_reason %}
+<section class="withdrawal-admin-alert" aria-label="Failure reason">
+  <strong>Failure reason</strong>
+  <p>{{ original.failure_reason }}</p>
+</section>
+{% endif %}
+{% endif %}
+{% endblock %}
