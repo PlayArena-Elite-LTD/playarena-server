@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 import os
+from datetime import timedelta
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -213,13 +214,6 @@ STORAGES = {
     },
 }
 
-<<<<<<< HEAD
-# WhiteNoise configuration for production
-WHITENOISE_USE_FINDERS = True  # Serve files from STATICFILES_DIRS in development
-WHITENOISE_AUTOREFRESH = DEBUG  # Auto-refresh in development mode
-WHITENOISE_MANIFEST_STRICT = not DEBUG  # Strict manifest checking in production
-WHITENOISE_MAX_AGE = 31536000 if not DEBUG else 0  # Cache for 1 year in production
-=======
 # In development, avoid manifest-based static storage unless you run `collectstatic`.
 # This prevents missing static assets / 404s and `Missing staticfiles manifest entry` errors.
 if DEBUG:
@@ -246,7 +240,6 @@ ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/x-msvideo']
 # Allowed file extensions (for additional validation)
 ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
 ALLOWED_VIDEO_EXTENSIONS = ['.mp4', '.mov', '.avi']
->>>>>>> 8ad7e501f40d5ee1a92cea3a64e4fb206da89c58
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -275,53 +268,15 @@ EMAIL_USE_SSL = False
 # Required for HTML emails in password reset
 PASSWORD_RESET_TIMEOUT = 86400  # 24 hours in seconds
 
-<<<<<<< HEAD
-# Rate limiting settings
-=======
-# Cache configuration for rate limiting
-CACHES = {
-    'default': {
-        'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': 'redis://127.0.0.1:6379/1',
-        'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-        }
-    },
-    'ratelimit': {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-        'LOCATION': 'ratelimit',
-    },
-}
-
-# In development, prefer a fast local in-memory cache unless Redis is explicitly enabled.
-# This avoids long timeouts/hangs when Redis isn't running on Windows.
-USE_REDIS_CACHE = os.environ.get('USE_REDIS_CACHE', '').strip().lower() in ('1', 'true', 'yes', 'y', 'on')
-if DEBUG and not USE_REDIS_CACHE:
-    # Fast local cache for development. (Not shared / no atomic incr, but fine for DEBUG.)
-    CACHES['default'] = {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-        'LOCATION': 'default',
-    }
-
-    # django-ratelimit enforces shared+atomic cache backends via system checks even if you disable rate limiting.
-    # Since RATELIMIT_ENABLE is already False in DEBUG, silence these checks for local dev.
-    SILENCED_SYSTEM_CHECKS = list(globals().get('SILENCED_SYSTEM_CHECKS', []))
-    for code in ('django_ratelimit.E003', 'django_ratelimit.W001'):
-        if code not in SILENCED_SYSTEM_CHECKS:
-            SILENCED_SYSTEM_CHECKS.append(code)
-
 # Rate limiting configuration
 # Disable ratelimit in DEBUG to avoid requiring a shared cache backend locally.
 RATELIMIT_ENABLE = False if DEBUG else True
->>>>>>> 8ad7e501f40d5ee1a92cea3a64e4fb206da89c58
 RATELIMIT_USE_CACHE = 'default'
-RATELIMIT_ENABLE = True
 
-<<<<<<< HEAD
 # Suppress django-ratelimit cache warnings for landing page
 # DatabaseCache works fine for a landing page with maintenance mode
 SILENCED_SYSTEM_CHECKS = ['django_ratelimit.W001', 'django_ratelimit.E003']
-=======
+
 # CORS configuration
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
@@ -437,9 +392,8 @@ LOGS_DIR.mkdir(exist_ok=True)
 # Avoid Windows file lock issues with autoreload by only enabling
 # file logging in the main process during DEBUG.
 USE_FILE_LOGGING = (not DEBUG) or (os.environ.get('RUN_MAIN') == 'true')
->>>>>>> 8ad7e501f40d5ee1a92cea3a64e4fb206da89c58
 
-# Logging configuration for rate limiting
+# Logging configuration
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -456,17 +410,52 @@ LOGGING = {
             'filename': BASE_DIR / 'rate_limit.log',
             'formatter': 'verbose',
         },
+        'file_django': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': LOGS_DIR / 'django.log',
+            'formatter': 'verbose',
+        },
+        'file_info': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': LOGS_DIR / 'info.log',
+            'formatter': 'verbose',
+        },
+        'file_debug': {
+            'level': 'DEBUG',
+            'class': 'logging.FileHandler',
+            'filename': LOGS_DIR / 'debug.log',
+            'formatter': 'verbose',
+        },
+        'file_error': {
+            'level': 'ERROR',
+            'class': 'logging.FileHandler',
+            'filename': LOGS_DIR / 'error.log',
+            'formatter': 'verbose',
+        },
         'console': {
             'level': 'WARNING',
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
         },
+        'mail_admins': {
+            'level': 'ERROR',
+            'class': 'django.utils.log.AdminEmailHandler',
+            'formatter': 'verbose',
+        },
+        'mail_admins_critical': {
+            'level': 'CRITICAL',
+            'class': 'django.utils.log.AdminEmailHandler',
+            'formatter': 'verbose',
+        },
     },
     'loggers': {
-<<<<<<< HEAD
         'django_ratelimit': {
             'handlers': ['file', 'console'],
-=======
+            'level': 'INFO',
+            'propagate': False,
+        },
         # Django framework loggers
         'django': {
             'handlers': ['file_django', 'file_error'],
@@ -524,14 +513,10 @@ LOGGING = {
         },
         'alert': {
             'handlers': ['file_info', 'file_error'],
->>>>>>> 8ad7e501f40d5ee1a92cea3a64e4fb206da89c58
             'level': 'INFO',
             'propagate': False,
         },
     },
-<<<<<<< HEAD
-}
-=======
     'root': {
         'level': 'WARNING',
         'handlers': ['file_info', 'file_error', 'mail_admins', 'mail_admins_critical'],
@@ -657,4 +642,3 @@ SPECTACULAR_SETTINGS = {
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ],
 }
->>>>>>> 8ad7e501f40d5ee1a92cea3a64e4fb206da89c58

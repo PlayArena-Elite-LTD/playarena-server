@@ -3,17 +3,32 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import transaction
 from django.utils import timezone
-from django.http import HttpResponseNotAllowed, JsonResponse
+from django.http import HttpResponseNotAllowed, JsonResponse, FileResponse, Http404
+from django.core.exceptions import ValidationError
+from django.core.paginator import Paginator
+from django.urls import reverse
 from decimal import Decimal
 from django_ratelimit.decorators import ratelimit
 import logging
+import os
 
-from .forms import MatchCreationForm, JoinMatchForm
-from .models import Match, MatchResult
+from .forms import MatchCreationForm, JoinMatchForm, EvidenceUploadForm
+from .models import Match, MatchResult, Evidence
 from wallet.models import Wallet, Transaction
 from alert.models import Notification
 
 logger = logging.getLogger('django_ratelimit')
+
+
+def _get_client_ip(request):
+    """Get client IP address from request"""
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        ip = x_forwarded_for.split(',')[0]
+    else:
+        ip = request.META.get('REMOTE_ADDR')
+    return ip
+
 
 @login_required
 @transaction.atomic
@@ -262,9 +277,11 @@ def submit_match_result(request, match_id):
         # Check if joiner has submitted
         if not match_result.joiner_submission:
             # Notify joiner to submit their result
+            submission_link = reverse('match_detail', args=[match.id])
             Notification.objects.create(
                 user=match.joiner,
-                message=f"Your opponent {match.creator.username} has submitted their result for the {match.get_game_display()} match (${match.amount}). Please submit your result as soon as possible."
+                message=f"Your opponent {match.creator.username} has submitted their result for the {match.get_game_display()} match (${match.amount}). Please submit your result as soon as possible.",
+                link=submission_link
             )
             messages.success(request, "Your result has been submitted. Waiting for your opponent to submit their result.")
             return redirect('match_detail', match_id=match_id)
@@ -288,9 +305,11 @@ def submit_match_result(request, match_id):
         # Check if creator has submitted
         if not match_result.creator_submission:
             # Notify creator to submit their result
+            submission_link = reverse('match_detail', args=[match.id])
             Notification.objects.create(
                 user=match.creator,
-                message=f"Your opponent {match.joiner.username} has submitted their result for the {match.get_game_display()} match (${match.amount}). Please submit your result as soon as possible."
+                message=f"Your opponent {match.joiner.username} has submitted their result for the {match.get_game_display()} match (${match.amount}). Please submit your result as soon as possible.",
+                link=submission_link
             )
             messages.success(request, "Your result has been submitted. Waiting for your opponent to submit their result.")
             return redirect('match_detail', match_id=match_id)
@@ -403,14 +422,17 @@ def submit_match_result(request, match_id):
             match_result.save()
             
             # Notify both users
+            submission_link = reverse('match_detail', args=[match.id])
             Notification.objects.create(
                 user=match.creator,
-                message=f"There was a disagreement in the result for your {match.get_game_display()} match against {match.joiner.username} for ${match.amount}. You have one more chance to submit the correct result."
+                message=f"There was a disagreement in the result for your {match.get_game_display()} match against {match.joiner.username} for ${match.amount}. You have one more chance to submit the correct result.",
+                link=submission_link
             )
             
             Notification.objects.create(
                 user=match.joiner,
-                message=f"There was a disagreement in the result for your {match.get_game_display()} match against {match.creator.username} for ${match.amount}. You have one more chance to submit the correct result."
+                message=f"There was a disagreement in the result for your {match.get_game_display()} match against {match.creator.username} for ${match.amount}. You have one more chance to submit the correct result.",
+                link=submission_link
             )
             
             messages.warning(request, "There was a disagreement with the match results. Both players must submit again with accurate results.")
@@ -449,6 +471,100 @@ def submit_match_result(request, match_id):
 
 
 @login_required
+@transaction.atomic
+@ratelimit(key='user', rate='10/h', method='POST', block=True)
+def upload_evidence(request, match_id):
+    """Handle evidence file uploads for match results."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Only POST method allowed'}, status=405)
+
+    match = get_object_or_404(Match, id=match_id)
+
+    if request.user != match.creator and request.user != match.joiner:
+        return JsonResponse({
+            'success': False,
+            'error': 'You are not a participant in this match.'
+        }, status=403)
+
+    if match.status not in ['JOINED', 'COMPLETED', 'DISPUTED']:
+        return JsonResponse({
+            'success': False,
+            'error': f'Cannot upload evidence for a match with status: {match.get_status_display()}'
+        }, status=400)
+
+    form = EvidenceUploadForm(request.POST, request.FILES, match=match, user=request.user)
+
+    if form.is_valid():
+        try:
+            file = form.cleaned_data['file']
+            file_type = form.cleaned_data['file_type']
+            description = form.cleaned_data.get('description', '')
+
+            ip_address = _get_client_ip(request)
+            user_agent = request.META.get('HTTP_USER_AGENT', '')[:500]
+
+            evidence = Evidence(
+                match=match,
+                user=request.user,
+                file=file,
+                file_type=file_type,
+                description=description,
+                file_size=file.size,
+                ip_address=ip_address,
+                user_agent=user_agent
+            )
+
+            try:
+                evidence.save()
+            except ValidationError as ve:
+                errors = {}
+                if hasattr(ve, 'error_dict'):
+                    for field, field_errors in ve.error_dict.items():
+                        errors[field] = [str(err) for err in field_errors]
+                else:
+                    errors['__all__'] = [str(ve)]
+
+                return JsonResponse({
+                    'success': False,
+                    'errors': errors
+                }, status=400)
+
+            logger.info(
+                f"Evidence uploaded successfully: match_id={match_id}, "
+                f"user={request.user.username}, file_type={file_type}, "
+                f"file_size={file.size}"
+            )
+
+            return JsonResponse({
+                'success': True,
+                'evidence_id': evidence.id,
+                'file_url': evidence.file.url,
+                'file_type': file_type,
+                'file_size_mb': evidence.file_size_mb,
+                'message': 'Evidence uploaded successfully'
+            })
+
+        except Exception as e:
+            logger.error(
+                f"Error uploading evidence for match {match_id}: {str(e)}",
+                exc_info=True
+            )
+            return JsonResponse({
+                'success': False,
+                'error': f'Error uploading evidence: {str(e)}'
+            }, status=500)
+    else:
+        errors = {}
+        for field, field_errors in form.errors.items():
+            errors[field] = field_errors[0] if field_errors else 'Invalid value'
+
+        return JsonResponse({
+            'success': False,
+            'errors': errors
+        }, status=400)
+
+
+@login_required
 def match_detail(request, match_id):
     """Display match details"""
     try:
@@ -475,12 +591,15 @@ def match_detail(request, match_id):
             user_has_submitted = False
             user_submission = None
         
+        evidence_list = Evidence.objects.filter(match=match).order_by('-uploaded_at')
+
         context = {
             'match': match,
             'match_result': match_result,
             'user_has_submitted': user_has_submitted,
             'user_submission': user_submission,
-            'username': request.user.username
+            'username': request.user.username,
+            'evidence_list': evidence_list,
         }
         
         return render(request, 'matches/match_detail.html', context)
@@ -488,6 +607,228 @@ def match_detail(request, match_id):
     except Match.DoesNotExist:
         messages.error(request, "The requested match is not available.")
         return redirect('my_matches')
+
+
+@login_required
+def evidence_gallery(request, match_id):
+    """Display evidence gallery for a match"""
+    try:
+        match = Match.objects.get(id=match_id)
+
+        if match.privacy == 'PRIVATE' and request.user != match.creator and request.user != match.joiner:
+            messages.error(request, "You don't have permission to view this match.")
+            return redirect('dashboard')
+
+        evidence_list = Evidence.objects.filter(match=match).order_by('-uploaded_at')
+        images = [e for e in evidence_list if e.file_type == 'IMAGE']
+        videos = [e for e in evidence_list if e.file_type == 'VIDEO']
+
+        context = {
+            'match': match,
+            'username': request.user.username,
+            'evidence_list': evidence_list,
+            'images': images,
+            'videos': videos,
+            'total_count': evidence_list.count(),
+        }
+
+        return render(request, 'matches/evidence_gallery.html', context)
+
+    except Match.DoesNotExist:
+        messages.error(request, "The requested match is not available.")
+        return redirect('my_matches')
+
+
+@login_required
+@ratelimit(key='user', rate='30/h', method='GET', block=True)
+def get_evidence(request, evidence_id):
+    """Retrieve evidence file with access control."""
+    evidence = get_object_or_404(Evidence, id=evidence_id)
+    match = evidence.match
+
+    is_participant = (request.user == match.creator or request.user == match.joiner)
+    is_support_staff = getattr(request.user, 'is_support_staff', False)
+
+    if not (is_participant or is_support_staff):
+        logger.warning(
+            f"Unauthorized evidence access attempt: evidence_id={evidence_id}, "
+            f"user={request.user.username}, ip={_get_client_ip(request)}"
+        )
+        return JsonResponse({
+            'success': False,
+            'error': 'You do not have permission to view this evidence.'
+        }, status=403)
+
+    if not evidence.file or not os.path.exists(evidence.file.path):
+        logger.error(f"Evidence file not found: evidence_id={evidence_id}, path={evidence.file.path if evidence.file else 'None'}")
+        raise Http404("Evidence file not found")
+
+    logger.info(
+        f"Evidence accessed: evidence_id={evidence_id}, user={request.user.username}, "
+        f"match_id={match.id}, ip={_get_client_ip(request)}"
+    )
+
+    response = FileResponse(
+        evidence.file.open('rb'),
+        content_type=f"{'image' if evidence.is_image else 'video'}/{evidence.file.name.split('.')[-1]}"
+    )
+    response['Content-Disposition'] = f'inline; filename="{os.path.basename(evidence.file.name)}"'
+    response['X-Content-Type-Options'] = 'nosniff'
+    response['Cache-Control'] = 'private, max-age=3600'
+
+    return response
+
+
+@login_required
+@ratelimit(key='user', rate='30/h', method='GET', block=True)
+def download_evidence(request, evidence_id):
+    """Download evidence file with access control."""
+    evidence = get_object_or_404(Evidence, id=evidence_id)
+    match = evidence.match
+
+    is_participant = (request.user == match.creator or request.user == match.joiner)
+    is_support_staff = getattr(request.user, 'is_support_staff', False)
+
+    if not (is_participant or is_support_staff):
+        logger.warning(
+            f"Unauthorized evidence download attempt: evidence_id={evidence_id}, "
+            f"user={request.user.username}, ip={_get_client_ip(request)}"
+        )
+        return JsonResponse({
+            'success': False,
+            'error': 'You do not have permission to download this evidence.'
+        }, status=403)
+
+    if not evidence.file or not os.path.exists(evidence.file.path):
+        logger.error(f"Evidence file not found: evidence_id={evidence_id}, path={evidence.file.path if evidence.file else 'None'}")
+        raise Http404("Evidence file not found")
+
+    logger.info(
+        f"Evidence downloaded: evidence_id={evidence_id}, user={request.user.username}, "
+        f"match_id={match.id}, ip={_get_client_ip(request)}"
+    )
+
+    response = FileResponse(
+        evidence.file.open('rb'),
+        content_type='application/octet-stream'
+    )
+    filename = os.path.basename(evidence.file.name)
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    response['X-Content-Type-Options'] = 'nosniff'
+
+    return response
+
+
+@login_required
+@ratelimit(key='user', rate='60/h', method='GET', block=True)
+def list_evidence(request, match_id):
+    """List all evidence for a match with access control."""
+    match = get_object_or_404(Match, id=match_id)
+
+    is_participant = (request.user == match.creator or request.user == match.joiner)
+    is_support_staff = getattr(request.user, 'is_support_staff', False)
+
+    if not (is_participant or is_support_staff):
+        logger.warning(
+            f"Unauthorized evidence list attempt: match_id={match_id}, "
+            f"user={request.user.username}, ip={_get_client_ip(request)}"
+        )
+        return JsonResponse({
+            'success': False,
+            'error': 'You do not have permission to view evidence for this match.'
+        }, status=403)
+
+    evidence_queryset = Evidence.objects.filter(match=match).select_related('user', 'verified_by')
+
+    user_id = request.GET.get('user_id')
+    if user_id:
+        try:
+            evidence_queryset = evidence_queryset.filter(user_id=user_id)
+        except ValueError:
+            return JsonResponse({
+                'success': False,
+                'error': 'Invalid user_id parameter.'
+            }, status=400)
+
+    per_page = min(int(request.GET.get('per_page', 20)), 100)
+    page_number = request.GET.get('page', 1)
+
+    paginator = Paginator(evidence_queryset, per_page)
+    try:
+        page = paginator.page(page_number)
+    except Exception:
+        return JsonResponse({
+            'success': False,
+            'error': 'Invalid page number.'
+        }, status=400)
+
+    evidence_list = []
+    for evidence in page.object_list:
+        evidence_list.append({
+            'id': evidence.id,
+            'user': {
+                'id': evidence.user.id,
+                'username': evidence.user.username
+            },
+            'file_type': evidence.file_type,
+            'file_url': evidence.file.url if evidence.file else None,
+            'file_size': evidence.file_size,
+            'file_size_mb': round(evidence.file_size_mb, 2) if evidence.file_size else 0,
+            'description': evidence.description,
+            'uploaded_at': evidence.uploaded_at.isoformat(),
+            'is_verified': evidence.is_verified,
+            'verified_by': {
+                'id': evidence.verified_by.id,
+                'username': evidence.verified_by.username
+            } if evidence.verified_by else None,
+            'verified_at': evidence.verified_at.isoformat() if evidence.verified_at else None,
+        })
+
+    logger.info(
+        f"Evidence list accessed: match_id={match_id}, user={request.user.username}, "
+        f"count={len(evidence_list)}, ip={_get_client_ip(request)}"
+    )
+
+    return JsonResponse({
+        'success': True,
+        'match_id': match_id,
+        'evidence': evidence_list,
+        'pagination': {
+            'page': page.number,
+            'per_page': per_page,
+            'total_pages': paginator.num_pages,
+            'total_count': paginator.count,
+            'has_next': page.has_next(),
+            'has_previous': page.has_previous(),
+        }
+    })
+
+
+@login_required
+@transaction.atomic
+def delete_evidence(request, evidence_id):
+    """Allow a user to delete their own evidence while the match is still active."""
+    if request.method != 'POST':
+        return HttpResponseNotAllowed(['POST'])
+
+    evidence = get_object_or_404(Evidence, id=evidence_id)
+    match = evidence.match
+
+    if request.user != evidence.user:
+        messages.error(request, "You don't have permission to delete this evidence.")
+        return redirect('match_detail', match_id=match.id)
+
+    if match.status not in ['JOINED', 'DISPUTED']:
+        messages.error(
+            request,
+            f"Cannot delete evidence for a match with status '{match.get_status_display()}'."
+        )
+        return redirect('match_detail', match_id=match.id)
+
+    evidence.delete()
+    messages.success(request, "Evidence deleted successfully.")
+    return redirect('match_detail', match_id=match.id)
+
 
 @login_required
 def my_matches(request):

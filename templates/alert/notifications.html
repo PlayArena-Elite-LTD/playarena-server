@@ -25,6 +25,14 @@
           <div class="notification-content">
             <div class="notification-message">{{ notification.message }}</div>
             <div class="notification-time">{{ notification.created_at|date:"Y-m-d H:i:s" }}</div>
+            {% if notification.link %}
+            <div class="notification-link">
+              <a href="{{ notification.link }}" class="button button--primary button--small">
+                <i class="fas fa-external-link-alt"></i>
+                <span>View Match</span>
+              </a>
+            </div>
+            {% endif %}
           </div>
           <div class="notification-actions">
             <form method="post" action="{% url 'mark_notification_read' notification_id=notification.id %}">
@@ -51,6 +59,14 @@
           <div class="notification-content">
             <div class="notification-message">{{ notification.message }}</div>
             <div class="notification-time">{{ notification.created_at|date:"Y-m-d H:i:s" }}</div>
+            {% if notification.link %}
+            <div class="notification-link">
+              <a href="{{ notification.link }}" class="button button--primary button--small">
+                <i class="fas fa-external-link-alt"></i>
+                <span>View Match</span>
+              </a>
+            </div>
+            {% endif %}
           </div>
         </div>
         {% endfor %}

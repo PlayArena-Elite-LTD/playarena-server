@@ -1,9 +1,9 @@
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import transaction
 from django.http import JsonResponse, HttpResponse
-from django.views.decorators.http import require_http_methods
+from django.views.decorators.http import require_http_methods, require_POST
 from django_ratelimit.decorators import ratelimit
 from django.conf import settings
 from decimal import Decimal, InvalidOperation
@@ -12,7 +12,7 @@ import logging
 import time
 from urllib.parse import urljoin
 
-from .models import Wallet, Transaction
+from .models import Wallet, Transaction, Deposit, Withdrawal, SavedPaymentMethod
 from .forms import DepositForm, WithdrawalForm
 from .payment_method_forms import SavedPaymentMethodForm, DeletePaymentMethodForm
 from wallet.payment_debug import payment_debug_enabled, mask_secret
@@ -199,9 +199,16 @@ def wallet_view(request):
         'transactions': transactions,
     }
     
-<<<<<<< HEAD
     return render(request, 'wallet/wallet.html', context)
-=======
+
+
+@ratelimit(key='user', rate='10/m', block=True)
+@login_required
+@transaction.atomic
+def deposit_view(request):
+    """
+    Handle deposit requests using Deposit model with status tracking.
+    
     GET: Display deposit form
     POST: Process deposit form submission
     Creates a Deposit record with PENDING status. Wallet balance is only
@@ -649,4 +656,3 @@ def payment_method_set_default(request, payment_method_id):
     
     messages.success(request, f'"{payment_method.label}" set as default payment method.')
     return redirect('payment_methods_list')
->>>>>>> 8ad7e501f40d5ee1a92cea3a64e4fb206da89c58
