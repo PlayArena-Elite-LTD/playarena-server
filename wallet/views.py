@@ -12,7 +12,7 @@ import time
 
 from .models import Wallet, Transaction, Deposit, Withdrawal, SavedPaymentMethod
 from .forms import DepositForm, WithdrawalForm
-from wallet.utils import initialize_lipila_deposit_payment
+from wallet.utils import initialize_deposit_payment
 from wallet.withdrawal_processing import process_withdrawal_now
 from wallet.notifications import notify_withdrawal_created
 from .payment_method_forms import SavedPaymentMethodForm, DeletePaymentMethodForm
@@ -104,17 +104,17 @@ def deposit_view(request):
                 
                 deposit.save()
 
-                if payment_method in ('LIPILA', 'LIPILA_MOMO'):
-                    lipila = initialize_lipila_deposit_payment(
+                if payment_method in ('LIPILA', 'LIPILA_MOMO', 'ZYNLE_MOMO'):
+                    payment = initialize_deposit_payment(
                         deposit,
                         request,
                         mobile_number=form.cleaned_data.get('mobile_number'),
                     )
-                    if lipila['success']:
-                        if lipila.get('payment_url'):
-                            return redirect(lipila['payment_url'])
+                    if payment['success']:
+                        if payment.get('payment_url'):
+                            return redirect(payment['payment_url'])
                         return redirect('deposit_pending', deposit_id=deposit.id)
-                    messages.error(request, lipila.get('failure_reason') or lipila['message'])
+                    messages.error(request, payment.get('failure_reason') or payment['message'])
                     return redirect('wallet')
                 
                 t1 = time.perf_counter()
@@ -159,8 +159,8 @@ def deposit_status_json(request, deposit_id):
     from wallet.payment_processing import apply_deposit_webhook_status
 
     deposit = get_object_or_404(Deposit, id=deposit_id, user=request.user)
-    if deposit.status in ('PENDING', 'PROCESSING') and deposit.payment_provider == 'lipila':
-        gateway = get_payment_gateway()
+    if deposit.status in ('PENDING', 'PROCESSING') and deposit.payment_provider in ('lipila', 'zynle'):
+        gateway = get_payment_gateway(deposit.payment_provider)
         verify = gateway.verify_payment(deposit)
         if verify.payment_status == 'Successful':
             apply_deposit_webhook_status(

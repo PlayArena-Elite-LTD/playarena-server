@@ -31,13 +31,13 @@ def build_public_url(request, path_or_url: str) -> str:
     return _build(request, path_or_url)
 
 
-def initialize_lipila_deposit_payment(deposit, request, mobile_number=None):
+def initialize_deposit_payment(deposit, request, mobile_number=None):
     """
-    Initialize payment via configured PAYMENT_PROVIDER gateway (Lipila).
+    Initialize payment via the admin-selected deposit gateway.
 
     Never marks deposit COMPLETED here — webhook confirms payment.
     """
-    if deposit.payment_method not in ('LIPILA', 'LIPILA_MOMO'):
+    if deposit.payment_method not in ('LIPILA', 'LIPILA_MOMO', 'ZYNLE_MOMO'):
         return {
             'initialized': False,
             'success': True,
@@ -49,9 +49,27 @@ def initialize_lipila_deposit_payment(deposit, request, mobile_number=None):
             'failure_reason': None,
         }
 
-    from services.payments.factory import get_payment_gateway
+    from services.payments.factory import get_active_payment_provider, get_payment_gateway
 
-    gateway = get_payment_gateway()
+    method_provider = 'zynle' if deposit.payment_method == 'ZYNLE_MOMO' else 'lipila'
+    active_provider = get_active_payment_provider()
+    if method_provider != active_provider:
+        deposit.status = 'FAILED'
+        deposit.provider_payment_status = 'Failed'
+        deposit.failure_reason = 'Payment gateway changed before the deposit was submitted'
+        deposit.save(update_fields=['status', 'provider_payment_status', 'failure_reason'])
+        return {
+            'initialized': True,
+            'success': False,
+            'payment_url': None,
+            'payment_reference': None,
+            'order_id': deposit.id,
+            'payment_status': 'Failed',
+            'message': 'The selected payment method is no longer active. Please try again.',
+            'failure_reason': deposit.failure_reason,
+        }
+
+    gateway = get_payment_gateway(method_provider)
     result = gateway.initiate_payment(deposit, request, mobile_number=mobile_number)
 
     if result.success:
@@ -107,6 +125,11 @@ def initialize_lipila_deposit_payment(deposit, request, mobile_number=None):
         'message': result.message,
         'failure_reason': deposit.failure_reason,
     }
+
+
+def initialize_lipila_deposit_payment(deposit, request, mobile_number=None):
+    """Backward-compatible alias for older callers."""
+    return initialize_deposit_payment(deposit, request, mobile_number=mobile_number)
 
 
 def get_deposit_payment_status_payload(deposit):

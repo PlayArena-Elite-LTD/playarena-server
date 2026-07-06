@@ -209,7 +209,7 @@ def lipila_callback(request):
     deposit = _find_deposit_by_lipila_reference(reference_id) if reference_id else None
 
     if request.method == 'POST':
-        gateway = get_payment_gateway()
+        gateway = get_payment_gateway('lipila')
         result = gateway.handle_webhook(request)
         return JsonResponse({
             'status': 'ok' if result.processed else 'ignored',

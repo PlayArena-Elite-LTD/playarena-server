@@ -1,0 +1,83 @@
+{% extends "panel/panel_base.html" %}
+
+{% block panel_content %}
+<div class="panel-card panel-card-wide">
+    <div class="panel-card-header">
+        <h3 class="panel-card-title">Matches</h3>
+    </div>
+
+    <form method="get" class="panel-filter-bar">
+        <div class="form-group">
+            <label for="q">Search</label>
+            <input type="text" name="q" id="q" class="form-control" placeholder="Joining code or username" value="{{ q }}">
+        </div>
+        <div class="form-group">
+            <label for="status">Status</label>
+            <select name="status" id="status" class="form-control">
+                <option value="" {% if not status %}selected{% endif %}>All</option>
+                {% for value, label in status_choices %}
+                <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="game">Game</label>
+            <select name="game" id="game" class="form-control">
+                <option value="" {% if not game %}selected{% endif %}>All</option>
+                {% for value, label in game_choices %}
+                <option value="{{ value }}" {% if game == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="panel-filter-actions">
+            <button type="submit" class="panel-btn panel-btn-primary">Filter</button>
+        </div>
+    </form>
+
+    {% if page_obj %}
+    <div class="panel-table-wrapper">
+        <table class="panel-table">
+            <thead>
+                <tr>
+                    <th>Code</th>
+                    <th>Game</th>
+                    <th>Creator</th>
+                    <th>Joiner</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for match in page_obj %}
+                <tr>
+                    <td><a href="{% url 'match_detail' match.id %}">{{ match.joining_code }}</a></td>
+                    <td>{{ match.get_game_display }}</td>
+                    <td>{{ match.creator.username }}</td>
+                    <td>{{ match.joiner.username|default:"-" }}</td>
+                    <td>${{ match.amount }}</td>
+                    <td>
+                        {% if match.status == 'COMPLETED' %}
+                        <span class="status-pill status-green">{{ match.get_status_display }}</span>
+                        {% elif match.status == 'DISPUTED' %}
+                        <span class="status-pill status-red">{{ match.get_status_display }}</span>
+                        {% elif match.status == 'JOINED' %}
+                        <span class="status-pill status-blue">{{ match.get_status_display }}</span>
+                        {% else %}
+                        <span class="status-pill status-orange">{{ match.get_status_display }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ match.created_at|date:"M d, Y h:i A" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% include "panel/_pagination.html" %}
+    {% else %}
+    <div class="panel-empty">
+        <p>No matches found.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

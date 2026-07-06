@@ -46,30 +46,44 @@ class DepositForm(forms.Form):
         self.user = kwargs.pop('user', None)
         super().__init__(*args, **kwargs)
 
+        from services.payments.factory import get_active_payment_provider
+
         choices = []
+        active_provider = get_active_payment_provider()
         lipila_mock = bool(getattr(settings, 'LIPILA_MOCK_MODE', False))
         lipila_ready = bool((getattr(settings, 'LIPILA_API_KEY', '') or '').strip())
-        if lipila_ready or lipila_mock:
+        zynle_ready = all((
+            (getattr(settings, 'ZYNLE_API_KEY', '') or '').strip(),
+            (getattr(settings, 'ZYNLE_MERCHANT_ID', '') or '').strip(),
+        ))
+        if active_provider == 'lipila' and (lipila_ready or lipila_mock):
             choices.append(('LIPILA_MOMO', 'Lipila Mobile Money (MoMo)'))
             choices.append(('LIPILA', 'Lipila (Card)'))
+        elif active_provider == 'zynle' and zynle_ready:
+            choices.append(('ZYNLE_MOMO', 'ZynlePay Mobile Money (MoMo)'))
         choices.append(('BANK_TRANSFER', 'Bank Transfer'))
         self.fields['payment_method'].choices = choices
 
-        if lipila_ready or lipila_mock:
-            self.fields['payment_method'].initial = 'LIPILA_MOMO'
+        gateway_ready = (
+            active_provider == 'lipila' and (lipila_ready or lipila_mock)
+        ) or (active_provider == 'zynle' and zynle_ready)
+        if gateway_ready:
+            self.fields['payment_method'].initial = (
+                'ZYNLE_MOMO' if active_provider == 'zynle' else 'LIPILA_MOMO'
+            )
         else:
             self.fields['payment_method'].initial = 'BANK_TRANSFER'
             self.fields['mobile_number'].widget = forms.HiddenInput()
 
-        if not lipila_ready and not lipila_mock:
+        if not gateway_ready:
             self.fields['mobile_number'].widget = forms.HiddenInput()
 
     def clean(self):
         cleaned = super().clean()
         method = cleaned.get('payment_method')
         mobile = (cleaned.get('mobile_number') or '').strip()
-        if method == 'LIPILA_MOMO' and not mobile:
-            self.add_error('mobile_number', 'Mobile number is required for Lipila Mobile Money deposits.')
+        if method in ('LIPILA_MOMO', 'ZYNLE_MOMO') and not mobile:
+            self.add_error('mobile_number', 'Mobile number is required for Mobile Money deposits.')
         return cleaned
         
     def clean_amount(self):

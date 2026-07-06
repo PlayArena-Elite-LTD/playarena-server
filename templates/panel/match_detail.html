@@ -1,0 +1,124 @@
+{% extends "panel/panel_base.html" %}
+
+{% block panel_content %}
+{% if messages %}
+<div class="messages">
+    {% for message in messages %}
+    <div class="message {{ message.tags }}">
+        {% if message.tags == 'success' %}<i class="fas fa-check-circle"></i>
+        {% elif message.tags == 'error' %}<i class="fas fa-exclamation-circle"></i>
+        {% elif message.tags == 'warning' %}<i class="fas fa-exclamation-triangle"></i>
+        {% elif message.tags == 'info' %}<i class="fas fa-info-circle"></i>{% endif %}
+        <div>{{ message }}</div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<div class="panel-card">
+    <div class="panel-card-header">
+        <h3 class="panel-card-title">Match Details</h3>
+    </div>
+
+    <div class="panel-section">
+        <h4 class="panel-section-title">Match Information</h4>
+        <div class="dispute-meta-section">
+            <div class="dispute-meta-item">
+                <span class="dispute-meta-label">Code:</span>
+                <span class="dispute-meta-value">{{ match.joining_code }}</span>
+            </div>
+            <div class="dispute-meta-item">
+                <span class="dispute-meta-label">Game:</span>
+                <span class="dispute-meta-value">{{ match.get_game_display }}</span>
+            </div>
+            <div class="dispute-meta-item">
+                <span class="dispute-meta-label">Amount:</span>
+                <span class="dispute-meta-value">${{ match.amount }}</span>
+            </div>
+            <div class="dispute-meta-item">
+                <span class="dispute-meta-label">Winnings:</span>
+                <span class="dispute-meta-value">${{ match.winnings }}</span>
+            </div>
+            <div class="dispute-meta-item">
+                <span class="dispute-meta-label">Status:</span>
+                <span class="dispute-meta-value">
+                    <span class="status-pill status-gray">{{ match.get_status_display }}</span>
+                </span>
+            </div>
+            <div class="dispute-meta-item">
+                <span class="dispute-meta-label">Creator:</span>
+                <span class="dispute-meta-value">{{ match.creator.username }}</span>
+            </div>
+            <div class="dispute-meta-item">
+                <span class="dispute-meta-label">Joiner:</span>
+                <span class="dispute-meta-value">{{ match.joiner.username|default:"-" }}</span>
+            </div>
+            <div class="dispute-meta-item">
+                <span class="dispute-meta-label">Winner:</span>
+                <span class="dispute-meta-value">{{ match.winner.username|default:"-" }}</span>
+            </div>
+            <div class="dispute-meta-item">
+                <span class="dispute-meta-label">Created:</span>
+                <span class="dispute-meta-value">{{ match.created_at|date:"M d, Y h:i A" }}</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel-section">
+        <h4 class="panel-section-title">
+            <i class="fas fa-images"></i> Evidence ({{ evidence_list|length }} file{{ evidence_list|length|pluralize }})
+        </h4>
+        {% if evidence_list %}
+        <div class="evidence-list-section">
+            <div class="evidence-list-grid">
+                {% for evidence in evidence_list %}
+                <div class="evidence-list-item">
+                    <div class="evidence-list-header">
+                        <div class="evidence-list-uploader">
+                            <i class="fas fa-user"></i> {{ evidence.user.username }}
+                        </div>
+                        <span class="evidence-list-type evidence-type-{{ evidence.file_type|lower }}">
+                            {{ evidence.get_file_type_display }}
+                        </span>
+                    </div>
+                    <div class="evidence-list-content">
+                        {% if evidence.file_type == 'IMAGE' %}
+                        <div class="evidence-list-image">
+                            <a href="{{ evidence.file.url }}" target="_blank">
+                                <img src="{{ evidence.file.url }}" alt="Evidence" class="evidence-list-thumb">
+                            </a>
+                        </div>
+                        {% elif evidence.file_type == 'VIDEO' %}
+                        <div class="evidence-list-video">
+                            <video controls class="evidence-list-video-player">
+                                <source src="{{ evidence.file.url }}" type="video/mp4">
+                            </video>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="evidence-list-footer">
+                        <span class="evidence-list-time">{{ evidence.uploaded_at|date:"M d, Y H:i" }}</span>
+                        {% if evidence.is_verified %}
+                        <span class="status-pill status-green">Verified by {{ evidence.verified_by.username|default:"-" }}</span>
+                        {% else %}
+                        <form action="{% url 'verify_evidence' evidence.id %}" method="post"
+                              data-confirm="Mark this evidence as verified?"
+                              data-confirm-title="Verify Evidence"
+                              data-confirm-button="Verify">
+                            {% csrf_token %}
+                            <button type="submit" class="panel-btn panel-btn-primary">Verify</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% else %}
+        <div class="panel-empty">
+            <p>No evidence has been uploaded for this match.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

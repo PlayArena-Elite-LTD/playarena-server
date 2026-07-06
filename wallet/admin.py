@@ -7,8 +7,22 @@ from django.utils import timezone
 from django.utils.html import format_html
 from django.http import HttpResponseRedirect
 from django.urls import path, reverse
-from .models import Wallet, Transaction, Deposit, Withdrawal, SavedPaymentMethod
+from .models import PaymentGatewaySetting, Wallet, Transaction, Deposit, Withdrawal, SavedPaymentMethod
 from .utils import refund_withdrawal_reservation, process_withdrawal_and_debit_wallet
+
+
+@admin.register(PaymentGatewaySetting)
+class PaymentGatewaySettingAdmin(admin.ModelAdmin):
+    fields = ('active_provider', 'updated_at')
+    readonly_fields = ('updated_at',)
+    list_display = ('active_provider', 'updated_at')
+
+    def has_add_permission(self, request):
+        return not PaymentGatewaySetting.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
 
 @admin.register(Wallet)
 class WalletAdmin(admin.ModelAdmin):
@@ -95,8 +109,8 @@ class TransactionAdmin(admin.ModelAdmin):
 
 @admin.register(Deposit)
 class DepositAdmin(admin.ModelAdmin):
-    list_display = ['user', 'amount', 'payment_method', 'status', 'created_at', 'transaction_id_short']
-    list_filter = ['status', 'payment_method', 'created_at']
+    list_display = ['user', 'amount', 'payment_provider', 'payment_method', 'status', 'created_at', 'transaction_id_short']
+    list_filter = ['status', 'payment_provider', 'payment_method', 'created_at']
     search_fields = ['user__username', 'user__email', 'transaction_id']
     readonly_fields = ['created_at', 'updated_at']
     date_hierarchy = 'created_at'
@@ -107,7 +121,7 @@ class DepositAdmin(admin.ModelAdmin):
             'fields': ('user', 'wallet')
         }),
         ('Deposit Details', {
-            'fields': ('amount', 'payment_method', 'status', 'transaction_id')
+            'fields': ('amount', 'payment_provider', 'payment_method', 'status', 'transaction_id')
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),

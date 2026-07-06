@@ -231,7 +231,7 @@ class DepositCreateSerializer(serializers.ModelSerializer):
         required=False,
         allow_blank=True,
         max_length=20,
-        help_text='Required for LIPILA_MOMO (Zambian format, e.g. 26097xxxxxxx)',
+        help_text='Required for mobile money (Zambian format, e.g. 26097xxxxxxx)',
     )
 
     class Meta:
@@ -241,9 +241,20 @@ class DepositCreateSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         method = attrs.get('payment_method')
         mobile = (attrs.get('mobile_number') or '').strip()
-        if method == 'LIPILA_MOMO' and not mobile:
+        if method in ('LIPILA_MOMO', 'ZYNLE_MOMO') and not mobile:
             raise serializers.ValidationError({
-                'mobile_number': 'Mobile number is required for Lipila Mobile Money deposits.',
+                'mobile_number': 'Mobile number is required for Mobile Money deposits.',
+            })
+
+        from services.payments.factory import get_active_payment_provider
+        active_provider = get_active_payment_provider()
+        allowed_gateway_method = {
+            'lipila': {'LIPILA', 'LIPILA_MOMO'},
+            'zynle': {'ZYNLE_MOMO'},
+        }.get(active_provider, set())
+        if method in {'LIPILA', 'LIPILA_MOMO', 'ZYNLE_MOMO'} and method not in allowed_gateway_method:
+            raise serializers.ValidationError({
+                'payment_method': f'{method} is not available while {active_provider} is active.',
             })
         attrs['mobile_number'] = mobile
         return attrs

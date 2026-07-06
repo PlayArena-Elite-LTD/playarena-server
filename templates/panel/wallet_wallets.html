@@ -1,0 +1,70 @@
+{% extends "panel/panel_base.html" %}
+
+{% block panel_content %}
+{% if messages %}
+<div class="messages">
+    {% for message in messages %}
+    <div class="message {{ message.tags }}">
+        {% if message.tags == 'success' %}<i class="fas fa-check-circle"></i>
+        {% elif message.tags == 'error' %}<i class="fas fa-exclamation-circle"></i>
+        {% elif message.tags == 'warning' %}<i class="fas fa-exclamation-triangle"></i>
+        {% elif message.tags == 'info' %}<i class="fas fa-info-circle"></i>{% endif %}
+        <div>{{ message }}</div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<div class="panel-card panel-card-wide">
+    <div class="panel-card-header">
+        <h3 class="panel-card-title">Wallets</h3>
+        <p class="panel-card-subtitle">Reconciling recalculates a wallet's balance from its transaction history if it drifts.</p>
+    </div>
+
+    <form method="get" class="panel-filter-bar">
+        <div class="form-group">
+            <label for="q">Search</label>
+            <input type="text" name="q" id="q" class="form-control" placeholder="Username or email" value="{{ q }}">
+        </div>
+        <div class="panel-filter-actions">
+            <button type="submit" class="panel-btn panel-btn-primary">Filter</button>
+        </div>
+    </form>
+
+    {% if page_obj %}
+    <div class="panel-table-wrapper">
+        <table class="panel-table">
+            <thead>
+                <tr>
+                    <th>User</th>
+                    <th>Balance</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for wallet in page_obj %}
+                <tr>
+                    <td>{{ wallet.user.username }}</td>
+                    <td>${{ wallet.balance|floatformat:2 }}</td>
+                    <td>
+                        <form action="{% url 'wallet_reconcile' wallet.id %}" method="post"
+                              data-confirm="Recalculate {{ wallet.user.username }}'s balance from their transaction history?"
+                              data-confirm-title="Reconcile Wallet"
+                              data-confirm-button="Reconcile">
+                            {% csrf_token %}
+                            <button type="submit" class="panel-btn">Reconcile</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% include "panel/_pagination.html" %}
+    {% else %}
+    <div class="panel-empty">
+        <p>No wallets found.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

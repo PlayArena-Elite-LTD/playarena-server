@@ -1,5 +1,5 @@
 """
-Payment gateway abstraction — swappable providers (Lipila active).
+Payment gateway abstraction for swappable providers.
 """
 from __future__ import annotations
 

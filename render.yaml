@@ -43,5 +43,15 @@ services:
         value: "/api/v1/disbursements/mobile-money"
       - key: LIPILA_SECRET_KEY
         sync: false
+      - key: ZYNLE_BASE_URL
+        value: "https://sandbox.zynlepay.com/zynlepay/jsonapi"
+      - key: ZYNLE_API_KEY
+        sync: false
+      - key: ZYNLE_API_ID
+        sync: false
+      - key: ZYNLE_MERCHANT_ID
+        sync: false
+      - key: ZYNLE_CALLBACK_TOKEN
+        generateValue: true
       - key: BANK_PAYOUT_MODE
         value: "mock"
