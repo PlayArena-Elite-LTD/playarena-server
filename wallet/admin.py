@@ -148,7 +148,8 @@ class DepositAdmin(admin.ModelAdmin):
             
             # Update deposit status (use update() to bypass clean() validation)
             Deposit.objects.filter(id=deposit.id).update(status='COMPLETED', updated_at=timezone.now())
-            
+            deposit.refresh_from_db()
+
             # Audit log: Deposit completed via admin
             from audit.utils import log_action
             log_action(
@@ -163,9 +164,12 @@ class DepositAdmin(admin.ModelAdmin):
                 },
                 request=request
             )
-            
+
+            from wallet.notifications import notify_deposit_completed
+            notify_deposit_completed(deposit)
+
             count += 1
-        
+
         self.message_user(request, f'{count} deposit(s) marked as completed.')
     
     @admin.action(description='Mark selected deposits as FAILED')
@@ -175,11 +179,13 @@ class DepositAdmin(admin.ModelAdmin):
             id__in=queryset.values_list('id', flat=True),
             status__in=['PENDING', 'PROCESSING']
         )
+        deposits = list(deposits_to_fail)
         count = deposits_to_fail.update(status='FAILED', updated_at=timezone.now())
-        
+
         # Audit log: Deposits failed via admin
         from audit.utils import log_action
-        for deposit in deposits_to_fail:
+        from wallet.notifications import notify_deposit_failed
+        for deposit in deposits:
             log_action(
                 action='deposit_failed',
                 user=request.user,
@@ -191,7 +197,8 @@ class DepositAdmin(admin.ModelAdmin):
                 },
                 request=request
             )
-        
+            notify_deposit_failed(deposit, 'Marked as failed by admin')
+
         self.message_user(request, f'{count} deposit(s) marked as failed.')
     
     @admin.action(description='Mark selected deposits as CANCELLED')
@@ -201,11 +208,13 @@ class DepositAdmin(admin.ModelAdmin):
             id__in=queryset.values_list('id', flat=True),
             status__in=['PENDING', 'PROCESSING']
         )
+        deposits = list(deposits_to_cancel)
         count = deposits_to_cancel.update(status='CANCELLED', updated_at=timezone.now())
-        
+
         # Audit log: Deposits cancelled via admin
         from audit.utils import log_action
-        for deposit in deposits_to_cancel:
+        from wallet.notifications import notify_deposit_failed
+        for deposit in deposits:
             log_action(
                 action='deposit_cancelled',
                 user=request.user,
@@ -217,7 +226,8 @@ class DepositAdmin(admin.ModelAdmin):
                 },
                 request=request
             )
-        
+            notify_deposit_failed(deposit, 'Deposit cancelled by admin')
+
         self.message_user(request, f'{count} deposit(s) marked as cancelled.')
 
 @admin.register(Withdrawal)
@@ -586,7 +596,7 @@ class WithdrawalAdmin(admin.ModelAdmin):
                 continue
             withdrawal.refresh_from_db()
             wallet = withdrawal.wallet
-            
+
             # Audit log: Withdrawal completed via admin
             from audit.utils import log_action
             log_action(
@@ -601,9 +611,12 @@ class WithdrawalAdmin(admin.ModelAdmin):
                 },
                 request=request
             )
-            
+
+            from wallet.notifications import notify_withdrawal_completed
+            notify_withdrawal_completed(withdrawal)
+
             count += 1
-        
+
         self.message_user(request, f'{count} withdrawal(s) marked as completed.')
     
     @admin.action(description='Mark selected withdrawals as FAILED')
@@ -615,9 +628,10 @@ class WithdrawalAdmin(admin.ModelAdmin):
             status__in=['PENDING', 'PROCESSING']
         )
         count = 0
-        
+
         # Audit log: Withdrawals failed via admin
         from audit.utils import log_action
+        from wallet.notifications import notify_withdrawal_failed
         for withdrawal in withdrawals_to_fail:
             Withdrawal.objects.filter(id=withdrawal.id).update(status='FAILED', updated_at=timezone.now())
             refund_result = refund_withdrawal_reservation(withdrawal, 'Withdrawal failed by admin')
@@ -634,8 +648,10 @@ class WithdrawalAdmin(admin.ModelAdmin):
                 },
                 request=request
             )
+            withdrawal.refresh_from_db()
+            notify_withdrawal_failed(withdrawal, 'Withdrawal failed by admin')
             count += 1
-        
+
         self.message_user(request, f'{count} withdrawal(s) marked as failed.')
     
     @admin.action(description='Mark selected withdrawals as CANCELLED')
@@ -647,9 +663,10 @@ class WithdrawalAdmin(admin.ModelAdmin):
             status__in=['PENDING', 'PROCESSING']
         )
         count = 0
-        
+
         # Audit log: Withdrawals cancelled via admin
         from audit.utils import log_action
+        from wallet.notifications import notify_withdrawal_rejected
         for withdrawal in withdrawals_to_cancel:
             Withdrawal.objects.filter(id=withdrawal.id).update(status='CANCELLED', updated_at=timezone.now())
             refund_result = refund_withdrawal_reservation(withdrawal, 'Withdrawal cancelled by admin')
@@ -666,8 +683,10 @@ class WithdrawalAdmin(admin.ModelAdmin):
                 },
                 request=request
             )
+            withdrawal.refresh_from_db()
+            notify_withdrawal_rejected(withdrawal, 'Withdrawal request rejected by admin')
             count += 1
-        
+
         self.message_user(request, f'{count} withdrawal(s) marked as cancelled.')
     
     @admin.action(description='Process selected withdrawals manually')

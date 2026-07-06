@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}PlayArena{% endblock %}</title>
+</head>
+<body style="margin:0; padding:0; background-color:#0b1020; font-family:Arial, Helvetica, sans-serif; color:#e5e7eb;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#0b1020; margin:0; padding:0;">
+        <tr>
+            <td align="center" style="padding:32px 16px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:640px; background-color:#111827; border:1px solid #263247; border-radius:18px; overflow:hidden;">
+                    <tr>
+                        <td style="background:linear-gradient(135deg, #7c3aed 0%, #2563eb 55%, #06b6d4 100%); padding:34px 28px; text-align:center;">
+                            <div style="font-size:12px; font-weight:700; letter-spacing:3px; text-transform:uppercase; color:#dbeafe;">PlayArena</div>
+                            <h1 style="margin:12px 0 0; font-size:28px; line-height:1.2; color:#ffffff;">{% block heading %}{% endblock %}</h1>
+                            <p style="margin:12px 0 0; font-size:15px; line-height:1.6; color:#e0f2fe;">{% block subtitle %}{% endblock %}</p>
+                            {% block status_badge %}{% endblock %}
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td style="padding:34px 30px 10px;">
+                            {% block content %}{% endblock %}
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td style="padding:22px 30px 34px;">
+                            <p style="margin:0; font-size:14px; line-height:1.6; color:#94a3b8;">See you in the arena,</p>
+                            <p style="margin:4px 0 0; font-size:15px; line-height:1.6; font-weight:700; color:#e5e7eb;">The PlayArena Team</p>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td style="padding:20px 30px; background-color:#0f172a; text-align:center;">
+                            <p style="margin:0; font-size:12px; line-height:1.6; color:#64748b;">
+                                This is an automated message from PlayArena. Please do not reply to this email.
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
