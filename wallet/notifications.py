@@ -25,7 +25,7 @@ def notify_withdrawal_created(withdrawal):
     """
     try:
         message = (
-            f"Withdrawal request of ${withdrawal.amount:.2f} via "
+            f"Withdrawal request of ZMW {withdrawal.amount:.2f} via "
             f"{withdrawal.get_payment_method_display()} has been created and is pending approval."
         )
         
@@ -58,7 +58,7 @@ def notify_withdrawal_created(withdrawal):
                 f"Withdrawal ID: {withdrawal.id}\n"
                 f"User: {withdrawal.user.get_username()}\n"
                 f"Email: {user_email or 'N/A'}\n"
-                f"Amount: ${withdrawal.amount:.2f}\n"
+                f"Amount: ZMW {withdrawal.amount:.2f}\n"
                 f"Payment method: {withdrawal.get_payment_method_display()}\n"
                 f"Account details: {withdrawal.account_details}\n"
                 f"Status: {withdrawal.status}\n"
@@ -83,7 +83,7 @@ def notify_withdrawal_processing(withdrawal):
     """
     try:
         message = (
-            f"Your withdrawal of ${withdrawal.amount:.2f} via "
+            f"Your withdrawal of ZMW {withdrawal.amount:.2f} via "
             f"{withdrawal.get_payment_method_display()} is now being processed."
         )
         
@@ -107,7 +107,7 @@ def notify_withdrawal_completed(withdrawal):
     try:
         transaction_id = withdrawal.transaction_id or withdrawal.gateway_transaction_id or 'N/A'
         message = (
-            f"Your withdrawal of ${withdrawal.amount:.2f} via "
+            f"Your withdrawal of ZMW {withdrawal.amount:.2f} via "
             f"{withdrawal.get_payment_method_display()} has been completed successfully. "
             f"Transaction ID: {transaction_id}"
         )
@@ -133,7 +133,7 @@ def notify_withdrawal_failed(withdrawal, failure_reason=None):
     try:
         reason_text = f" Reason: {failure_reason}" if failure_reason else ""
         message = (
-            f"Your withdrawal of ${withdrawal.amount:.2f} via "
+            f"Your withdrawal of ZMW {withdrawal.amount:.2f} via "
             f"{withdrawal.get_payment_method_display()} has failed.{reason_text} "
             f"Please contact support if you need assistance."
         )
@@ -159,7 +159,7 @@ def notify_withdrawal_retry(withdrawal, retry_count, max_retries):
     """
     try:
         message = (
-            f"Your withdrawal of ${withdrawal.amount:.2f} via "
+            f"Your withdrawal of ZMW {withdrawal.amount:.2f} via "
             f"{withdrawal.get_payment_method_display()} encountered an issue and will be retried. "
             f"Attempt {retry_count} of {max_retries}. We'll notify you once it's processed."
         )
@@ -184,7 +184,7 @@ def notify_deposit_completed(deposit):
     try:
         transaction_id = deposit.transaction_id or 'N/A'
         message = (
-            f"Your deposit of ${deposit.amount:.2f} via "
+            f"Your deposit of ZMW {deposit.amount:.2f} via "
             f"{deposit.get_payment_method_display()} has been completed successfully. "
             f"Transaction ID: {transaction_id}. Your wallet balance has been updated."
         )
@@ -210,7 +210,7 @@ def notify_deposit_failed(deposit, failure_reason=None):
     try:
         reason_text = f" Reason: {failure_reason}" if failure_reason else ""
         message = (
-            f"Your deposit of ${deposit.amount:.2f} via "
+            f"Your deposit of ZMW {deposit.amount:.2f} via "
             f"{deposit.get_payment_method_display()} has failed.{reason_text} "
             f"Please try again or contact support if the issue persists."
         )

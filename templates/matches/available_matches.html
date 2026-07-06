@@ -91,7 +91,7 @@
         <div class="match-card" data-device="{{ match.device }}" data-game="{{ match.game }}">
           <div class="match-card-header">
             <h3 class="match-card-title">{{ match.get_game_display }}</h3>
-            <span class="match-card-badge match-amount">${{ match.amount }}</span>
+            <span class="match-card-badge match-amount">ZMW {{ match.amount }}</span>
           </div>
           
           <div class="match-card-details">
@@ -102,7 +102,7 @@
               </p>
               <p class="match-info-item">
                 <span class="match-info-label">Winnings:</span>
-                <span class="match-info-value">${{ match.winnings }}</span>
+                <span class="match-info-value">ZMW {{ match.winnings }}</span>
               </p>
               <p class="match-info-item">
                 <span class="match-info-label">Created by:</span>
@@ -111,7 +111,7 @@
             </div>
             
             <form action="{% url 'join_match' %}" method="post" class="match-join-form"
-      data-confirm="You are about to join this match for ${{ match.amount }}. This amount will be deducted from your wallet. Continue?" 
+      data-confirm="You are about to join this match for ZMW {{ match.amount }}. This amount will be deducted from your wallet. Continue?" 
       data-confirm-title="Join Match"
       data-confirm-button="Join">
   {% csrf_token %}

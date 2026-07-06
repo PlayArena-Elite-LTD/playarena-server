@@ -34,7 +34,7 @@
           
           <div style="display: flex; justify-content: space-between; padding: 0.75rem 0; border-bottom: 1px solid #fecaca;">
             <span style="color: #6b7280;">Amount:</span>
-            <span style="font-weight: 600; color: #111827;">${{ deposit.amount|floatformat:2 }}</span>
+            <span style="font-weight: 600; color: #111827;">ZMW {{ deposit.amount|floatformat:2 }}</span>
           </div>
           
           {% if deposit.payment_reference %}

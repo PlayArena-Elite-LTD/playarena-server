@@ -131,7 +131,7 @@ class Command(BaseCommand):
                 if dry_run:
                     self.stdout.write(
                         f'[DRY RUN] Would process withdrawal {withdrawal.id}: '
-                        f'${withdrawal.amount} for {withdrawal.user.username}'
+                        f'ZMW {withdrawal.amount} for {withdrawal.user.username}'
                     )
                     continue
                 
@@ -185,7 +185,7 @@ class Command(BaseCommand):
                         self.stdout.write(
                             self.style.SUCCESS(
                                 f'✓ Completed withdrawal {withdrawal.id}: '
-                                f'${withdrawal.amount} for {withdrawal.user.username}'
+                                f'ZMW {withdrawal.amount} for {withdrawal.user.username}'
                             )
                         )
                     else:
@@ -218,7 +218,7 @@ class Command(BaseCommand):
                             self.stdout.write(
                                 self.style.ERROR(
                                     f'✗ Failed withdrawal {withdrawal.id} (max retries): '
-                                    f'${withdrawal.amount} - {result["failure_reason"]}'
+                                    f'ZMW {withdrawal.amount} - {result["failure_reason"]}'
                                 )
                             )
                         else:
@@ -245,7 +245,7 @@ class Command(BaseCommand):
                             self.stdout.write(
                                 self.style.WARNING(
                                     f'↻ Retry withdrawal {withdrawal.id}: '
-                                    f'${withdrawal.amount} (attempt {new_retry_count}/{withdrawal.max_retry_count})'
+                                    f'ZMW {withdrawal.amount} (attempt {new_retry_count}/{withdrawal.max_retry_count})'
                                 )
                             )
             

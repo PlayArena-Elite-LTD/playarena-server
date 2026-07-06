@@ -127,7 +127,7 @@ def deposit_view(request):
                         t1 - t0,
                     )
                 
-                messages.success(request, f'Deposit request for ${amount} submitted successfully!')
+                messages.success(request, f'Deposit request for ZMW {amount} submitted successfully!')
                 return redirect('wallet')
                 
             except Exception as e:
@@ -243,10 +243,10 @@ def withdraw_view(request):
                 if process_result and process_result.get('processed'):
                     messages.success(
                         request,
-                        f'Withdrawal request for ${amount} submitted and sent to Lipila.'
+                        f'Withdrawal request for ZMW {amount} submitted and sent to Lipila.'
                     )
                 else:
-                    messages.success(request, f'Withdrawal request for ${amount} submitted successfully!')
+                    messages.success(request, f'Withdrawal request for ZMW {amount} submitted successfully!')
                 return redirect('wallet')
                 
             except Exception as e:

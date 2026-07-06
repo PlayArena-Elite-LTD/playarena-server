@@ -36,7 +36,7 @@ class MatchCreationForm(forms.ModelForm):
         if self.user and hasattr(self.user, 'wallet'):
             if self.user.wallet.balance < amount:
                 raise forms.ValidationError(
-                    f"Insufficient funds. Your balance (${self.user.wallet.balance}) is less than the match amount (${amount})."
+                    f"Insufficient funds. Your balance (ZMW {self.user.wallet.balance}) is less than the match amount (ZMW {amount})."
                 )
         
         return amount
@@ -78,7 +78,7 @@ class JoinMatchForm(forms.Form):
             if self.user and hasattr(self.user, 'wallet'):
                 if self.user.wallet.balance < match.amount:
                     raise forms.ValidationError(
-                        f"Insufficient funds. Your balance (${self.user.wallet.balance}) is less than the match amount (${match.amount})."
+                        f"Insufficient funds. Your balance (ZMW {self.user.wallet.balance}) is less than the match amount (ZMW {match.amount})."
                     )
                     
         except Match.DoesNotExist:

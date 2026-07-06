@@ -31,7 +31,7 @@
         <h3 class="dashboard-card-title">Current Balance</h3>
       </div>
       <div class="dashboard-balance">
-        <span class="dashboard-balance-amount">${{ wallet.balance|floatformat:2 }}</span>
+        <span class="dashboard-balance-amount">ZMW {{ wallet.balance|floatformat:2 }}</span>
         <span class="dashboard-balance-label">Available Balance</span>
       </div>
     </div>
@@ -49,7 +49,7 @@
               <div class="transaction-primary">
                 <span class="transaction-description">{{ transaction.description }}</span>
                 <span class="transaction-amount {% if transaction.is_credit %}credit-text{% else %}debit-text{% endif %}">
-                  ${{ transaction.amount|floatformat:2 }}
+                  ZMW {{ transaction.amount|floatformat:2 }}
                 </span>
               </div>
               <div class="transaction-secondary">

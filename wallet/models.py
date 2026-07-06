@@ -283,7 +283,7 @@ class Deposit(models.Model):
         ]
     
     def __str__(self):
-        return f"Deposit ${self.amount} - {self.get_status_display()} - {self.user.username}"
+        return f"Deposit ZMW {self.amount} - {self.get_status_display()} - {self.user.username}"
     
     def clean(self):
         """Security: Validate deposit amount and business rules"""
@@ -295,11 +295,11 @@ class Deposit(models.Model):
         
         # Validate minimum deposit amount
         if self.amount < self.MIN_DEPOSIT_AMOUNT:
-            raise ValidationError({'amount': f'Minimum deposit amount is ${self.MIN_DEPOSIT_AMOUNT}'})
+            raise ValidationError({'amount': f'Minimum deposit amount is ZMW {self.MIN_DEPOSIT_AMOUNT}'})
         
         # Validate maximum deposit amount
         if self.amount > self.MAX_DEPOSIT_AMOUNT:
-            raise ValidationError({'amount': f'Maximum deposit amount is ${self.MAX_DEPOSIT_AMOUNT}'})
+            raise ValidationError({'amount': f'Maximum deposit amount is ZMW {self.MAX_DEPOSIT_AMOUNT}'})
         
         # Security: Validate status transitions (prevent invalid state changes)
         if self.pk:  # Only validate transitions for existing deposits
@@ -455,7 +455,7 @@ class Withdrawal(models.Model):
         ]
     
     def __str__(self):
-        return f"Withdrawal ${self.amount} - {self.get_status_display()} - {self.user.username}"
+        return f"Withdrawal ZMW {self.amount} - {self.get_status_display()} - {self.user.username}"
     
     def clean(self):
         """Security: Validate withdrawal amount and business rules"""
@@ -467,18 +467,18 @@ class Withdrawal(models.Model):
         
         # Validate minimum withdrawal amount
         if self.amount < self.MIN_WITHDRAWAL_AMOUNT:
-            raise ValidationError({'amount': f'Minimum withdrawal amount is ${self.MIN_WITHDRAWAL_AMOUNT}'})
+            raise ValidationError({'amount': f'Minimum withdrawal amount is ZMW {self.MIN_WITHDRAWAL_AMOUNT}'})
         
         # Validate maximum withdrawal amount (global limit)
         if self.amount > self.MAX_WITHDRAWAL_AMOUNT:
-            raise ValidationError({'amount': f'Maximum withdrawal amount per transaction is ${self.MAX_WITHDRAWAL_AMOUNT}'})
+            raise ValidationError({'amount': f'Maximum withdrawal amount per transaction is ZMW {self.MAX_WITHDRAWAL_AMOUNT}'})
         
         # Validate per-payment-method limits
         if self.payment_method in self.PAYMENT_METHOD_LIMITS:
             method_limits = self.PAYMENT_METHOD_LIMITS[self.payment_method]
             if self.amount > method_limits['max']:
                 raise ValidationError({
-                    'amount': f'Maximum withdrawal amount for {self.get_payment_method_display()} is ${method_limits["max"]}'
+                    'amount': f'Maximum withdrawal amount for {self.get_payment_method_display()} is ZMW {method_limits["max"]}'
                 })
         
         # Security: Validate account details are provided
@@ -490,7 +490,7 @@ class Withdrawal(models.Model):
         if self.user and not self.pk and hasattr(self.user, 'wallet'):
             wallet = self.user.wallet
             if self.amount > wallet.balance:
-                raise ValidationError({'amount': f'Insufficient balance. Your balance is ${wallet.balance}'})
+                raise ValidationError({'amount': f'Insufficient balance. Your balance is ZMW {wallet.balance}'})
         
         # Security: Validate retry_count doesn't exceed max_retry_count
         if self.retry_count > self.max_retry_count:
@@ -518,8 +518,8 @@ class Withdrawal(models.Model):
             if new_total > self.DAILY_WITHDRAWAL_LIMIT:
                 remaining = self.DAILY_WITHDRAWAL_LIMIT - today_total
                 raise ValidationError({
-                    'amount': f'Daily withdrawal limit exceeded. Maximum daily limit is ${self.DAILY_WITHDRAWAL_LIMIT}. '
-                             f'You have ${remaining:.2f} remaining today.'
+                    'amount': f'Daily withdrawal limit exceeded. Maximum daily limit is ZMW {self.DAILY_WITHDRAWAL_LIMIT}. '
+                             f'You have ZMW {remaining:.2f} remaining today.'
                 })
             
             # Check per-payment-method daily limit
@@ -533,8 +533,8 @@ class Withdrawal(models.Model):
                     method_remaining = method_limits['daily'] - method_today_total
                     raise ValidationError({
                         'amount': f'Daily withdrawal limit for {self.get_payment_method_display()} exceeded. '
-                                 f'Maximum daily limit is ${method_limits["daily"]}. '
-                                 f'You have ${method_remaining:.2f} remaining today.'
+                                 f'Maximum daily limit is ZMW {method_limits["daily"]}. '
+                                 f'You have ZMW {method_remaining:.2f} remaining today.'
                     })
         
         # Security: Validate status transitions (prevent invalid state changes)

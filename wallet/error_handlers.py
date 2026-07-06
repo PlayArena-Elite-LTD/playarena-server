@@ -297,13 +297,13 @@ def validate_payment_amount(amount, min_amount=Decimal('1.00'), max_amount=Decim
         if amount < min_amount:
             raise PaymentValidationError(
                 f"Amount below minimum: {min_amount}",
-                user_message=f"Minimum payment amount is ${min_amount:.2f}"
+                user_message=f"Minimum payment amount is ZMW {min_amount:.2f}"
             )
         
         if amount > max_amount:
             raise PaymentValidationError(
                 f"Amount exceeds maximum: {max_amount}",
-                user_message=f"Maximum payment amount is ${max_amount:.2f}"
+                user_message=f"Maximum payment amount is ZMW {max_amount:.2f}"
             )
         
         return amount
@@ -324,8 +324,8 @@ def validate_withdrawal_amount(amount, user, min_amount=Decimal('1.00'), max_amo
     Args:
         amount: Withdrawal amount to validate
         user: User instance making the withdrawal
-        min_amount: Minimum withdrawal amount (default: $1.00)
-        max_amount: Maximum single withdrawal amount (default: $5,000.00)
+        min_amount: Minimum withdrawal amount (default: ZMW 1.00)
+        max_amount: Maximum single withdrawal amount (default: ZMW 5,000.00)
     
     Returns:
         Decimal: Validated amount
@@ -350,13 +350,13 @@ def validate_withdrawal_amount(amount, user, min_amount=Decimal('1.00'), max_amo
         if amount < min_amount:
             raise PaymentValidationError(
                 f"Amount below minimum: {min_amount}",
-                user_message=f"Minimum withdrawal amount is ${min_amount:.2f}"
+                user_message=f"Minimum withdrawal amount is ZMW {min_amount:.2f}"
             )
         
         if amount > max_amount:
             raise PaymentValidationError(
                 f"Amount exceeds maximum: {max_amount}",
-                user_message=f"Maximum withdrawal amount is ${max_amount:.2f}"
+                user_message=f"Maximum withdrawal amount is ZMW {max_amount:.2f}"
             )
         
         # Check wallet balance
@@ -365,7 +365,7 @@ def validate_withdrawal_amount(amount, user, min_amount=Decimal('1.00'), max_amo
             if amount > wallet.balance:
                 raise PaymentValidationError(
                     f"Insufficient balance: {wallet.balance}",
-                    user_message=f"Insufficient balance. Your balance is ${wallet.balance:.2f}"
+                    user_message=f"Insufficient balance. Your balance is ZMW {wallet.balance:.2f}"
                 )
         
         # Check daily withdrawal limits
@@ -396,8 +396,8 @@ def validate_withdrawal_amount(amount, user, min_amount=Decimal('1.00'), max_amo
                 remaining = Withdrawal.MAX_DAILY_WITHDRAWAL_AMOUNT - today_total
                 raise PaymentValidationError(
                     f"Daily withdrawal amount limit exceeded: {today_total + amount}",
-                    user_message=f'Daily withdrawal amount limit exceeded. Maximum ${Withdrawal.MAX_DAILY_WITHDRAWAL_AMOUNT:.2f} per day. '
-                    f'You can withdraw up to ${remaining:.2f} more today.'
+                    user_message=f'Daily withdrawal amount limit exceeded. Maximum ZMW {Withdrawal.MAX_DAILY_WITHDRAWAL_AMOUNT:.2f} per day. '
+                    f'You can withdraw up to ZMW {remaining:.2f} more today.'
                 )
         
         return amount
@@ -508,7 +508,7 @@ def detect_suspicious_withdrawal_activity(request, amount, payment_method):
     # Check for unusual withdrawal amounts (very large amounts)
     if amount > Decimal('10000.00'):
         suspicious = True
-        reasons.append(f"Unusually large withdrawal amount: ${amount}")
+        reasons.append(f"Unusually large withdrawal amount: ZMW {amount}")
     
     # Check for multiple withdrawals to different payment methods in short time
     if user:

@@ -20,7 +20,7 @@ class DepositForm(forms.Form):
             'inputmode': 'decimal',
         }),
         label='Deposit Amount',
-        help_text='Minimum: $1.00, Maximum: $10,000.00'
+        help_text='Minimum: ZMW 1.00, Maximum: ZMW 10,000.00'
     )
     
     payment_method = forms.ChoiceField(
@@ -81,10 +81,10 @@ class DepositForm(forms.Form):
             
         # Ensure amount is within bounds (DecimalField should handle this, but double-check)
         if amount < Decimal('1.00'):
-            raise forms.ValidationError('Minimum deposit amount is $1.00')
-        
+            raise forms.ValidationError('Minimum deposit amount is ZMW 1.00')
+
         if amount > Decimal('10000.00'):
-            raise forms.ValidationError('Maximum deposit amount is $10,000.00')
+            raise forms.ValidationError('Maximum deposit amount is ZMW 10,000.00')
         
         return amount
 
@@ -108,7 +108,7 @@ class WithdrawalForm(forms.Form):
             'step': '0.01'
         }),
         label='Withdrawal Amount',
-        help_text='Minimum: $1.00'
+        help_text='Minimum: ZMW 1.00'
     )
     
     payment_method = forms.ChoiceField(
@@ -183,11 +183,11 @@ class WithdrawalForm(forms.Form):
             
         # Ensure amount meets minimum
         if amount < Decimal('1.00'):
-            raise forms.ValidationError('Minimum withdrawal amount is $1.00')
-        
+            raise forms.ValidationError('Minimum withdrawal amount is ZMW 1.00')
+
         # Check maximum withdrawal amount (global limit)
         if amount > Decimal('50000.00'):
-            raise forms.ValidationError('Maximum withdrawal amount per transaction is $50,000.00')
+            raise forms.ValidationError('Maximum withdrawal amount per transaction is ZMW 50,000.00')
         
         # Check per-payment-method limits
         payment_method_limits = {
@@ -201,7 +201,7 @@ class WithdrawalForm(forms.Form):
             if amount > method_limits['max']:
                 method_display = dict(Withdrawal.PAYMENT_METHOD_CHOICES).get(payment_method, payment_method)
                 raise forms.ValidationError(
-                    f'Maximum withdrawal amount for {method_display} is ${method_limits["max"]}'
+                    f'Maximum withdrawal amount for {method_display} is ZMW {method_limits["max"]}'
                 )
         
         # Check user has sufficient balance
@@ -209,7 +209,7 @@ class WithdrawalForm(forms.Form):
             wallet = self.user.wallet
             if amount > wallet.balance:
                 raise forms.ValidationError(
-                    f'Insufficient balance. Your balance is ${wallet.balance:.2f}'
+                    f'Insufficient balance. Your balance is ZMW {wallet.balance:.2f}'
                 )
         
         # Check daily withdrawal limits (only if user is set)
@@ -230,8 +230,8 @@ class WithdrawalForm(forms.Form):
             if new_total > Decimal('100000.00'):
                 remaining = Decimal('100000.00') - today_total
                 raise forms.ValidationError(
-                    f'Daily withdrawal limit exceeded. Maximum daily limit is $100,000.00. '
-                    f'You have ${remaining:.2f} remaining today.'
+                    f'Daily withdrawal limit exceeded. Maximum daily limit is ZMW 100,000.00. '
+                    f'You have ZMW {remaining:.2f} remaining today.'
                 )
             
             # Check per-payment-method daily limit
@@ -246,8 +246,8 @@ class WithdrawalForm(forms.Form):
                     method_display = dict(Withdrawal.PAYMENT_METHOD_CHOICES).get(payment_method, payment_method)
                     raise forms.ValidationError(
                         f'Daily withdrawal limit for {method_display} exceeded. '
-                        f'Maximum daily limit is ${method_limits["daily"]}. '
-                        f'You have ${method_remaining:.2f} remaining today.'
+                        f'Maximum daily limit is ZMW {method_limits["daily"]}. '
+                        f'You have ZMW {method_remaining:.2f} remaining today.'
                     )
         
         return amount

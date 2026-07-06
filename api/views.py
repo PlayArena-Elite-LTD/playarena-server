@@ -354,7 +354,7 @@ class MatchCreateView(APIView):
             wallet=wallet,
             amount=-amount,
             transaction_type='MATCH_CREATION',
-            description=f"Created {match.get_game_display()} match for ${match.amount}",
+            description=f"Created {match.get_game_display()} match for ZMW {match.amount}",
             related_match=match
         )
 
@@ -421,7 +421,7 @@ class MatchJoinView(APIView):
         wallet, _created = Wallet.objects.get_or_create(user=request.user)
         if wallet.balance < Decimal(match.amount):
             return Response(
-                {'detail': f"Insufficient funds. You need ${match.amount} to join this match."},
+                {'detail': f"Insufficient funds. You need ZMW {match.amount} to join this match."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -438,7 +438,7 @@ class MatchJoinView(APIView):
             wallet=wallet,
             amount=-amount,
             transaction_type='MATCH_JOINING',
-            description=f"Joined {match.get_game_display()} match against {match.creator.username} for ${match.amount}",
+            description=f"Joined {match.get_game_display()} match against {match.creator.username} for ZMW {match.amount}",
             related_match=match
         )
 
@@ -552,7 +552,7 @@ class MatchResultSubmitView(APIView):
                 user=opponent,
                 message=(
                     f"Your opponent has submitted their result for the {match.get_game_display()} "
-                    f"match (${match.amount}). Please submit your result."
+                    f"match (ZMW {match.amount}). Please submit your result."
                 )
             )
             return Response(
@@ -591,7 +591,7 @@ class MatchResultSubmitView(APIView):
                     transaction_type='MATCH_DRAW_RETURN',
                     description=(
                         f"Return from draw in {match.get_game_display()} match against "
-                        f"{match.joiner.username} for ${match.amount}"
+                        f"{match.joiner.username} for ZMW {match.amount}"
                     ),
                     related_match=match
                 )
@@ -602,7 +602,7 @@ class MatchResultSubmitView(APIView):
                     transaction_type='MATCH_DRAW_RETURN',
                     description=(
                         f"Return from draw in {match.get_game_display()} match against "
-                        f"{match.creator.username} for ${match.amount}"
+                        f"{match.creator.username} for ZMW {match.amount}"
                     ),
                     related_match=match
                 )
@@ -611,14 +611,14 @@ class MatchResultSubmitView(APIView):
                     user=match.creator,
                     message=(
                         f"Your {match.get_game_display()} match against {match.joiner.username} "
-                        f"ended in a draw. ${refund_amount} has been returned to your wallet."
+                        f"ended in a draw. ZMW {refund_amount} has been returned to your wallet."
                     )
                 )
                 Notification.objects.create(
                     user=match.joiner,
                     message=(
                         f"Your {match.get_game_display()} match against {match.creator.username} "
-                        f"ended in a draw. ${refund_amount} has been returned to your wallet."
+                        f"ended in a draw. ZMW {refund_amount} has been returned to your wallet."
                     )
                 )
 
@@ -642,7 +642,7 @@ class MatchResultSubmitView(APIView):
                 transaction_type='MATCH_WINNINGS',
                 description=(
                     f"Winnings from {match.get_game_display()} match against {loser.username} "
-                    f"for ${match.amount}"
+                    f"for ZMW {match.amount}"
                 ),
                 related_match=match
             )
@@ -651,7 +651,7 @@ class MatchResultSubmitView(APIView):
                 user=winner,
                 message=(
                     f"Congratulations! You won the {match.get_game_display()} match against "
-                    f"{loser.username}. ${match.winnings} has been added to your wallet."
+                    f"{loser.username}. ZMW {match.winnings} has been added to your wallet."
                 )
             )
             Notification.objects.create(
@@ -765,7 +765,7 @@ class MatchCancelView(APIView):
                 wallet=creator_wallet,
                 amount=Decimal(match.amount),
                 transaction_type='MATCH_REFUND',
-                description=f"Refund from cancelled {match_game} match for ${match_amount}",
+                description=f"Refund from cancelled {match_game} match for ZMW {match_amount}",
                 related_match=match
             )
 
@@ -779,7 +779,7 @@ class MatchCancelView(APIView):
                     wallet=joiner_wallet,
                     amount=Decimal(match.amount),
                     transaction_type='MATCH_REFUND',
-                    description=f"Refund from cancelled {match_game} match for ${match_amount}",
+                    description=f"Refund from cancelled {match_game} match for ZMW {match_amount}",
                     related_match=match
                 )
 
@@ -787,7 +787,7 @@ class MatchCancelView(APIView):
                     user=joiner,
                     message=(
                         f"A {match_game} match you joined has been cancelled by the creator. "
-                        f"${match_amount} has been refunded to your wallet."
+                        f"ZMW {match_amount} has been refunded to your wallet."
                     )
                 )
 
@@ -810,7 +810,7 @@ class MatchCancelView(APIView):
             wallet=joiner_wallet,
             amount=Decimal(match.amount),
             transaction_type='MATCH_REFUND',
-            description=f"Refund from leaving {match_game} match for ${match_amount}",
+            description=f"Refund from leaving {match_game} match for ZMW {match_amount}",
             related_match=match
         )
 

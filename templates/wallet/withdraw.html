@@ -51,7 +51,7 @@
               Amount <span class="required">*</span>
             </label>
             <div class="amount-input-wrap">
-              <span class="amount-prefix">$</span>
+              <span class="amount-prefix">ZMW</span>
               {{ form.amount }}
             </div>
             <div class="quick-amounts" aria-label="Quick withdrawal amounts">
@@ -63,7 +63,7 @@
             {% if form.amount.errors %}
             <div class="form-error">{{ form.amount.errors }}</div>
             {% endif %}
-            <small class="form-help">Minimum $1.00. Mobile money max is $10,000 per request.</small>
+            <small class="form-help">Minimum ZMW 1.00. Mobile money max is ZMW 10,000 per request.</small>
           </div>
 
           <div class="form-group">
@@ -155,7 +155,7 @@
       <aside class="withdraw-summary" aria-label="Withdrawal summary">
         <div class="summary-block">
           <span class="summary-label">Available Balance</span>
-          <strong class="summary-balance">${{ wallet.balance|floatformat:2 }}</strong>
+          <strong class="summary-balance">ZMW {{ wallet.balance|floatformat:2 }}</strong>
         </div>
 
         <div class="summary-block">
@@ -163,7 +163,7 @@
           <dl class="summary-list">
             <div>
               <dt>Amount</dt>
-              <dd id="reviewAmount">$0.00</dd>
+              <dd id="reviewAmount">ZMW 0.00</dd>
             </div>
             <div>
               <dt>Method</dt>
@@ -182,7 +182,7 @@
           <div class="mini-withdrawals">
             {% for withdrawal in recent_withdrawals %}
             <div class="mini-withdrawal">
-              <span>${{ withdrawal.amount|floatformat:2 }}</span>
+              <span>ZMW {{ withdrawal.amount|floatformat:2 }}</span>
               <span class="status-badge status-{{ withdrawal.status|lower }}">{{ withdrawal.get_status_display }}</span>
             </div>
             {% endfor %}
@@ -219,7 +219,7 @@
 
   function money(value) {
     const number = Number(value || 0);
-    return '$' + number.toFixed(2);
+    return 'ZMW ' + number.toFixed(2);
   }
 
   function selectedMethodLabel() {

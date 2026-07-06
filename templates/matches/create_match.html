@@ -16,7 +16,7 @@
 <div class="match-creator-header">
   <div class="match-creator-balance">
     <span class="match-creator-label">Your balance</span>
-    <span class="match-creator-amount">${{ user.wallet.balance|floatformat:2 }}</span>
+    <span class="match-creator-amount">ZMW {{ user.wallet.balance|floatformat:2 }}</span>
   </div>
 </div>
 
@@ -107,7 +107,7 @@
         </p>
         <p class="match-summary-item">
           <span class="match-summary-label">Amount:</span>
-          <span class="match-summary-value" id="summary-amount">$0</span>
+          <span class="match-summary-value" id="summary-amount">ZMW 0</span>
         </p>
       </div>
     </div>
@@ -136,7 +136,7 @@
         const selectedOption = amountSelect.options[amountSelect.selectedIndex];
         summaryAmount.textContent = selectedOption.textContent;
       } else {
-        summaryAmount.textContent = '$0';
+        summaryAmount.textContent = 'ZMW 0';
       }
       
       // Update privacy

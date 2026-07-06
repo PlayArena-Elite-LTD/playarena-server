@@ -300,7 +300,7 @@ class WithdrawalCreateSerializer(serializers.ModelSerializer):
 
             if wallet.balance < withdrawal.amount:
                 raise serializers.ValidationError({
-                    'amount': f'Insufficient balance. Your balance is ${wallet.balance:.2f}'
+                    'amount': f'Insufficient balance. Your balance is ZMW {wallet.balance:.2f}'
                 })
 
             withdrawal.save()
@@ -382,7 +382,7 @@ class MatchCreateSerializer(serializers.ModelSerializer):
         wallet, _created = Wallet.objects.get_or_create(user=user)
         if wallet.balance < Decimal(value):
             raise serializers.ValidationError(
-                f"Insufficient funds. Your balance (${wallet.balance}) is less than the match amount (${value})."
+                f"Insufficient funds. Your balance (ZMW {wallet.balance}) is less than the match amount (ZMW {value})."
             )
         return value
 
@@ -405,7 +405,7 @@ class MatchJoinSerializer(serializers.Serializer):
         wallet, _created = Wallet.objects.get_or_create(user=user)
         if wallet.balance < Decimal(match.amount):
             raise serializers.ValidationError(
-                f"Insufficient funds. You need ${match.amount} to join this match."
+                f"Insufficient funds. You need ZMW {match.amount} to join this match."
             )
 
         self.context['match'] = match

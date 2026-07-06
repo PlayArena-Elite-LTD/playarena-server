@@ -51,7 +51,7 @@ class DisputeAdmin(admin.ModelAdmin):
         match_url = reverse('admin:matches_match_change', args=[match.id])
         return format_html(
             '<a href="{}">{}</a><br/>'
-            '<small>Game: {} | Amount: ${} | Code: {}</small>',
+            '<small>Game: {} | Amount: ZMW {} | Code: {}</small>',
             match_url,
             match,
             match.get_game_display(),

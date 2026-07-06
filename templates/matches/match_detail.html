@@ -26,7 +26,7 @@
             </div>
             <div class="match-detail-row">
               <span class="match-detail-label">Winnings:</span>
-              <span class="match-detail-value">${{ match.winnings }}</span>
+              <span class="match-detail-value">ZMW {{ match.winnings }}</span>
             </div>
             <div class="match-detail-row">
               <span class="match-detail-label">Created:</span>
@@ -285,7 +285,7 @@
       <div class="match-actions">
       	{% if match.status == 'OPEN' or match.status == 'JOINED' and request.user == match.creator %}
   <form action="{% url 'cancel_match' match_id=match.id %}" method="post"
-      data-confirm="Are you sure you want to cancel this match? This will refund ${{ match.amount }} to your wallet{% if match.joiner %} and to {{ match.joiner.username }}'s wallet{% endif %}."
+      data-confirm="Are you sure you want to cancel this match? This will refund ZMW {{ match.amount }} to your wallet{% if match.joiner %} and to {{ match.joiner.username }}'s wallet{% endif %}."
       data-confirm-title="Cancel Match"
       data-confirm-button="Cancel Match">
   {% csrf_token %}
@@ -293,7 +293,7 @@
 </form>
 {% elif match.status == 'JOINED' and request.user == match.joiner %}
 <form action="{% url 'cancel_match' match_id=match.id %}" method="post"
-      data-confirm="Are you sure you want to leave this match? Your ${{ match.amount }} will be refunded to your wallet."
+      data-confirm="Are you sure you want to leave this match? Your ZMW {{ match.amount }} will be refunded to your wallet."
       data-confirm-title="Leave Match"
       data-confirm-button="Leave Match">
   {% csrf_token %}

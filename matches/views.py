@@ -53,7 +53,7 @@ def create_match(request):
                 wallet=wallet,
                 amount=-Decimal(match_amount),
                 transaction_type='MATCH_CREATION',
-                description=f"Created {match.get_game_display()} match for ${match_amount}",
+                description=f"Created {match.get_game_display()} match for ZMW {match_amount}",
                 related_match=match
             )
             
@@ -99,8 +99,8 @@ def join_match(request):
             if wallet.balance < match_amount:
                 messages.error(
                     request,
-                    f"Insufficient funds. Your balance is ${wallet.balance:.2f}, "
-                    f"but you need ${match_amount:.2f} to join this match."
+                    f"Insufficient funds. Your balance is ZMW {wallet.balance:.2f}, "
+                    f"but you need ZMW {match_amount:.2f} to join this match."
                 )
                 return redirect('available_matches')
             
@@ -118,14 +118,14 @@ def join_match(request):
                 wallet=wallet,
                 amount=-match_amount,
                 transaction_type='MATCH_JOINING',
-                description=f"Joined {match.get_game_display()} match against {match.creator.username} for ${match.amount}",
+                description=f"Joined {match.get_game_display()} match against {match.creator.username} for ZMW {match.amount}",
                 related_match=match
             )
             
             # Create notification for the match creator
             Notification.objects.create(
                 user=match.creator,
-                message=f"{request.user.username} has joined your {match.get_game_display()} match for ${match.amount}."
+                message=f"{request.user.username} has joined your {match.get_game_display()} match for ZMW {match.amount}."
             )
             
             messages.success(request, f"You've successfully joined the {match.get_game_display()} match!")
@@ -172,7 +172,7 @@ def cancel_match(request, match_id):
             wallet=creator_wallet,
             amount=Decimal(match.amount),
             transaction_type='MATCH_REFUND',
-            description=f"Refund from cancelled {match_game} match for ${match_amount}",
+            description=f"Refund from cancelled {match_game} match for ZMW {match_amount}",
             related_match=match
         )
         
@@ -188,19 +188,19 @@ def cancel_match(request, match_id):
                 wallet=joiner_wallet,
                 amount=Decimal(match.amount),
                 transaction_type='MATCH_REFUND',
-                description=f"Refund from cancelled {match_game} match for ${match_amount}",
+                description=f"Refund from cancelled {match_game} match for ZMW {match_amount}",
                 related_match=match
             )
             
             # Create notification for the joiner
             Notification.objects.create(
                 user=joiner,
-                message=f"A {match_game} match you joined has been cancelled by the creator. ${match_amount} has been refunded to your wallet."
+                message=f"A {match_game} match you joined has been cancelled by the creator. ZMW {match_amount} has been refunded to your wallet."
             )
         
         # Delete the match after all transactions are recorded
         match.delete()
-        messages.success(request, f"Your {match_game} match has been cancelled and ${match_amount} has been refunded to your wallet.")
+        messages.success(request, f"Your {match_game} match has been cancelled and ZMW {match_amount} has been refunded to your wallet.")
         
     else:
         # Joiner is leaving the match
@@ -218,7 +218,7 @@ def cancel_match(request, match_id):
             wallet=joiner_wallet,
             amount=Decimal(match.amount),
             transaction_type='MATCH_REFUND',
-            description=f"Refund from leaving {match_game} match for ${match_amount}",
+            description=f"Refund from leaving {match_game} match for ZMW {match_amount}",
             related_match=match
         )
         
@@ -228,7 +228,7 @@ def cancel_match(request, match_id):
             message=f"{request.user.username} has left your {match_game} match. The match is now open for others to join."
         )
         
-        messages.success(request, f"You've left the match and ${match.amount} has been refunded to your wallet.")
+        messages.success(request, f"You've left the match and ZMW {match.amount} has been refunded to your wallet.")
     
     return redirect('my_matches')
 
@@ -287,7 +287,7 @@ def submit_match_result(request, match_id):
             # Notify joiner to submit their result
             Notification.objects.create(
                 user=match.joiner,
-                message=f"Your opponent {match.creator.username} has submitted their result for the {match.get_game_display()} match (${match.amount}). Please submit your result as soon as possible."
+                message=f"Your opponent {match.creator.username} has submitted their result for the {match.get_game_display()} match (ZMW {match.amount}). Please submit your result as soon as possible."
             )
             messages.success(request, "Your result has been submitted. Waiting for your opponent to submit their result.")
             return redirect('match_detail', match_id=match_id)
@@ -313,7 +313,7 @@ def submit_match_result(request, match_id):
             # Notify creator to submit their result
             Notification.objects.create(
                 user=match.creator,
-                message=f"Your opponent {match.joiner.username} has submitted their result for the {match.get_game_display()} match (${match.amount}). Please submit your result as soon as possible."
+                message=f"Your opponent {match.joiner.username} has submitted their result for the {match.get_game_display()} match (ZMW {match.amount}). Please submit your result as soon as possible."
             )
             messages.success(request, "Your result has been submitted. Waiting for your opponent to submit their result.")
             return redirect('match_detail', match_id=match_id)
@@ -358,7 +358,7 @@ def submit_match_result(request, match_id):
                 wallet=creator_wallet,
                 amount=refund_amount,
                 transaction_type='MATCH_DRAW_RETURN',
-                description=f"Return from draw in {match.get_game_display()} match against {match.joiner.username} for ${match.amount}",
+                description=f"Return from draw in {match.get_game_display()} match against {match.joiner.username} for ZMW {match.amount}",
                 related_match=match
             )
             
@@ -366,22 +366,22 @@ def submit_match_result(request, match_id):
                 wallet=joiner_wallet,
                 amount=refund_amount,
                 transaction_type='MATCH_DRAW_RETURN',
-                description=f"Return from draw in {match.get_game_display()} match against {match.creator.username} for ${match.amount}",
+                description=f"Return from draw in {match.get_game_display()} match against {match.creator.username} for ZMW {match.amount}",
                 related_match=match
             )
             
             # Notify both users
             Notification.objects.create(
                 user=match.creator,
-                message=f"Your {match.get_game_display()} match against {match.joiner.username} for ${match.amount} ended in a draw. ${refund_amount} has been returned to your wallet."
+                message=f"Your {match.get_game_display()} match against {match.joiner.username} for ZMW {match.amount} ended in a draw. ZMW {refund_amount} has been returned to your wallet."
             )
             
             Notification.objects.create(
                 user=match.joiner,
-                message=f"Your {match.get_game_display()} match against {match.creator.username} for ${match.amount} ended in a draw. ${refund_amount} has been returned to your wallet."
+                message=f"Your {match.get_game_display()} match against {match.creator.username} for ZMW {match.amount} ended in a draw. ZMW {refund_amount} has been returned to your wallet."
             )
             
-            messages.success(request, f"Match result recorded as a draw. ${refund_amount} has been returned to your wallet.")
+            messages.success(request, f"Match result recorded as a draw. ZMW {refund_amount} has been returned to your wallet.")
             return redirect('match_detail', match_id=match_id)
         
         # Handle winner gets winnings - update wallet first
@@ -397,19 +397,19 @@ def submit_match_result(request, match_id):
             wallet=winner_wallet,
             amount=Decimal(match.winnings),
             transaction_type='MATCH_WINNINGS',
-            description=f"Winnings from {match.get_game_display()} match against {loser.username} for ${match.amount}",
+            description=f"Winnings from {match.get_game_display()} match against {loser.username} for ZMW {match.amount}",
             related_match=match
         )
         
         # Notify both users
         Notification.objects.create(
             user=winner,
-            message=f"Congratulations! You won the {match.get_game_display()} match against {loser.username} for ${match.amount}. ${match.winnings} has been added to your wallet."
+            message=f"Congratulations! You won the {match.get_game_display()} match against {loser.username} for ZMW {match.amount}. ZMW {match.winnings} has been added to your wallet."
         )
         
         Notification.objects.create(
             user=loser,
-            message=f"You lost the {match.get_game_display()} match against {winner.username} for ${match.amount}."
+            message=f"You lost the {match.get_game_display()} match against {winner.username} for ZMW {match.amount}."
         )
         
         messages.success(request, "Match result recorded successfully.")
@@ -431,12 +431,12 @@ def submit_match_result(request, match_id):
             # Notify both users
             Notification.objects.create(
                 user=match.creator,
-                message=f"There was a disagreement in the result for your {match.get_game_display()} match against {match.joiner.username} for ${match.amount}. You have one more chance to submit the correct result."
+                message=f"There was a disagreement in the result for your {match.get_game_display()} match against {match.joiner.username} for ZMW {match.amount}. You have one more chance to submit the correct result."
             )
             
             Notification.objects.create(
                 user=match.joiner,
-                message=f"There was a disagreement in the result for your {match.get_game_display()} match against {match.creator.username} for ${match.amount}. You have one more chance to submit the correct result."
+                message=f"There was a disagreement in the result for your {match.get_game_display()} match against {match.creator.username} for ZMW {match.amount}. You have one more chance to submit the correct result."
             )
             
             messages.warning(request, "There was a disagreement with the match results. Both players must submit again with accurate results.")
@@ -462,12 +462,12 @@ def submit_match_result(request, match_id):
             # Notify both users
             Notification.objects.create(
                 user=match.creator,
-                message=f"Your {match.get_game_display()} match against {match.joiner.username} for ${match.amount} has been marked as disputed and will be reviewed by support."
+                message=f"Your {match.get_game_display()} match against {match.joiner.username} for ZMW {match.amount} has been marked as disputed and will be reviewed by support."
             )
             
             Notification.objects.create(
                 user=match.joiner,
-                message=f"Your {match.get_game_display()} match against {match.creator.username} for ${match.amount} has been marked as disputed and will be reviewed by support."
+                message=f"Your {match.get_game_display()} match against {match.creator.username} for ZMW {match.amount} has been marked as disputed and will be reviewed by support."
             )
             
             messages.error(request, "Match has been marked as disputed due to conflicting results and will be reviewed by support.")

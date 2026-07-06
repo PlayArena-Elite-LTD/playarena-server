@@ -80,9 +80,9 @@ class TransactionAdmin(admin.ModelAdmin):
     def amount_display(self, obj):
         """Display amount with color coding"""
         if obj.amount >= 0:
-            return f"+${obj.amount:.2f}"
+            return f"+ZMW {obj.amount:.2f}"
         else:
-            return f"-${abs(obj.amount):.2f}"
+            return f"-ZMW {abs(obj.amount):.2f}"
     amount_display.short_description = 'Amount'
     amount_display.admin_order_field = 'amount'
     
@@ -143,7 +143,7 @@ class DepositAdmin(admin.ModelAdmin):
                 wallet=wallet,
                 amount=deposit.amount,
                 transaction_type='DEPOSIT',
-                description=f"Deposit of ${deposit.amount} via {deposit.get_payment_method_display()}"
+                description=f"Deposit of ZMW {deposit.amount} via {deposit.get_payment_method_display()}"
             )
             
             # Update deposit status (use update() to bypass clean() validation)
@@ -496,7 +496,7 @@ class WithdrawalAdmin(admin.ModelAdmin):
     def amount_display(self, obj):
         """Display amount with currency formatting"""
         if obj:
-            return f"${obj.amount:,.2f}"
+            return f"ZMW {obj.amount:,.2f}"
         return "-"
     amount_display.short_description = 'Amount'
     amount_display.admin_order_field = 'amount'

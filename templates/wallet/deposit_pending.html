@@ -37,7 +37,7 @@
         Approve the payment on your phone if prompted. Do not close this page — we are waiting for confirmation from Lipila.
       </p>
       <p class="payment-status-detail" style="margin-top: 1rem;">
-        Amount: <strong>${{ deposit.amount|floatformat:2 }}</strong>
+        Amount: <strong>ZMW {{ deposit.amount|floatformat:2 }}</strong>
       </p>
       <p style="margin-top: 1.5rem;">
         <a href="{% url 'wallet' %}" class="dashboard-button">Back to wallet</a>

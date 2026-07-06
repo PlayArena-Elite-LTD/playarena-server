@@ -68,7 +68,7 @@ def apply_deposit_webhook_status(
             wallet=wallet,
             amount=deposit.amount,
             transaction_type='DEPOSIT',
-            description=f"Deposit of ${deposit.amount} via {deposit.get_payment_method_display()}",
+            description=f"Deposit of ZMW {deposit.amount} via {deposit.get_payment_method_display()}",
         )
         notify_deposit_completed(deposit)
         logger.info(

@@ -35,7 +35,7 @@
         </a>
         <a class="kpi-card" href="{% url 'admin:wallet_wallet_changelist' %}">
             <span class="kpi-label">Wallet Balance</span>
-            <strong class="kpi-value">${{ total_wallet_balance|default:0|floatformat:2 }}</strong>
+            <strong class="kpi-value">ZMW {{ total_wallet_balance|default:0|floatformat:2 }}</strong>
             <span class="kpi-meta">Across player wallets</span>
         </a>
         <a class="kpi-card kpi-card--alert" href="{% url 'admin:panel_dispute_changelist' %}?status__exact=OPEN">
@@ -97,9 +97,9 @@
                         <a href="{% url 'admin:wallet_transaction_changelist' %}">Transactions</a>
                     </div>
                     <div class="finance-grid">
-                        <div><span>Credits</span><strong>${{ today_credits|default:0|floatformat:2 }}</strong></div>
-                        <div><span>Debits</span><strong>${{ today_debits|default:0|floatformat:2 }}</strong></div>
-                        <div><span>Net Today</span><strong>${{ recent_transactions|default:0|floatformat:2 }}</strong></div>
+                        <div><span>Credits</span><strong>ZMW {{ today_credits|default:0|floatformat:2 }}</strong></div>
+                        <div><span>Debits</span><strong>ZMW {{ today_debits|default:0|floatformat:2 }}</strong></div>
+                        <div><span>Net Today</span><strong>ZMW {{ recent_transactions|default:0|floatformat:2 }}</strong></div>
                         <div><span>Failed Payments</span><strong>{{ failed_payments|default:0 }}</strong></div>
                     </div>
                 </section>

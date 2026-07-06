@@ -253,7 +253,7 @@ class TransactionHistoryViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Available Balance')
-        self.assertContains(response, '$25.50')
+        self.assertContains(response, 'ZMW 25.50')
 
 
 @override_settings(

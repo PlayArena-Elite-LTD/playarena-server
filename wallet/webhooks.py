@@ -116,7 +116,7 @@ def _complete_deposit(deposit: Deposit, completed_via: str, gateway_payload: dic
         wallet=wallet,
         amount=deposit.amount,
         transaction_type='DEPOSIT',
-        description=f"Deposit of ${deposit.amount} via {deposit.get_payment_method_display()}",
+        description=f"Deposit of ZMW {deposit.amount} via {deposit.get_payment_method_display()}",
     )
 
     notify_deposit_completed(deposit)
@@ -352,7 +352,7 @@ def handle_paystack_deposit_success(data):
             wallet=wallet,
             amount=deposit.amount,
             transaction_type='DEPOSIT',
-            description=f"Deposit of ${deposit.amount} via {deposit.get_payment_method_display()}"
+            description=f"Deposit of ZMW {deposit.amount} via {deposit.get_payment_method_display()}"
         )
         
         # Send notification
@@ -608,7 +608,7 @@ def handle_flutterwave_deposit_success(data):
             wallet=wallet,
             amount=deposit.amount,
             transaction_type='DEPOSIT',
-            description=f"Deposit of ${deposit.amount} via {deposit.get_payment_method_display()}"
+            description=f"Deposit of ZMW {deposit.amount} via {deposit.get_payment_method_display()}"
         )
         
         # Send notification

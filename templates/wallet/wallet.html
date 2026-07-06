@@ -26,7 +26,7 @@
         <h3 class="dashboard-card-title">Balance</h3>
       </div>
       <div class="dashboard-balance">
-        <span class="dashboard-balance-amount">${{ wallet.balance|floatformat:2 }}</span>
+        <span class="dashboard-balance-amount">ZMW {{ wallet.balance|floatformat:2 }}</span>
         <span class="dashboard-balance-label">Available Balance</span>
       </div>
       <div class="dashboard-actions">
@@ -48,7 +48,7 @@
               <div class="transaction-primary">
                 <span class="transaction-description">{{ transaction.description }}</span>
                 <span class="transaction-amount {% if transaction.is_credit %}credit-text{% else %}debit-text{% endif %}">
-                  ${{ transaction.amount|floatformat:2 }}
+                  ZMW {{ transaction.amount|floatformat:2 }}
                 </span>
               </div>
               <div class="transaction-secondary">
@@ -82,7 +82,7 @@
             <div class="transaction-indicator credit"></div>
             <div class="transaction-details">
               <div class="transaction-primary">
-                <span class="transaction-description">Deposit of ${{ deposit.amount|floatformat:2 }} via {{ deposit.get_payment_method_display }}</span>
+                <span class="transaction-description">Deposit of ZMW {{ deposit.amount|floatformat:2 }} via {{ deposit.get_payment_method_display }}</span>
                 <span class="transaction-amount credit-text">
                   <span class="status-badge status-{{ deposit.status|lower }}">{{ deposit.get_status_display }}</span>
                 </span>
@@ -109,7 +109,7 @@
             <div class="transaction-indicator debit"></div>
             <div class="transaction-details">
               <div class="transaction-primary">
-                <span class="transaction-description">Withdrawal of ${{ withdrawal.amount|floatformat:2 }} via {{ withdrawal.get_payment_method_display }}</span>
+                <span class="transaction-description">Withdrawal of ZMW {{ withdrawal.amount|floatformat:2 }} via {{ withdrawal.get_payment_method_display }}</span>
                 <span class="transaction-amount debit-text">
                   <span class="status-badge status-{{ withdrawal.status|lower }}">{{ withdrawal.get_status_display }}</span>
                 </span>

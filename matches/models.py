@@ -34,22 +34,22 @@ class Match(models.Model):
     
     # Amount choices
     AMOUNT_CHOICES = [
-        (5, '$5'),
-        (10, '$10'),
-        (15, '$15'),
-        (20, '$20'),
-        (30, '$30'),
-        (50, '$50'),
-        (80, '$80'),
-        (100, '$100'),
-        (150, '$150'),
-        (200, '$200'),
-        (250, '$250'),
-        (300, '$300'),
-        (350, '$350'),
-        (400, '$400'),
-        (450, '$450'),
-        (500, '$500'),
+        (5, 'ZMW 5'),
+        (10, 'ZMW 10'),
+        (15, 'ZMW 15'),
+        (20, 'ZMW 20'),
+        (30, 'ZMW 30'),
+        (50, 'ZMW 50'),
+        (80, 'ZMW 80'),
+        (100, 'ZMW 100'),
+        (150, 'ZMW 150'),
+        (200, 'ZMW 200'),
+        (250, 'ZMW 250'),
+        (300, 'ZMW 300'),
+        (350, 'ZMW 350'),
+        (400, 'ZMW 400'),
+        (450, 'ZMW 450'),
+        (500, 'ZMW 500'),
     ]
     
     # Fields
@@ -98,7 +98,7 @@ class Match(models.Model):
         return code
     
     def __str__(self):
-        return f"{self.get_game_display()} match for ${self.amount} ({self.joining_code})"
+        return f"{self.get_game_display()} match for ZMW {self.amount} ({self.joining_code})"
         
         
 class MatchResult(models.Model):

@@ -281,7 +281,7 @@ body.model-withdrawal.change-form .field-gateway_response_display .readonly {
 <section class="withdrawal-admin-hero" aria-label="Withdrawal summary">
   <div class="withdrawal-admin-hero__main">
     <div class="withdrawal-admin-eyebrow">Withdrawal request #{{ original.pk }}</div>
-    <h1>${{ original.amount|floatformat:2 }} to {{ original.user }}</h1>
+    <h1>ZMW {{ original.amount|floatformat:2 }} to {{ original.user }}</h1>
     <div class="withdrawal-admin-meta">
       <span class="withdrawal-status withdrawal-status--{{ original.status|lower }}">{{ original.get_status_display }}</span>
       <span>{{ original.get_payment_method_display }}</span>
@@ -306,12 +306,12 @@ body.model-withdrawal.change-form .field-gateway_response_display .readonly {
 <section class="withdrawal-admin-summary" aria-label="Withdrawal operational details">
   <div class="withdrawal-summary-card">
     <span>Amount</span>
-    <strong>${{ original.amount|floatformat:2 }}</strong>
+    <strong>ZMW {{ original.amount|floatformat:2 }}</strong>
     <small>Requested payout value</small>
   </div>
   <div class="withdrawal-summary-card">
     <span>Wallet balance</span>
-    <strong>${{ original.wallet.balance|default_if_none:"0.00"|floatformat:2 }}</strong>
+    <strong>ZMW {{ original.wallet.balance|default_if_none:"0.00"|floatformat:2 }}</strong>
     <small>{{ original.wallet|default:"No wallet linked" }}</small>
   </div>
   <div class="withdrawal-summary-card">

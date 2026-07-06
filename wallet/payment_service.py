@@ -532,7 +532,7 @@ class PaymentManager:
             
             logger.info(
                 f"Paystack withdrawal {withdrawal.id} processed - "
-                f"User: {user.username}, Amount: ${amount}, "
+                f"User: {user.username}, Amount: ZMW {amount}, "
                 f"Recipient: {recipient_code}, Transfer: {transfer_result.get('transfer_code')}"
             )
             
@@ -630,7 +630,7 @@ class PaymentManager:
             
             logger.info(
                 f"Flutterwave withdrawal {withdrawal.id} processed - "
-                f"User: {user.username}, Amount: ${amount}, "
+                f"User: {user.username}, Amount: ZMW {amount}, "
                 f"Beneficiary: {beneficiary_id}, Transfer: {transfer_result.get('transfer_id')}"
             )
             

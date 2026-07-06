@@ -34,7 +34,7 @@
           
           <div style="display: flex; justify-content: space-between; padding: 0.75rem 0; border-bottom: 1px solid #e5e7eb;">
             <span style="color: #6b7280;">Amount:</span>
-            <span style="font-weight: 600; color: #111827;">${{ deposit.amount|floatformat:2 }}</span>
+            <span style="font-weight: 600; color: #111827;">ZMW {{ deposit.amount|floatformat:2 }}</span>
           </div>
           
           {% if deposit.payment_reference %}
@@ -61,7 +61,7 @@
         {% if deposit.wallet %}
         <div style="background-color: #ecfdf5; border: 2px solid #10b981; border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 2rem;">
           <div style="color: #065f46; font-size: 0.875rem; margin-bottom: 0.5rem;">New Balance</div>
-          <div style="font-size: 2rem; font-weight: 700; color: #10b981;">${{ deposit.wallet.balance|floatformat:2 }}</div>
+          <div style="font-size: 2rem; font-weight: 700; color: #10b981;">ZMW {{ deposit.wallet.balance|floatformat:2 }}</div>
         </div>
         {% endif %}
         

@@ -22,7 +22,7 @@ def find_withdrawal_debit(withdrawal):
         created_at__gte=withdrawal.created_at,
     ).filter(
         Q(description__startswith='Withdrawal request')
-        | Q(description__startswith=f"Withdrawal of ${withdrawal.amount}")
+        | Q(description__startswith=f"Withdrawal of ZMW {withdrawal.amount}")
     ).first()
 
 
@@ -193,7 +193,7 @@ def complete_deposit_and_credit_wallet(deposit):
             existing_transaction = Transaction.objects.filter(
                 wallet=deposit.wallet,
                 transaction_type='DEPOSIT',
-                description__contains=f"Deposit of ${deposit.amount}",
+                description__contains=f"Deposit of ZMW {deposit.amount}",
                 created_at__gte=deposit.created_at,
             ).first()
             if existing_transaction:
@@ -233,7 +233,7 @@ def complete_deposit_and_credit_wallet(deposit):
             wallet=wallet,
             amount=deposit.amount,
             transaction_type='DEPOSIT',
-            description=f"Deposit of ${deposit.amount:.2f} via {deposit.get_payment_method_display()}",
+            description=f"Deposit of ZMW {deposit.amount:.2f} via {deposit.get_payment_method_display()}",
         )
         deposit.save(update_fields=['status', 'completed_at', 'verification_hash', 'provider_payment_status'])
         wallet.save(update_fields=['balance'])
@@ -321,7 +321,7 @@ def process_withdrawal_and_debit_wallet(withdrawal, gateway_result: dict | None 
                 amount=-withdrawal.amount,
                 transaction_type='WITHDRAWAL',
                 description=(
-                    f"Withdrawal of ${withdrawal.amount:.2f} via "
+                    f"Withdrawal of ZMW {withdrawal.amount:.2f} via "
                     f"{withdrawal.get_payment_method_display()}"
                 ),
             )
