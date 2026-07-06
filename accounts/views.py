@@ -5,6 +5,7 @@ from django.contrib.auth.decorators import login_required
 from datetime import datetime
 from django.contrib.auth.views import LoginView
 from django.contrib.auth.forms import AuthenticationForm
+from django.conf import settings
 from django.core import signing
 from django.db import IntegrityError
 from django.core.mail import send_mail, EmailMultiAlternatives
@@ -52,7 +53,7 @@ def pre_signup(request):
             email_message = EmailMultiAlternatives(
                 subject,
                 text_content,
-                'noreply@playarena.com',
+                settings.DEFAULT_FROM_EMAIL,
                 [email]
             )
             email_message.attach_alternative(html_content, "text/html")
