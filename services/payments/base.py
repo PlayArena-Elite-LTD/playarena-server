@@ -35,6 +35,7 @@ class WebhookResult:
     processed: bool
     payment_status: Optional[str] = None
     deposit_id: Optional[int] = None
+    withdrawal_id: Optional[int] = None
     message: str = ''
     raw_payload: Dict[str, Any] = field(default_factory=dict)
 

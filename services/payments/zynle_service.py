@@ -17,6 +17,7 @@ class ZynleService:
         api_id: str = '',
         channel: str = 'momo',
         deposit_method: str = 'runBillPayment',
+        withdraw_method: str = 'runPayToEwallet',
         status_method: str = 'checkPaymentStatus',
         timeout: int = 60,
     ) -> None:
@@ -26,6 +27,7 @@ class ZynleService:
         self.merchant_id = merchant_id
         self.channel = channel
         self.deposit_method = deposit_method
+        self.withdraw_method = withdraw_method
         self.status_method = status_method
         self.timeout = timeout
 
@@ -45,6 +47,23 @@ class ZynleService:
             'data': {
                 'method': self.deposit_method,
                 'sender_id': sender_id,
+                'reference_no': reference_no,
+                'amount': str(amount),
+            },
+        })
+
+    def momo_withdraw(
+        self,
+        *,
+        receiver_id: str,
+        amount: Decimal,
+        reference_no: str,
+    ) -> Dict[str, Any]:
+        return self._post({
+            'auth': self._auth(),
+            'data': {
+                'method': self.withdraw_method,
+                'receiver_id': receiver_id,
                 'reference_no': reference_no,
                 'amount': str(amount),
             },

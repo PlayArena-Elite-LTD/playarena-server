@@ -31,6 +31,7 @@ class ZynleGateway(PaymentGateway):
             merchant_id=getattr(settings, 'ZYNLE_MERCHANT_ID', ''),
             channel=getattr(settings, 'ZYNLE_CHANNEL', 'momo'),
             deposit_method=getattr(settings, 'ZYNLE_DEPOSIT_METHOD', 'runBillPayment'),
+            withdraw_method=getattr(settings, 'ZYNLE_WITHDRAW_METHOD', 'runPayToEwallet'),
             status_method=getattr(settings, 'ZYNLE_STATUS_METHOD', 'checkPaymentStatus'),
             timeout=getattr(settings, 'ZYNLE_TIMEOUT_SECONDS', 60),
         )
@@ -105,6 +106,83 @@ class ZynleGateway(PaymentGateway):
                 payment_reference=reference, message='Zynle API error', failure_reason=str(exc),
             )
 
+    def process_withdrawal(self, withdrawal, *, mobile_number: Optional[str] = None) -> Dict[str, Any]:
+        if not self.service.configured:
+            return {
+                'success': False,
+                'transaction_id': None,
+                'gateway_response': {
+                    'status': 'error',
+                    'message': 'Zynle is not configured',
+                    'gateway': self.provider_name,
+                },
+                'failure_reason': 'ZYNLE_API_KEY and ZYNLE_MERCHANT_ID are required',
+            }
+
+        phone = self._normalize_phone(mobile_number or '')
+        if not phone:
+            return {
+                'success': False,
+                'transaction_id': None,
+                'gateway_response': {
+                    'status': 'error',
+                    'message': 'Invalid mobile number',
+                    'gateway': self.provider_name,
+                },
+                'failure_reason': 'Account details must include a valid Zambian mobile money number (e.g. 26097xxxxxxx)',
+            }
+
+        reference = self._withdrawal_reference_no(withdrawal)
+        try:
+            response = self.service.momo_withdraw(
+                receiver_id=phone,
+                amount=withdrawal.amount,
+                reference_no=reference,
+            )
+            status = self.normalize_status(response)
+            provider_txn = str(response.get('transaction_id') or '').strip() or reference
+            message = str(response.get('response_description') or 'Withdrawal initiated')
+            gateway_response = {
+                **response,
+                'gateway': self.provider_name,
+                'reference_no': str(response.get('reference_no') or reference),
+            }
+            logger.info(
+                'Zynle withdrawal response: withdrawal_id=%s code=%s reference=%s transaction_id=%s operator=%s',
+                withdrawal.id,
+                response.get('response_code'),
+                gateway_response['reference_no'],
+                provider_txn,
+                response.get('operator'),
+            )
+            return {
+                'success': status != 'Failed',
+                'transaction_id': provider_txn,
+                'gateway_response': gateway_response,
+                'failure_reason': message if status == 'Failed' else None,
+            }
+        except requests.Timeout as exc:
+            logger.error('Zynle withdrawal timeout: withdrawal_id=%s', withdrawal.id, exc_info=True)
+            return {
+                'success': False,
+                'transaction_id': reference,
+                'gateway_response': {
+                    'status': 'unknown_timeout',
+                    'error': str(exc),
+                    'gateway': self.provider_name,
+                    'reference_no': reference,
+                },
+                'failure_reason': 'Zynle request timed out after submission; awaiting callback or manual verification.',
+            }
+        except (requests.RequestException, ValueError) as exc:
+            logger.error('Zynle withdrawal error: withdrawal_id=%s', withdrawal.id, exc_info=True)
+            return {
+                'success': False,
+                'transaction_id': None,
+                'gateway_response': {'status': 'error', 'error': str(exc), 'gateway': self.provider_name},
+                'failure_reason': f'Zynle API error: {str(exc)}',
+            }
+
     def verify_payment(self, deposit) -> PaymentVerifyResult:
         reference = deposit.payment_reference or deposit.provider_transaction_id
         if not reference:
@@ -162,9 +240,20 @@ class ZynleGateway(PaymentGateway):
             if deposit:
                 break
         if not deposit:
+            from wallet.withdrawal_processing import apply_zynle_withdrawal_webhook
+
+            withdrawal_result = apply_zynle_withdrawal_webhook(payload)
+            if withdrawal_result:
+                return WebhookResult(
+                    processed=bool(withdrawal_result.get('processed')),
+                    payment_status=self.normalize_status(payload),
+                    withdrawal_id=withdrawal_result.get('withdrawal_id'),
+                    message=withdrawal_result.get('message', 'Withdrawal webhook handled'),
+                    raw_payload=raw_payload,
+                )
             return WebhookResult(
                 processed=True,
-                message='Zynle deposit not found',
+                message='Zynle payment target not found',
                 raw_payload=raw_payload,
             )
 
@@ -212,3 +301,14 @@ class ZynleGateway(PaymentGateway):
         if len(digits) == 10 and digits.startswith('0'):
             digits = '260' + digits[1:]
         return digits if len(digits) == 12 and digits.startswith('260') else ''
+
+    @staticmethod
+    def _withdrawal_reference_no(withdrawal) -> str:
+        if isinstance(withdrawal.gateway_response, dict):
+            for key in ('reference_no', 'referenceNo'):
+                value = str(withdrawal.gateway_response.get(key) or '').strip()
+                if value:
+                    return value
+        if withdrawal.transaction_id and str(withdrawal.transaction_id).startswith('ZYN_WDR_'):
+            return str(withdrawal.transaction_id)
+        return f'ZYN_WDR_{withdrawal.id}_{int(timezone.now().timestamp())}'

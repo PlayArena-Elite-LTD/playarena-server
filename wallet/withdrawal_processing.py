@@ -7,6 +7,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from services.payments.lipila_service import LipilaService
+from services.payments.zynle_gateway import ZynleGateway
 from wallet.models import Withdrawal
 from wallet.notifications import (
     notify_withdrawal_completed,
@@ -66,9 +67,11 @@ def process_withdrawal_now(withdrawal, *, actor=None) -> Dict[str, Any]:
                 updated_at=timezone.now(),
             )
             withdrawal.refresh_from_db()
+            gateway_name = str(gateway_response.get('gateway') or 'provider').title()
             logger.warning(
-                'Withdrawal %s Lipila state unknown after timeout: reference=%s actor=%s',
+                'Withdrawal %s gateway state unknown after timeout: gateway=%s reference=%s actor=%s',
                 withdrawal.id,
+                gateway_response.get('gateway'),
                 transaction_id,
                 getattr(actor, 'username', None),
             )
@@ -78,13 +81,11 @@ def process_withdrawal_now(withdrawal, *, actor=None) -> Dict[str, Any]:
                 'gateway_status': 'Unknown',
                 'transaction_id': transaction_id,
                 'gateway_response': gateway_response,
-                'message': 'Withdrawal sent to Lipila; awaiting callback confirmation.',
+                'message': f'Withdrawal sent to {gateway_name}; awaiting callback confirmation.',
             }
 
         if result.get('success'):
-            provider_status = LipilaService.normalize_status(
-                LipilaService.extract_status(gateway_response)
-            )
+            provider_status = _normalize_withdrawal_gateway_status(gateway_response)
             next_status = 'COMPLETED' if provider_status == 'Successful' else 'PROCESSING'
             transaction_id = result.get('transaction_id')
             failure_reason = None
@@ -196,6 +197,13 @@ def _handle_failed_result(withdrawal, result: Dict[str, Any]) -> str:
     return 'PENDING'
 
 
+def _normalize_withdrawal_gateway_status(gateway_response: Dict[str, Any]) -> str:
+    gateway = str(gateway_response.get('gateway') or '').strip().lower()
+    if gateway == 'zynle':
+        return ZynleGateway.normalize_status(gateway_response)
+    return LipilaService.normalize_status(LipilaService.extract_status(gateway_response))
+
+
 def apply_lipila_withdrawal_webhook(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Apply a Lipila disbursement webhook to a matching withdrawal."""
     if not isinstance(payload, dict):
@@ -288,6 +296,115 @@ def apply_lipila_withdrawal_webhook(payload: Dict[str, Any]) -> Optional[Dict[st
         Withdrawal.objects.filter(id=withdrawal.id).update(
             status='PROCESSING',
             gateway_response=payload,
+            updated_at=timezone.now(),
+        )
+        return {
+            'processed': True,
+            'withdrawal_id': withdrawal.id,
+            'status': 'PROCESSING',
+            'message': 'Withdrawal still processing.',
+        }
+
+
+def apply_zynle_withdrawal_webhook(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Apply a ZynlePay withdrawal callback to a matching withdrawal."""
+    if not isinstance(payload, dict):
+        return None
+
+    payload = ZynleGateway._unwrap_payload(payload)
+    refs = []
+    for value in (
+        payload.get('reference_no'),
+        payload.get('referenceNo'),
+        payload.get('transaction_id'),
+        payload.get('transactionId'),
+        payload.get('operator_reference'),
+        payload.get('operatorReference'),
+    ):
+        value = str(value or '').strip()
+        if value and value not in refs:
+            refs.append(value)
+
+    withdrawal = None
+    for value in refs:
+        withdrawal = (
+            Withdrawal.objects.filter(transaction_id=value).first()
+            or Withdrawal.objects.filter(gateway_transaction_id=value).first()
+            or Withdrawal.objects.filter(gateway_response__reference_no=value).first()
+            or Withdrawal.objects.filter(gateway_response__referenceNo=value).first()
+            or Withdrawal.objects.filter(gateway_response__transaction_id=value).first()
+            or Withdrawal.objects.filter(gateway_response__transactionId=value).first()
+        )
+        if withdrawal:
+            break
+
+    if not withdrawal:
+        return None
+
+    payment_status = ZynleGateway.normalize_status(payload)
+    message = str(payload.get('response_description') or '').strip()
+
+    with transaction.atomic():
+        withdrawal = Withdrawal.objects.select_for_update().get(id=withdrawal.id)
+        if withdrawal.is_final:
+            return {
+                'processed': False,
+                'withdrawal_id': withdrawal.id,
+                'status': withdrawal.status,
+                'message': f'Withdrawal already {withdrawal.status}.',
+            }
+
+        transaction_id = str(payload.get('transaction_id') or withdrawal.transaction_id or '').strip()
+        update_payload = {**payload, 'gateway': 'zynle'}
+
+        if payment_status == 'Successful':
+            completion = process_withdrawal_and_debit_wallet(
+                withdrawal,
+                {
+                    'transaction_id': transaction_id or withdrawal.transaction_id,
+                    'gateway_response': update_payload,
+                },
+            )
+            withdrawal.refresh_from_db()
+            if not completion.get('success'):
+                return {
+                    'processed': False,
+                    'withdrawal_id': withdrawal.id,
+                    'status': withdrawal.status,
+                    'message': completion.get('message') or 'Wallet debit failed.',
+                }
+            notify_withdrawal_completed(withdrawal)
+            return {
+                'processed': True,
+                'withdrawal_id': withdrawal.id,
+                'status': withdrawal.status,
+                'message': 'Withdrawal completed by Zynle webhook.',
+            }
+
+        if payment_status == 'Failed':
+            Withdrawal.objects.filter(id=withdrawal.id).update(
+                status='FAILED',
+                transaction_id=transaction_id or withdrawal.transaction_id,
+                gateway_transaction_id=transaction_id or withdrawal.gateway_transaction_id,
+                gateway_response=update_payload,
+                failure_reason=message or 'Zynle withdrawal failed',
+                updated_at=timezone.now(),
+            )
+            refund_withdrawal_reservation(withdrawal, message or 'Zynle withdrawal failed')
+            withdrawal.refresh_from_db()
+            notify_withdrawal_failed(withdrawal, withdrawal.failure_reason)
+            return {
+                'processed': True,
+                'withdrawal_id': withdrawal.id,
+                'status': withdrawal.status,
+                'message': 'Withdrawal failed by Zynle webhook.',
+            }
+
+        Withdrawal.objects.filter(id=withdrawal.id).update(
+            status='PROCESSING',
+            transaction_id=transaction_id or withdrawal.transaction_id,
+            gateway_transaction_id=transaction_id or withdrawal.gateway_transaction_id,
+            gateway_response=update_payload,
             updated_at=timezone.now(),
         )
         return {

@@ -18,20 +18,14 @@ Security features:
 
 import logging
 from django.core.management.base import BaseCommand
-from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 from django.conf import settings
 
 from wallet.models import Withdrawal
-from wallet.payment_manager import get_payment_manager
-from wallet.utils import refund_withdrawal_reservation, process_withdrawal_and_debit_wallet
-from wallet.notifications import (
-    notify_withdrawal_processing,
-    notify_withdrawal_completed,
-    notify_withdrawal_failed,
-    notify_withdrawal_retry
-)
+from wallet.utils import refund_withdrawal_reservation
+from wallet.withdrawal_processing import process_withdrawal_now
+from wallet.notifications import notify_withdrawal_failed
 
 logger = logging.getLogger(__name__)
 
@@ -105,8 +99,7 @@ class Command(BaseCommand):
         # Process each withdrawal
         for withdrawal in withdrawals:
             try:
-                # Security: Lock withdrawal to prevent concurrent processing
-                withdrawal = Withdrawal.objects.select_for_update().get(id=withdrawal.id)
+                withdrawal = Withdrawal.objects.get(id=withdrawal.id)
                 
                 # Skip if already in final state (race condition protection)
                 if withdrawal.is_final:
@@ -135,119 +128,40 @@ class Command(BaseCommand):
                     )
                     continue
                 
-                # Process withdrawal atomically
-                with transaction.atomic():
-                    # Update status to PROCESSING
-                    Withdrawal.objects.filter(id=withdrawal.id).update(
-                        status='PROCESSING',
-                        updated_at=timezone.now()
+                result = process_withdrawal_now(withdrawal)
+                withdrawal.refresh_from_db()
+
+                if withdrawal.status == 'COMPLETED':
+                    completed_count += 1
+                    self.stdout.write(
+                        self.style.SUCCESS(
+                            f'Completed withdrawal {withdrawal.id}: '
+                            f'${withdrawal.amount} for {withdrawal.user.username}'
+                        )
                     )
-                    withdrawal.refresh_from_db()
-                    
-                    # Send processing notification
-                    notify_withdrawal_processing(withdrawal)
-                    
-                    # Process through payment gateway using PaymentManager
-                    payment_manager = get_payment_manager()
-                    result = payment_manager.process_withdrawal(withdrawal)
-                    
-                    if result['success']:
-                        completion = process_withdrawal_and_debit_wallet(
-                            withdrawal,
-                            {
-                                'transaction_id': result['transaction_id'],
-                                'gateway_response': result['gateway_response'],
-                            },
+                elif withdrawal.status == 'FAILED':
+                    failed_count += 1
+                    self.stdout.write(
+                        self.style.ERROR(
+                            f'Failed withdrawal {withdrawal.id}: '
+                            f'${withdrawal.amount} - {result.get("message")}'
                         )
-                        if not completion.get('success'):
-                            failed_count += 1
-                            logger.error(
-                                f'Withdrawal {withdrawal.id} could not be completed: {completion.get("message")}'
-                            )
-                            self.stdout.write(
-                                self.style.ERROR(
-                                    f'✗ Failed to complete withdrawal {withdrawal.id}: '
-                                    f'{completion.get("message")}'
-                                )
-                            )
-                            continue
-                        
-                        completed_count += 1
-                        
-                        # Send completion notification
-                        withdrawal.refresh_from_db()
-                        notify_withdrawal_completed(withdrawal)
-                        
-                        logger.info(
-                            f'Withdrawal {withdrawal.id} completed successfully. '
-                            f'Transaction ID: {result["transaction_id"]}'
+                    )
+                elif withdrawal.status == 'PENDING':
+                    retry_count += 1
+                    self.stdout.write(
+                        self.style.WARNING(
+                            f'Retry withdrawal {withdrawal.id}: '
+                            f'${withdrawal.amount} ({result.get("message")})'
                         )
-                        self.stdout.write(
-                            self.style.SUCCESS(
-                                f'✓ Completed withdrawal {withdrawal.id}: '
-                                f'${withdrawal.amount} for {withdrawal.user.username}'
-                            )
+                    )
+                else:
+                    self.stdout.write(
+                        self.style.WARNING(
+                            f'Processing withdrawal {withdrawal.id}: '
+                            f'${withdrawal.amount} ({result.get("message")})'
                         )
-                    else:
-                        # Withdrawal failed
-                        # Increment retry count
-                        new_retry_count = withdrawal.retry_count + 1
-                        
-                        # Determine if we should retry or mark as failed
-                        if new_retry_count >= withdrawal.max_retry_count:
-                            # Max retries exceeded - mark as FAILED
-                            Withdrawal.objects.filter(id=withdrawal.id).update(
-                                status='FAILED',
-                                gateway_response=result['gateway_response'],
-                                failure_reason=result['failure_reason'],
-                                retry_count=new_retry_count,
-                                updated_at=timezone.now()
-                            )
-                            refund_withdrawal_reservation(withdrawal, result['failure_reason'])
-                            
-                            failed_count += 1
-                            
-                            # Send failure notification
-                            withdrawal.refresh_from_db()
-                            notify_withdrawal_failed(withdrawal, result['failure_reason'])
-                            
-                            logger.warning(
-                                f'Withdrawal {withdrawal.id} failed after {new_retry_count} retries. '
-                                f'Reason: {result["failure_reason"]}'
-                            )
-                            self.stdout.write(
-                                self.style.ERROR(
-                                    f'✗ Failed withdrawal {withdrawal.id} (max retries): '
-                                    f'${withdrawal.amount} - {result["failure_reason"]}'
-                                )
-                            )
-                        else:
-                            # Retry later - set back to PENDING
-                            Withdrawal.objects.filter(id=withdrawal.id).update(
-                                status='PENDING',
-                                gateway_response=result['gateway_response'],
-                                failure_reason=result['failure_reason'],
-                                retry_count=new_retry_count,
-                                updated_at=timezone.now()
-                            )
-                            
-                            retry_count += 1
-                            
-                            # Send retry notification
-                            withdrawal.refresh_from_db()
-                            notify_withdrawal_retry(withdrawal, new_retry_count, withdrawal.max_retry_count)
-                            
-                            logger.info(
-                                f'Withdrawal {withdrawal.id} failed, will retry. '
-                                f'Retry count: {new_retry_count}/{withdrawal.max_retry_count}. '
-                                f'Reason: {result["failure_reason"]}'
-                            )
-                            self.stdout.write(
-                                self.style.WARNING(
-                                    f'↻ Retry withdrawal {withdrawal.id}: '
-                                    f'${withdrawal.amount} (attempt {new_retry_count}/{withdrawal.max_retry_count})'
-                                )
-                            )
+                    )
             
             except Exception as e:
                 error_count += 1

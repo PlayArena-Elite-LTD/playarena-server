@@ -1028,6 +1028,7 @@ class ZynleWebhookView(APIView):
             'status': 'ok' if result.processed else 'ignored',
             'message': result.message,
             'deposit_id': result.deposit_id,
+            'withdrawal_id': result.withdrawal_id,
             'payment_status': result.payment_status,
         })
 

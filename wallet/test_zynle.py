@@ -9,7 +9,7 @@ from django.urls import reverse
 from services.payments.factory import get_active_payment_provider, get_payment_gateway
 from services.payments.zynle_gateway import ZynleGateway
 from services.payments.zynle_service import ZynleService
-from wallet.models import Deposit, PaymentGatewaySetting, Transaction, Wallet
+from wallet.models import Deposit, PaymentGatewaySetting, Transaction, Wallet, Withdrawal
 
 
 class ZynleServiceTests(TestCase):
@@ -93,6 +93,38 @@ class ZynleServiceTests(TestCase):
         self.assertTrue(service.configured)
 
     @patch('services.payments.zynle_service.requests.post')
+    def test_momo_withdraw_sends_receiver_payload(self, post):
+        response = Mock()
+        response.json.return_value = {'response_code': '120', 'transaction_id': 'TX-WDR-1'}
+        post.return_value = response
+        service = ZynleService(
+            base_url='https://sandbox.example/jsonapi',
+            api_key='key',
+            api_id='id',
+            merchant_id='merchant',
+        )
+
+        service.momo_withdraw(
+            receiver_id='260971234567', amount=Decimal('25.50'), reference_no='WDR_1'
+        )
+
+        payload = post.call_args.kwargs['json']
+        self.assertEqual(payload, {
+            'auth': {
+                'merchant_id': 'merchant',
+                'api_id': 'id',
+                'api_key': 'key',
+                'channel': 'momo',
+            },
+            'data': {
+                'method': 'runPayToEwallet',
+                'receiver_id': '260971234567',
+                'reference_no': 'WDR_1',
+                'amount': '25.50',
+            },
+        })
+
+    @patch('services.payments.zynle_service.requests.post')
     def test_sandbox_response_envelope_is_unwrapped(self, post):
         response = Mock()
         response.json.return_value = {
@@ -169,6 +201,51 @@ class ZynleGatewayTests(TestCase):
         self.assertEqual(self.wallet.balance, Decimal('10.00'))
         self.assertEqual(
             Transaction.objects.filter(wallet=self.wallet, transaction_type='DEPOSIT').count(),
+            1,
+        )
+
+    def test_success_callback_completes_withdrawal_once(self):
+        Wallet.objects.filter(id=self.wallet.id).update(balance=Decimal('25.00'))
+        self.user.refresh_from_db()
+        self.wallet.refresh_from_db()
+        withdrawal = Withdrawal.objects.create(
+            user=self.user,
+            wallet=self.wallet,
+            amount=Decimal('10.00'),
+            payment_method='MOBILE_MONEY',
+            account_details='260974221154|Airtel',
+            status='PROCESSING',
+            transaction_id='ZYN-TX-1',
+            gateway_transaction_id='ZYN-TX-1',
+            gateway_response={'gateway': 'zynle', 'reference_no': 'ZYN_WDR_1'},
+        )
+        request = self.factory.post(
+            '/api/payments/zynle/webhook/?token=private-callback-token',
+            data=json.dumps({
+                'response_code': 100,
+                'response_description': 'Successful Transaction',
+                'reference_no': 'ZYN_WDR_1',
+                'transaction_id': 'ZYN-TX-1',
+            }),
+            content_type='application/json',
+        )
+
+        first = self.gateway.handle_webhook(request)
+        second = self.gateway.handle_webhook(request)
+
+        self.assertTrue(first.processed)
+        self.assertFalse(second.processed)
+        self.assertEqual(first.withdrawal_id, withdrawal.id)
+        withdrawal.refresh_from_db()
+        self.wallet.refresh_from_db()
+        self.assertEqual(withdrawal.status, 'COMPLETED')
+        self.assertEqual(self.wallet.balance, Decimal('15.00'))
+        self.assertEqual(
+            Transaction.objects.filter(
+                wallet=self.wallet,
+                transaction_type='WITHDRAWAL',
+                amount=Decimal('-10.00'),
+            ).count(),
             1,
         )
 
