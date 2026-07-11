@@ -154,7 +154,16 @@ def cancel_match(request, match_id):
     if match.status not in ['OPEN', 'JOINED']:
         messages.error(request, f"Cannot cancel a match with status '{match.get_status_display()}'.")
         return redirect('match_detail', match_id=match.id)
-    
+
+    # Once either player has submitted a result, the match can no longer be
+    # self-cancelled — this prevents a losing player from dodging the result
+    # by cancelling instead of accepting it. From here it must be resolved
+    # via result submission (agreement) or a dispute.
+    result = MatchResult.objects.filter(match=match).first()
+    if result and (result.creator_submission or result.joiner_submission):
+        messages.error(request, "This match can't be cancelled because a result has already been submitted. Please submit your result or contact support.")
+        return redirect('match_detail', match_id=match.id)
+
     # Store match information before potential deletion
     match_game = match.get_game_display()
     match_amount = match.amount

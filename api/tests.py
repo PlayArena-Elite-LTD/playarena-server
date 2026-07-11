@@ -460,6 +460,33 @@ class MatchApiTests(APITestCase):
         self.assertEqual(self.creator_wallet.balance, Decimal('100.00'))
         self.assertTrue(Transaction.objects.filter(transaction_type='MATCH_REFUND').exists())
 
+    def test_cancel_match_blocked_after_result_submitted(self):
+        self.client.force_authenticate(self.creator)
+        create_response = self.client.post(
+            '/api/matches/create/',
+            {'game': 'FIFA_MOBILE', 'device': 'MOBILE', 'privacy': 'PUBLIC', 'amount': 10},
+            format='json',
+        )
+        match_id = create_response.data['match']['id']
+        match = Match.objects.get(id=match_id)
+
+        self.client.force_authenticate(self.joiner)
+        self.client.post('/api/matches/join/', {'joining_code': match.joining_code}, format='json')
+
+        self.client.force_authenticate(self.creator)
+        response = self.client.post(f'/api/matches/{match.id}/submit-result/', {'submission': 'WON'}, format='json')
+        self.assertEqual(response.status_code, 200)
+
+        # Joiner tries to cancel after creator has already submitted a result.
+        self.client.force_authenticate(self.joiner)
+        response = self.client.post(f'/api/matches/{match.id}/cancel/')
+        self.assertEqual(response.status_code, 400)
+
+        match.refresh_from_db()
+        self.joiner_wallet.refresh_from_db()
+        self.assertEqual(match.status, 'JOINED')
+        self.assertEqual(self.joiner_wallet.balance, Decimal('90.00'))
+
 
 class BaseAPITestCase(APITestCase):
     """Base test case for API tests"""

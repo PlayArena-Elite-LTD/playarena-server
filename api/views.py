@@ -753,6 +753,13 @@ class MatchCancelView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        result = MatchResult.objects.filter(match=match).first()
+        if result and (result.creator_submission or result.joiner_submission):
+            return Response(
+                {'detail': "This match can't be cancelled because a result has already been submitted."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         match_game = match.get_game_display()
         match_amount = match.amount
 

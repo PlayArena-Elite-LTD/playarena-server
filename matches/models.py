@@ -16,6 +16,9 @@ class Match(models.Model):
         ('MORTAL_KOMBAT', 'Mortal Kombat 1'),
         ('NBA_2K', 'NBA 2K'),
         ('EIGHT_BALL_POOL', '8 Ball Pool'),
+        ('COD_MOBILE', 'Call of Duty Mobile'),
+        ('PUBG_MOBILE', 'PUBG Mobile'),
+        ('CHESS_COM', 'Chess.com'),
     ]
     
     # Device choices
