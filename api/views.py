@@ -876,8 +876,8 @@ class DepositCreateView(APIView):
         mobile_number = serializer.validated_data.get('mobile_number')
         deposit = serializer.save()
 
-        from wallet.utils import initialize_lipila_deposit_payment, get_deposit_payment_status_payload
-        lipila = initialize_lipila_deposit_payment(deposit, request, mobile_number=mobile_number)
+        from wallet.utils import initialize_deposit_payment, get_deposit_payment_status_payload
+        payment = initialize_deposit_payment(deposit, request, mobile_number=mobile_number)
 
         from audit.utils import log_action
         log_action(
@@ -888,24 +888,24 @@ class DepositCreateView(APIView):
                 'amount': str(deposit.amount),
                 'payment_method': deposit.payment_method,
                 'status': deposit.status,
-                'lipila_initialized': lipila.get('initialized'),
+                'payment_initialized': payment.get('initialized'),
             },
             request=request,
         )
 
         response_status = (
             status.HTTP_201_CREATED
-            if lipila['success']
+            if payment['success']
             else status.HTTP_400_BAD_REQUEST
         )
         payload = {
             **get_deposit_payment_status_payload(deposit),
-            'message': lipila['message'],
+            'message': payment['message'],
         }
-        if lipila.get('payment_url'):
-            payload['payment_url'] = lipila['payment_url']
-        if lipila.get('failure_reason'):
-            payload['failure_reason'] = lipila['failure_reason']
+        if payment.get('payment_url'):
+            payload['payment_url'] = payment['payment_url']
+        if payment.get('failure_reason'):
+            payload['failure_reason'] = payment['failure_reason']
 
         return Response(payload, status=response_status)
 
@@ -914,7 +914,7 @@ class PaymentStatusView(APIView):
     """
     GET /api/payment/status/{order_id}/
 
-    Poll deposit payment status (DB + optional server-side Lipila verify).
+    Poll deposit payment status (DB + optional server-side provider verification).
     Frontend must not assume payment success until status is COMPLETED.
     """
     permission_classes = [permissions.IsAuthenticated]
@@ -927,8 +927,8 @@ class PaymentStatusView(APIView):
 
         deposit = get_object_or_404(Deposit, id=order_id, user=request.user)
 
-        if deposit.status in ('PENDING', 'PROCESSING') and deposit.payment_provider == 'lipila':
-            gateway = get_payment_gateway()
+        if deposit.status in ('PENDING', 'PROCESSING') and deposit.payment_provider in ('lipila', 'zynle'):
+            gateway = get_payment_gateway(deposit.payment_provider)
             verify = gateway.verify_payment(deposit)
             if verify.payment_status == 'Successful':
                 apply_deposit_webhook_status(
@@ -986,7 +986,7 @@ class LipilaWebhookView(APIView):
                 raw_body.decode('utf-8', errors='replace')[:4000],
             )
 
-        gateway = get_payment_gateway()
+        gateway = get_payment_gateway('lipila')
         result = gateway.handle_webhook(request)
         logger.info(
             'Lipila webhook handled: processed=%s deposit_id=%s payment_status=%s message=%s',
@@ -1006,6 +1006,31 @@ class LipilaWebhookView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class ZynleWebhookView(APIView):
+    """POST /api/payments/zynle/webhook/ — authoritative Zynle callback."""
+
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        from services.payments.factory import get_payment_gateway
+
+        result = get_payment_gateway('zynle').handle_webhook(request)
+        if not result.processed and 'token' in (result.message or '').lower():
+            return Response(
+                {'status': 'error', 'message': result.message},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        return Response({
+            'status': 'ok' if result.processed else 'ignored',
+            'message': result.message,
+            'deposit_id': result.deposit_id,
+            'withdrawal_id': result.withdrawal_id,
+            'payment_status': result.payment_status,
+        })
 
 
 class WithdrawalCreateView(APIView):
@@ -1379,14 +1404,14 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
             user=self.request.user
         ).order_by('-created_at')
     
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=['post'], url_path='mark-read')
     def mark_read(self, request, pk=None):
         """
         POST /api/notifications/{id}/mark-read/
         
         Mark a specific notification as read.
         """
-        notification = self.get_object()
+        notification = get_object_or_404(Notification, pk=pk)
         
         # Ensure user can only mark their own notifications as read
         if notification.user != request.user:
@@ -1405,7 +1430,7 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
             status=status.HTTP_200_OK
         )
     
-    @action(detail=False, methods=['post'])
+    @action(detail=False, methods=['post'], url_path='mark-all-read')
     def mark_all_read(self, request):
         """
         POST /api/notifications/mark-all-read/
@@ -1431,7 +1456,7 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
             status=status.HTTP_200_OK
         )
     
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], url_path='unread-count')
     def unread_count(self, request):
         """
         GET /api/notifications/unread-count/

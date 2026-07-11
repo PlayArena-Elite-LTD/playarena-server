@@ -102,13 +102,13 @@
   const mobileGroup = document.getElementById('mobile-number-group');
   if (!methodSelect || !mobileGroup) return;
   function toggleMobile() {
-    mobileGroup.style.display = methodSelect.value === 'LIPILA_MOMO' ? '' : 'none';
+    const mobileMoneyMethods = ['LIPILA_MOMO', 'ZYNLE_MOMO'];
+    mobileGroup.style.display = mobileMoneyMethods.includes(methodSelect.value) ? '' : 'none';
   }
   methodSelect.addEventListener('change', toggleMobile);
   toggleMobile();
 })();
 </script>
 {% endblock %}
-
 
 

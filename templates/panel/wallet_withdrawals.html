@@ -1,0 +1,117 @@
+{% extends "panel/panel_base.html" %}
+
+{% block panel_content %}
+{% if messages %}
+<div class="messages">
+    {% for message in messages %}
+    <div class="message {{ message.tags }}">
+        {% if message.tags == 'success' %}<i class="fas fa-check-circle"></i>
+        {% elif message.tags == 'error' %}<i class="fas fa-exclamation-circle"></i>
+        {% elif message.tags == 'warning' %}<i class="fas fa-exclamation-triangle"></i>
+        {% elif message.tags == 'info' %}<i class="fas fa-info-circle"></i>{% endif %}
+        <div>{{ message }}</div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<div class="panel-card panel-card-wide">
+    <div class="panel-card-header">
+        <h3 class="panel-card-title">Withdrawals</h3>
+        <p class="panel-card-subtitle">Gateway processing happens in Django admin; these actions only update internal status.</p>
+    </div>
+
+    <form method="get" class="panel-filter-bar">
+        <div class="form-group">
+            <label for="q">Search</label>
+            <input type="text" name="q" id="q" class="form-control" placeholder="Username" value="{{ q }}">
+        </div>
+        <div class="form-group">
+            <label for="status">Status</label>
+            <select name="status" id="status" class="form-control">
+                <option value="" {% if not status %}selected{% endif %}>All</option>
+                {% for value, label in status_choices %}
+                <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="panel-filter-actions">
+            <button type="submit" class="panel-btn panel-btn-primary">Filter</button>
+        </div>
+    </form>
+
+    {% if page_obj %}
+    <div class="panel-table-wrapper">
+        <table class="panel-table">
+            <thead>
+                <tr>
+                    <th>User</th>
+                    <th>Amount</th>
+                    <th>Method</th>
+                    <th>Status</th>
+                    <th>Retries</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for withdrawal in page_obj %}
+                <tr>
+                    <td>{{ withdrawal.user.username }}</td>
+                    <td>${{ withdrawal.amount|floatformat:2 }}</td>
+                    <td>{{ withdrawal.get_payment_method_display }}</td>
+                    <td>
+                        {% if withdrawal.status == 'COMPLETED' %}
+                        <span class="status-pill status-green">{{ withdrawal.get_status_display }}</span>
+                        {% elif withdrawal.status == 'FAILED' %}
+                        <span class="status-pill status-red">{{ withdrawal.get_status_display }}</span>
+                        {% elif withdrawal.status == 'CANCELLED' %}
+                        <span class="status-pill status-gray">{{ withdrawal.get_status_display }}</span>
+                        {% else %}
+                        <span class="status-pill status-orange">{{ withdrawal.get_status_display }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ withdrawal.retry_count }}/{{ withdrawal.max_retry_count }}</td>
+                    <td>{{ withdrawal.created_at|date:"M d, Y h:i A" }}</td>
+                    <td>
+                        {% if withdrawal.status == 'PENDING' or withdrawal.status == 'PROCESSING' %}
+                        <div class="panel-actions">
+                            <form action="{% url 'withdrawal_mark_completed' withdrawal.id %}" method="post"
+                                  data-confirm="Mark this withdrawal as completed and debit the user's wallet? This does not contact the payment gateway."
+                                  data-confirm-title="Complete Withdrawal"
+                                  data-confirm-button="Complete">
+                                {% csrf_token %}
+                                <button type="submit" class="panel-btn panel-btn-primary">Complete</button>
+                            </form>
+                            <form action="{% url 'withdrawal_mark_failed' withdrawal.id %}" method="post"
+                                  data-confirm="Mark this withdrawal as failed and refund any reserved funds?"
+                                  data-confirm-title="Fail Withdrawal"
+                                  data-confirm-button="Mark Failed">
+                                {% csrf_token %}
+                                <button type="submit" class="panel-btn panel-btn-warning">Fail</button>
+                            </form>
+                            <form action="{% url 'withdrawal_mark_cancelled' withdrawal.id %}" method="post"
+                                  data-confirm="Cancel this withdrawal and refund any reserved funds?"
+                                  data-confirm-title="Cancel Withdrawal"
+                                  data-confirm-button="Cancel">
+                                {% csrf_token %}
+                                <button type="submit" class="panel-btn">Cancel</button>
+                            </form>
+                        </div>
+                        {% else %}
+                        &mdash;
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% include "panel/_pagination.html" %}
+    {% else %}
+    <div class="panel-empty">
+        <p>No withdrawals found.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

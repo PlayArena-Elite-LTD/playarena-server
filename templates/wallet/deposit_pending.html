@@ -34,7 +34,7 @@
       <div class="payment-pending-spinner" id="payment-spinner"></div>
       <p class="payment-status-text" id="payment-status-label">Payment pending</p>
       <p class="payment-status-detail" id="payment-status-detail">
-        Approve the payment on your phone if prompted. Do not close this page — we are waiting for confirmation from Lipila.
+        Approve the payment on your phone if prompted. Do not close this page — we are waiting for confirmation from {{ deposit.payment_provider|default:"the payment provider"|title }}.
       </p>
       <p class="payment-status-detail" style="margin-top: 1rem;">
         Amount: <strong>ZMW {{ deposit.amount|floatformat:2 }}</strong>
@@ -84,7 +84,7 @@
         return;
       }
       label.textContent = 'Payment pending';
-      detail.textContent = 'Waiting for Lipila to confirm (webhook). Provider status: ' + (data.provider_payment_status || 'Pending');
+      detail.textContent = 'Waiting for the payment provider to confirm. Provider status: ' + (data.provider_payment_status || 'Pending');
     } catch (e) { /* retry */ }
     setTimeout(poll, 4000);
   }

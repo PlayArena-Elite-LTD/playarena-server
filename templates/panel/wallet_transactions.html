@@ -1,0 +1,66 @@
+{% extends "panel/panel_base.html" %}
+
+{% block panel_content %}
+<div class="panel-card panel-card-wide">
+    <div class="panel-card-header">
+        <h3 class="panel-card-title">Transactions</h3>
+    </div>
+
+    <form method="get" class="panel-filter-bar">
+        <div class="form-group">
+            <label for="q">Search</label>
+            <input type="text" name="q" id="q" class="form-control" placeholder="Username" value="{{ q }}">
+        </div>
+        <div class="form-group">
+            <label for="type">Type</label>
+            <select name="type" id="type" class="form-control">
+                <option value="" {% if not txn_type %}selected{% endif %}>All</option>
+                {% for value, label in transaction_types %}
+                <option value="{{ value }}" {% if txn_type == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="panel-filter-actions">
+            <button type="submit" class="panel-btn panel-btn-primary">Filter</button>
+        </div>
+    </form>
+
+    {% if page_obj %}
+    <div class="panel-table-wrapper">
+        <table class="panel-table">
+            <thead>
+                <tr>
+                    <th>User</th>
+                    <th>Amount</th>
+                    <th>Type</th>
+                    <th>Description</th>
+                    <th>Created</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for txn in page_obj %}
+                <tr>
+                    <td>{{ txn.wallet.user.username }}</td>
+                    <td>
+                        {% if txn.is_credit %}
+                        <span class="status-pill status-green">+${{ txn.amount|floatformat:2 }}</span>
+                        {% else %}
+                        <span class="status-pill status-red">-${{ txn.amount|floatformat:2|slice:"1:" }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ txn.get_transaction_type_display }}</td>
+                    <td>{{ txn.description|truncatechars:60 }}</td>
+                    <td>{{ txn.created_at|date:"M d, Y h:i A" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% include "panel/_pagination.html" %}
+    {% else %}
+    <div class="panel-empty">
+        <p>No transactions found.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

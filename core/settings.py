@@ -135,6 +135,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'corsheaders',
     'django_ratelimit',  # Rate limiting package
+    'rest_framework',
+    'drf_spectacular',
     'accounts',
     'wallet',
     'matches',
@@ -180,6 +182,14 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'core.wsgi.application'
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
+    ),
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
 
 
 # Database
@@ -499,7 +509,7 @@ BANK_PAYOUT_API_URL = os.environ.get('BANK_PAYOUT_API_URL', '').strip()
 BANK_PAYOUT_API_KEY = os.environ.get('BANK_PAYOUT_API_KEY', '').strip()
 BANK_PAYOUT_TIMEOUT_SECONDS = int(os.environ.get('BANK_PAYOUT_TIMEOUT_SECONDS', '30'))
 
-# Payment provider (swappable): lipila
+# Fallback provider used before the database-backed admin setting is available.
 PAYMENT_PROVIDER = os.environ.get('PAYMENT_PROVIDER', 'lipila').strip().lower()
 
 # Lipila — Bearer secret only (no public key). Server-to-server + webhooks.
@@ -521,6 +531,20 @@ LIPILA_MOBILE_MONEY_DISBURSEMENT_PATH = os.environ.get(
 )
 LIPILA_STATUS_PATH_TEMPLATE = os.environ.get('LIPILA_STATUS_PATH_TEMPLATE', '/collections/{reference_id}')
 LIPILA_TIMEOUT_SECONDS = int(os.environ.get('LIPILA_TIMEOUT_SECONDS', '60'))
+
+# ZynlePay — credentials remain in environment variables; admin selects provider.
+ZYNLE_BASE_URL = os.environ.get(
+    'ZYNLE_BASE_URL', 'https://sandbox.zynlepay.com/zynlepay/jsonapi'
+).strip()
+ZYNLE_API_KEY = os.environ.get('ZYNLE_API_KEY', '').strip()
+ZYNLE_API_ID = os.environ.get('ZYNLE_API_ID', '').strip()
+ZYNLE_MERCHANT_ID = os.environ.get('ZYNLE_MERCHANT_ID', '').strip()
+ZYNLE_CHANNEL = os.environ.get('ZYNLE_CHANNEL', 'momo').strip()
+ZYNLE_DEPOSIT_METHOD = os.environ.get('ZYNLE_DEPOSIT_METHOD', 'runBillPayment').strip()
+ZYNLE_WITHDRAW_METHOD = os.environ.get('ZYNLE_WITHDRAW_METHOD', 'runPayToEwallet').strip()
+ZYNLE_STATUS_METHOD = os.environ.get('ZYNLE_STATUS_METHOD', 'checkPaymentStatus').strip()
+ZYNLE_CALLBACK_TOKEN = os.environ.get('ZYNLE_CALLBACK_TOKEN', '').strip()
+ZYNLE_TIMEOUT_SECONDS = int(os.environ.get('ZYNLE_TIMEOUT_SECONDS', '60'))
 PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '').strip()
 
 # Admin email alerts (used by logging handlers)
@@ -575,6 +599,11 @@ LOGGING = {
             'propagate': False,
         },
         'payments.lipila': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'payments.zynle': {
             'handlers': ['console', 'file'],
             'level': 'INFO',
             'propagate': False,

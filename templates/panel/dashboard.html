@@ -1,0 +1,34 @@
+{% extends "panel/panel_base.html" %}
+
+{% block panel_content %}
+<div class="kpi-grid">
+    <a href="{% url 'user_list' %}" class="kpi-card">
+        <span class="kpi-label">Users</span>
+        <strong class="kpi-value">{{ total_users }}</strong>
+        <span class="kpi-meta">{{ active_users }} active &middot; {{ recent_users }} joined in 7 days</span>
+    </a>
+    <a href="{% url 'match_list' %}" class="kpi-card">
+        <span class="kpi-label">Matches</span>
+        <strong class="kpi-value">{{ total_matches }}</strong>
+        <span class="kpi-meta">{{ open_matches }} open &middot; {{ disputed_matches }} disputed</span>
+    </a>
+    <a href="{% url 'wallet_list' %}" class="kpi-card">
+        <span class="kpi-label">Wallet Balance</span>
+        <strong class="kpi-value">${{ total_wallet_balance|floatformat:2 }}</strong>
+        <span class="kpi-meta">Across player wallets</span>
+    </a>
+    <a href="{% url 'open_disputes' %}" class="kpi-card">
+        <span class="kpi-label">Open Disputes</span>
+        <strong class="kpi-value">{{ open_disputes }}</strong>
+        <span class="kpi-meta">{{ escalated_disputes }} escalated</span>
+    </a>
+    <a href="{% url 'deposit_list' %}" class="kpi-card">
+        <span class="kpi-label">Pending Deposits</span>
+        <strong class="kpi-value">{{ pending_deposits }}</strong>
+    </a>
+    <a href="{% url 'withdrawal_list' %}" class="kpi-card">
+        <span class="kpi-label">Pending Withdrawals</span>
+        <strong class="kpi-value">{{ pending_withdrawals }}</strong>
+    </a>
+</div>
+{% endblock %}

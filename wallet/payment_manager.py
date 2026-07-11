@@ -21,7 +21,7 @@ from django.conf import settings
 from django.urls import reverse
 from django.utils import timezone
 
-from services.payments.factory import get_payment_gateway
+from services.payments.factory import get_active_payment_provider, get_payment_gateway
 from wallet.payment_debug import payment_debug_enabled, mask_secret
 
 logger = logging.getLogger(__name__)
@@ -285,6 +285,18 @@ class PaymentManager:
         }
     
     def _process_mobile_money(self, withdrawal) -> Dict[str, Any]:
+        """Process mobile money withdrawal through the active provider."""
+        active_provider = get_active_payment_provider()
+        if active_provider == 'zynle':
+            account_number = self._extract_phone_number(withdrawal.account_details)
+            return get_payment_gateway('zynle').process_withdrawal(
+                withdrawal,
+                mobile_number=account_number,
+            )
+
+        return self._process_lipila_mobile_money(withdrawal)
+
+    def _process_lipila_mobile_money(self, withdrawal) -> Dict[str, Any]:
         """Process mobile money withdrawal via Lipila disbursement API."""
         from services.payments.lipila_service import get_lipila_service
 

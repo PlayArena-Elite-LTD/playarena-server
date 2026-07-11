@@ -136,7 +136,39 @@ class Wallet(models.Model):
             'discrepancies': discrepancies_found,
             'dry_run': dry_run,
         }
-    
+
+
+class PaymentGatewaySetting(models.Model):
+    """Singleton runtime switch for deposit gateway selection."""
+
+    PROVIDER_CHOICES = [
+        ('lipila', 'Lipila'),
+        ('zynle', 'ZynlePay'),
+    ]
+
+    active_provider = models.CharField(
+        max_length=20,
+        choices=PROVIDER_CHOICES,
+        default='lipila',
+        help_text='New deposits use this gateway. Existing deposits keep their original gateway.',
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Payment gateway setting'
+        verbose_name_plural = 'Payment gateway settings'
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        return None
+
+    def __str__(self):
+        return f'Active deposit gateway: {self.get_active_provider_display()}'
+
+
 class Transaction(models.Model):
     TRANSACTION_TYPES = [
         ('DEPOSIT', 'Deposit'),
@@ -190,6 +222,7 @@ class Deposit(models.Model):
     PAYMENT_METHOD_CHOICES = [
         ('LIPILA', 'Lipila (Card)'),
         ('LIPILA_MOMO', 'Lipila (Mobile Money)'),
+        ('ZYNLE_MOMO', 'ZynlePay (Mobile Money)'),
         # Legacy values (kept to avoid breaking existing rows / admin edits)
         ('PESAPAL', 'Pesapal (legacy)'),
         ('ZYNELPAY', 'Zynel Pay (legacy)'),
@@ -219,14 +252,14 @@ class Deposit(models.Model):
         blank=True,
         null=True,
         db_index=True,
-        help_text='Active gateway slug (e.g. lipila)',
+        help_text='Gateway slug used for this deposit (e.g. lipila or zynle)',
     )
     provider_transaction_id = models.CharField(
         max_length=255,
         blank=True,
         null=True,
         db_index=True,
-        help_text='Provider transaction / identifier from Lipila',
+        help_text='Provider transaction identifier',
     )
     provider_payment_status = models.CharField(
         max_length=20,

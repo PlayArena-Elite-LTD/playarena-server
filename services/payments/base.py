@@ -1,5 +1,5 @@
 """
-Payment gateway abstraction — swappable providers (Lipila active).
+Payment gateway abstraction for swappable providers.
 """
 from __future__ import annotations
 
@@ -35,6 +35,7 @@ class WebhookResult:
     processed: bool
     payment_status: Optional[str] = None
     deposit_id: Optional[int] = None
+    withdrawal_id: Optional[int] = None
     message: str = ''
     raw_payload: Dict[str, Any] = field(default_factory=dict)
 
