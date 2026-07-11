@@ -22,6 +22,9 @@ class ZynleGateway(PaymentGateway):
 
     SUCCESS_CODES = {'100'}
     PENDING_CODES = {'120', '990'}
+    CODE_MESSAGES = {
+        '9903': 'Invalid Merchant API credentials or setup not complete',
+    }
 
     def __init__(self, service: Optional[ZynleService] = None) -> None:
         self.service = service or ZynleService(
@@ -73,14 +76,15 @@ class ZynleGateway(PaymentGateway):
             )
             status = self.normalize_status(response)
             provider_txn = str(response.get('transaction_id') or '').strip() or reference
-            message = str(response.get('response_description') or 'Payment initiated')
+            message = self.response_message(response, default='Payment initiated')
             logger.info(
-                'Zynle initiate response: deposit_id=%s code=%s reference=%s transaction_id=%s operator=%s',
+                'Zynle initiate response: deposit_id=%s code=%s reference=%s transaction_id=%s operator=%s description=%s',
                 deposit.id,
                 response.get('response_code'),
                 response.get('reference_no') or reference,
                 provider_txn,
                 response.get('operator'),
+                message,
             )
             return PaymentInitResult(
                 success=status != 'Failed',
@@ -279,6 +283,15 @@ class ZynleGateway(PaymentGateway):
         if code in cls.PENDING_CODES:
             return 'Pending'
         return 'Failed'
+
+    @classmethod
+    def response_message(cls, payload: Dict[str, Any], *, default: str = '') -> str:
+        payload = cls._unwrap_payload(payload)
+        description = str(payload.get('response_description') or '').strip()
+        if description:
+            return description
+        code = str(payload.get('response_code') or payload.get('code') or '').strip()
+        return cls.CODE_MESSAGES.get(code) or default
 
     @staticmethod
     def _unwrap_payload(payload: Dict[str, Any]) -> Dict[str, Any]:

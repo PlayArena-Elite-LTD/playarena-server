@@ -255,9 +255,16 @@ class ZynleGatewayTests(TestCase):
         self.assertEqual(ZynleGateway.normalize_status({'response_code': 990}), 'Pending')
         self.assertEqual(ZynleGateway.normalize_status({'response_code': 995}), 'Failed')
         self.assertEqual(ZynleGateway.normalize_status({'response_code': 9902}), 'Failed')
+        self.assertEqual(ZynleGateway.normalize_status({'response_code': 9903}), 'Failed')
         self.assertEqual(
             ZynleGateway.normalize_status({'response': {'response_code': '120'}}),
             'Pending',
+        )
+
+    def test_response_message_falls_back_to_known_zynle_code(self):
+        self.assertEqual(
+            ZynleGateway.response_message({'response_code': 9903}),
+            'Invalid Merchant API credentials or setup not complete',
         )
 
 
