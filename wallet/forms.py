@@ -54,6 +54,7 @@ class DepositForm(forms.Form):
         lipila_ready = bool((getattr(settings, 'LIPILA_API_KEY', '') or '').strip())
         zynle_ready = all((
             (getattr(settings, 'ZYNLE_API_KEY', '') or '').strip(),
+            (getattr(settings, 'ZYNLE_API_ID', '') or '').strip(),
             (getattr(settings, 'ZYNLE_MERCHANT_ID', '') or '').strip(),
         ))
         if active_provider == 'lipila' and (lipila_ready or lipila_mock):

@@ -51,7 +51,7 @@ class ZynleGateway(PaymentGateway):
             return PaymentInitResult(
                 success=False, provider=self.provider_name, payment_status='Failed',
                 message='Zynle is not configured',
-                failure_reason='ZYNLE_API_KEY and ZYNLE_MERCHANT_ID are required',
+                failure_reason='ZYNLE_API_KEY, ZYNLE_API_ID, and ZYNLE_MERCHANT_ID are required',
             )
 
         phone = self._normalize_phone(mobile_number or '')
@@ -120,7 +120,7 @@ class ZynleGateway(PaymentGateway):
                     'message': 'Zynle is not configured',
                     'gateway': self.provider_name,
                 },
-                'failure_reason': 'ZYNLE_API_KEY and ZYNLE_MERCHANT_ID are required',
+                'failure_reason': 'ZYNLE_API_KEY, ZYNLE_API_ID, and ZYNLE_MERCHANT_ID are required',
             }
 
         phone = self._normalize_phone(mobile_number or '')

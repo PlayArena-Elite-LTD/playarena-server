@@ -33,7 +33,7 @@ class ZynleService:
 
     @property
     def configured(self) -> bool:
-        return all((self.base_url, self.api_key, self.merchant_id))
+        return all((self.base_url, self.api_key, self.api_id, self.merchant_id))
 
     def momo_deposit(
         self,
@@ -79,14 +79,12 @@ class ZynleService:
         })
 
     def _auth(self) -> Dict[str, str]:
-        auth = {
+        return {
             'merchant_id': self.merchant_id,
+            'api_id': self.api_id,
             'api_key': self.api_key,
             'channel': self.channel,
         }
-        if self.api_id:
-            auth['api_id'] = self.api_id
-        return auth
 
     def _post(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         response = requests.post(

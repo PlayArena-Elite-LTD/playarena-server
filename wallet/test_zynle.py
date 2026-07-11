@@ -74,7 +74,7 @@ class ZynleServiceTests(TestCase):
         })
 
     @patch('services.payments.zynle_service.requests.post')
-    def test_api_id_is_optional_and_omitted_when_blank(self, post):
+    def test_api_id_is_required_and_included_when_blank(self, post):
         response = Mock()
         response.json.return_value = {'response_code': '120'}
         post.return_value = response
@@ -89,8 +89,8 @@ class ZynleServiceTests(TestCase):
         )
 
         auth = post.call_args.kwargs['json']['auth']
-        self.assertNotIn('api_id', auth)
-        self.assertTrue(service.configured)
+        self.assertEqual(auth['api_id'], '')
+        self.assertFalse(service.configured)
 
     @patch('services.payments.zynle_service.requests.post')
     def test_momo_withdraw_sends_receiver_payload(self, post):
@@ -249,6 +249,46 @@ class ZynleGatewayTests(TestCase):
             1,
         )
 
+    def test_process_withdrawal_preserves_zynle_response_fields(self):
+        Wallet.objects.filter(id=self.wallet.id).update(balance=Decimal('25.00'))
+        self.user.refresh_from_db()
+        self.wallet.refresh_from_db()
+        withdrawal = Withdrawal.objects.create(
+            user=self.user,
+            wallet=self.wallet,
+            amount=Decimal('10.00'),
+            payment_method='MOBILE_MONEY',
+            account_details='260974221154|Airtel',
+            status='PROCESSING',
+        )
+        self.gateway.service.configured = True
+        self.gateway.service.momo_withdraw.return_value = {
+            'response_code': '120',
+            'response_description': 'Transaction is initiated',
+            'reference_no': 'ZYN_WDR_1',
+            'transaction_id': 'ZYN-TX-1',
+            'operator_reference': 'AIR-REF-1',
+            'receiver_id': '260974221154',
+            'operator': 'Airtel',
+            'transaction_date': '2025-01-30',
+        }
+
+        result = self.gateway.process_withdrawal(
+            withdrawal,
+            mobile_number='260974221154',
+        )
+
+        self.gateway.service.momo_withdraw.assert_called_once()
+        call_kwargs = self.gateway.service.momo_withdraw.call_args.kwargs
+        self.assertEqual(call_kwargs['receiver_id'], '260974221154')
+        self.assertEqual(call_kwargs['amount'], Decimal('10.00'))
+        self.assertTrue(call_kwargs['reference_no'].startswith('ZYN_WDR_1_'))
+        self.assertTrue(result['success'])
+        self.assertEqual(result['transaction_id'], 'ZYN-TX-1')
+        self.assertEqual(result['gateway_response']['operator_reference'], 'AIR-REF-1')
+        self.assertEqual(result['gateway_response']['receiver_id'], '260974221154')
+        self.assertEqual(result['gateway_response']['gateway'], 'zynle')
+
     def test_documented_response_codes_are_normalized(self):
         self.assertEqual(ZynleGateway.normalize_status({'response_code': 100}), 'Successful')
         self.assertEqual(ZynleGateway.normalize_status({'response_code': 120}), 'Pending')
@@ -277,7 +317,7 @@ class PaymentProviderSelectionTests(TestCase):
 
     @override_settings(
         ZYNLE_API_KEY='key',
-        ZYNLE_API_ID='',
+        ZYNLE_API_ID='id',
         ZYNLE_MERCHANT_ID='merchant',
     )
     def test_zynle_deposit_form_shows_mobile_number_field(self):
