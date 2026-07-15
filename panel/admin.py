@@ -1,8 +1,7 @@
 from django.contrib import admin
 from django.contrib import messages
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
 from django.urls import reverse
-from django.utils.safestring import mark_safe
 from django.utils import timezone
 from .models import Dispute
 
@@ -82,14 +81,21 @@ class DisputeAdmin(admin.ModelAdmin):
         links = []
         
         if obj.status == 'OPEN':
-            links.append(f'<a href="/panel/attend-dispute/{obj.id}/" class="button">Attend</a>')
+            links.append((reverse('attend_dispute', args=[obj.id]), 'Attend'))
         elif obj.status in ['PENDING', 'ESCALATED']:
-            links.append(f'<a href="/panel/dispute/{obj.id}/" class="button">View Details</a>')
+            links.append((reverse('dispute_detail', args=[obj.id]), 'View Details'))
         
         if obj.status != 'RESOLVED':
-            links.append(f'<a href="/panel/dispute/{obj.id}/escalate/" class="button">Escalate</a>')
+            links.append((reverse('escalate_dispute', args=[obj.id]), 'Escalate'))
         
-        return format_html(''.join(links))
+        if not links:
+            return '-'
+
+        return format_html_join(
+            '',
+            '<a href="{}" class="button">{}</a>',
+            links
+        )
     
     action_links.short_description = 'Actions'
     
