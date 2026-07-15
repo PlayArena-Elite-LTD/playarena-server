@@ -1,0 +1,33 @@
+{% extends "admin/change_list.html" %}
+
+{% block content_title %}
+<section class="dispute-admin-hero" aria-labelledby="dispute-admin-title">
+    <div>
+        <p class="dispute-admin-hero__eyebrow">Dispute Operations</p>
+        <h1 id="dispute-admin-title">Disputes</h1>
+        <p class="dispute-admin-hero__copy">Triage match issues, assign ownership, escalate risky cases, and resolve completed reviews.</p>
+    </div>
+    <div class="dispute-admin-stats" aria-label="Dispute status summary">
+        <a href="{% url 'admin:panel_dispute_changelist' %}" class="dispute-admin-stat">
+            <span>Total</span>
+            <strong>{{ dispute_summary.total|default:0 }}</strong>
+        </a>
+        <a href="{% url 'admin:panel_dispute_changelist' %}?status__exact=OPEN" class="dispute-admin-stat dispute-admin-stat--open">
+            <span>Open</span>
+            <strong>{{ dispute_summary.open|default:0 }}</strong>
+        </a>
+        <a href="{% url 'admin:panel_dispute_changelist' %}?status__exact=PENDING" class="dispute-admin-stat dispute-admin-stat--pending">
+            <span>Pending</span>
+            <strong>{{ dispute_summary.pending|default:0 }}</strong>
+        </a>
+        <a href="{% url 'admin:panel_dispute_changelist' %}?status__exact=ESCALATED" class="dispute-admin-stat dispute-admin-stat--escalated">
+            <span>Escalated</span>
+            <strong>{{ dispute_summary.escalated|default:0 }}</strong>
+        </a>
+        <a href="{% url 'admin:panel_dispute_changelist' %}?status__exact=RESOLVED" class="dispute-admin-stat dispute-admin-stat--resolved">
+            <span>Resolved</span>
+            <strong>{{ dispute_summary.resolved|default:0 }}</strong>
+        </a>
+    </div>
+</section>
+{% endblock %}
