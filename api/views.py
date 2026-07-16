@@ -741,7 +741,18 @@ class MatchCancelView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        if match.status not in ['OPEN', 'JOINED']:
+        if match.status == 'JOINED':
+            return Response(
+                {
+                    'detail': (
+                        "Cannot cancel or leave a joined match. "
+                        "Both players must submit results first."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if match.status != 'OPEN':
             return Response(
                 {'detail': f"Cannot cancel a match with status '{match.get_status_display()}'."},
                 status=status.HTTP_400_BAD_REQUEST,

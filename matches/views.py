@@ -142,8 +142,15 @@ def cancel_match(request, match_id):
         messages.error(request, "You don't have permission to cancel this match.")
         return redirect('my_matches')
     
-    # Verify the match is in a cancellable state
-    if match.status not in ['OPEN', 'JOINED']:
+    # Only open matches can be cancelled. Joined matches must go through result submission.
+    if match.status == 'JOINED':
+        messages.error(
+            request,
+            "Cannot cancel or leave a joined match. Both players must submit results first."
+        )
+        return redirect('match_detail', match_id=match.id)
+
+    if match.status != 'OPEN':
         messages.error(request, f"Cannot cancel a match with status '{match.get_status_display()}'.")
         return redirect('match_detail', match_id=match.id)
     

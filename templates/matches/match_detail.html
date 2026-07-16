@@ -283,22 +283,24 @@
       
       <!-- Match Actions -->
       <div class="match-actions">
-      	{% if match.status == 'OPEN' or match.status == 'JOINED' and request.user == match.creator %}
+        {% if match.status == 'OPEN' and request.user == match.creator %}
   <form action="{% url 'cancel_match' match_id=match.id %}" method="post"
-      data-confirm="Are you sure you want to cancel this match? This will refund ${{ match.amount }} to your wallet{% if match.joiner %} and to {{ match.joiner.username }}'s wallet{% endif %}."
+      data-confirm="Are you sure you want to cancel this match? This will refund ${{ match.amount }} to your wallet."
       data-confirm-title="Cancel Match"
       data-confirm-button="Cancel Match">
   {% csrf_token %}
   <button type="submit" class="match-action-button action-cancel">Cancel Match</button>
 </form>
+{% elif match.status == 'JOINED' and request.user == match.creator %}
+  <button type="button" class="match-action-button action-cancel" disabled
+          title="Cancel is disabled until both players submit results.">
+    Cancel Match
+  </button>
 {% elif match.status == 'JOINED' and request.user == match.joiner %}
-<form action="{% url 'cancel_match' match_id=match.id %}" method="post"
-      data-confirm="Are you sure you want to leave this match? Your ${{ match.amount }} will be refunded to your wallet."
-      data-confirm-title="Leave Match"
-      data-confirm-button="Leave Match">
-  {% csrf_token %}
-  <button type="submit" class="match-action-button action-leave">Leave Match</button>
-</form>
+  <button type="button" class="match-action-button action-leave" disabled
+          title="Leave is disabled until both players submit results.">
+    Leave Match
+  </button>
 {% endif %}
         
         {% if match.status == 'JOINED' %}
