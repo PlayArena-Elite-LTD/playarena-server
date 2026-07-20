@@ -294,9 +294,11 @@ def submit_match_result(request, match_id):
         # Check if joiner has submitted
         if not match_result.joiner_submission:
             # Notify joiner to submit their result
+            submission_link = reverse('match_detail', args=[match.id])
             Notification.objects.create(
                 user=match.joiner,
-                message=f"Your opponent {match.creator.username} has submitted their result for the {match.get_game_display()} match (ZMW {match.amount}). Please submit your result as soon as possible."
+                message=f"Your opponent {match.creator.username} has submitted their result for the {match.get_game_display()} match (ZMW {match.amount}). Please submit your result as soon as possible.",
+                link=submission_link,
             )
             messages.success(request, "Your result has been submitted. Waiting for your opponent to submit their result.")
             return redirect('match_detail', match_id=match_id)
@@ -320,9 +322,11 @@ def submit_match_result(request, match_id):
         # Check if creator has submitted
         if not match_result.creator_submission:
             # Notify creator to submit their result
+            submission_link = reverse('match_detail', args=[match.id])
             Notification.objects.create(
                 user=match.creator,
-                message=f"Your opponent {match.joiner.username} has submitted their result for the {match.get_game_display()} match (ZMW {match.amount}). Please submit your result as soon as possible."
+                message=f"Your opponent {match.joiner.username} has submitted their result for the {match.get_game_display()} match (ZMW {match.amount}). Please submit your result as soon as possible.",
+                link=submission_link,
             )
             messages.success(request, "Your result has been submitted. Waiting for your opponent to submit their result.")
             return redirect('match_detail', match_id=match_id)
@@ -438,14 +442,17 @@ def submit_match_result(request, match_id):
             match_result.save()
             
             # Notify both users
+            submission_link = reverse('match_detail', args=[match.id])
             Notification.objects.create(
                 user=match.creator,
-                message=f"There was a disagreement in the result for your {match.get_game_display()} match against {match.joiner.username} for ZMW {match.amount}. You have one more chance to submit the correct result."
+                message=f"There was a disagreement in the result for your {match.get_game_display()} match against {match.joiner.username} for ZMW {match.amount}. You have one more chance to submit the correct result.",
+                link=submission_link,
             )
             
             Notification.objects.create(
                 user=match.joiner,
-                message=f"There was a disagreement in the result for your {match.get_game_display()} match against {match.creator.username} for ZMW {match.amount}. You have one more chance to submit the correct result."
+                message=f"There was a disagreement in the result for your {match.get_game_display()} match against {match.creator.username} for ZMW {match.amount}. You have one more chance to submit the correct result.",
+                link=submission_link,
             )
             
             messages.warning(request, "There was a disagreement with the match results. Both players must submit again with accurate results.")

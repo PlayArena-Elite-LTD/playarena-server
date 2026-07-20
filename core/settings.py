@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 import os
 import sys
+from datetime import timedelta
 from urllib.parse import urlparse, unquote
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -188,7 +189,37 @@ REST_FRAMEWORK = {
         'rest_framework_simplejwt.authentication.JWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    ),
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '100/hour',
+        'user': '1000/hour',
+        'auth': '10/minute',
+    },
+}
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'AUTH_HEADER_TYPES': ('Bearer',),
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'PlayyArena API',
+    'DESCRIPTION': 'Complete API documentation for PlayyArena gaming platform',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SCHEMA_PATH_PREFIX': '/api/',
+    'AUTHENTICATION_WHITELIST': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ],
 }
 
 
@@ -546,6 +577,14 @@ ZYNLE_STATUS_METHOD = os.environ.get('ZYNLE_STATUS_METHOD', 'checkPaymentStatus'
 ZYNLE_CALLBACK_TOKEN = os.environ.get('ZYNLE_CALLBACK_TOKEN', '').strip()
 ZYNLE_TIMEOUT_SECONDS = int(os.environ.get('ZYNLE_TIMEOUT_SECONDS', '60'))
 PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '').strip()
+if PUBLIC_BASE_URL:
+    try:
+        parsed_public_url = urlparse(PUBLIC_BASE_URL)
+        public_origin = f"{parsed_public_url.scheme}://{parsed_public_url.netloc}"
+        if parsed_public_url.scheme and parsed_public_url.netloc and public_origin not in CSRF_TRUSTED_ORIGINS:
+            CSRF_TRUSTED_ORIGINS.append(public_origin)
+    except Exception:
+        pass
 
 # Admin email alerts (used by logging handlers)
 ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL')

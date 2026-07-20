@@ -5,6 +5,7 @@ class Notification(models.Model):
     """Model to store user notifications"""
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notifications')
     message = models.TextField()
+    link = models.CharField(max_length=255, blank=True, null=True, help_text="Optional link for action (e.g., /matches/123/)")
     created_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:

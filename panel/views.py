@@ -46,6 +46,57 @@ def my_disputes(request):
     }
     return render(request, 'panel/my_disputes.html', context)
 
+
+@support_staff_required
+def dispute_stats(request):
+    """Show dispute pattern statistics per user."""
+    from django.db.models import Count, Q
+
+    user_stats = (
+        User.objects.filter(
+            Q(created_matches__dispute__isnull=False) |
+            Q(joined_matches__dispute__isnull=False)
+        )
+        .distinct()
+        .annotate(
+            total_disputes=Count('created_matches__dispute', distinct=True) +
+                           Count('joined_matches__dispute', distinct=True),
+            open_disputes=Count(
+                'created_matches__dispute',
+                filter=Q(created_matches__dispute__status='OPEN'),
+                distinct=True
+            ) + Count(
+                'joined_matches__dispute',
+                filter=Q(joined_matches__dispute__status='OPEN'),
+                distinct=True
+            ),
+            pending_disputes=Count(
+                'created_matches__dispute',
+                filter=Q(created_matches__dispute__status='PENDING'),
+                distinct=True
+            ) + Count(
+                'joined_matches__dispute',
+                filter=Q(joined_matches__dispute__status='PENDING'),
+                distinct=True
+            ),
+            resolved_disputes=Count(
+                'created_matches__dispute',
+                filter=Q(created_matches__dispute__status='RESOLVED'),
+                distinct=True
+            ) + Count(
+                'joined_matches__dispute',
+                filter=Q(joined_matches__dispute__status='RESOLVED'),
+                distinct=True
+            ),
+        )
+        .order_by('-total_disputes', 'username')
+    )
+
+    return render(request, 'panel/dispute_stats.html', {
+        'user_stats': user_stats,
+    })
+
+
 @support_staff_required
 def dispute_detail(request, dispute_id):
     """Show details for a dispute, options to message users, suspend, or resolve."""
@@ -137,69 +188,47 @@ def resolve_dispute(request, dispute_id):
     # On GET, redirect to dispute detail
     return redirect('dispute_detail', dispute_id=dispute_id)
 
-@login_required
-def dispute_stats(request):
-    """Display dispute statistics"""
-    from django.db.models import Count, Q
-    from panel.models import Dispute
-    
-    # Get dispute statistics
-    total_disputes = Dispute.objects.count()
-    open_disputes = Dispute.objects.filter(status='OPEN').count()
-    resolved_disputes = Dispute.objects.filter(status='RESOLVED').count()
-    
-    # Disputes by status
-    disputes_by_status = Dispute.objects.values('status').annotate(count=Count('id'))
-    
-    # Recent disputes
-    recent_disputes = Dispute.objects.order_by('-created_at')[:10]
-    
-    context = {
-        'total_disputes': total_disputes,
-        'open_disputes': open_disputes,
-        'resolved_disputes': resolved_disputes,
-        'disputes_by_status': disputes_by_status,
-        'recent_disputes': recent_disputes,
-    }
-    
-    return render(request, 'panel/dispute_stats.html', context)
-
-
 @support_staff_required
 @transaction.atomic
 def escalate_dispute(request, dispute_id):
-    """Escalate a dispute to higher level support"""
+    """Escalate a dispute for senior review."""
     dispute = get_object_or_404(Dispute, id=dispute_id)
-    
+
     if dispute.status == 'RESOLVED':
         messages.error(request, "Cannot escalate a resolved dispute.")
         return redirect('dispute_detail', dispute_id=dispute_id)
-    
-    # Mark as escalated
+
     dispute.status = 'ESCALATED'
     dispute.escalated_at = timezone.now()
+    dispute.escalated_by = request.user
+    if request.method == 'POST':
+        dispute.escalation_reason = request.POST.get('escalation_reason', '')
     dispute.save()
-    
-    messages.success(request, "Dispute has been escalated to senior support staff.")
+
+    messages.success(request, "Dispute escalated successfully.")
     return redirect('dispute_detail', dispute_id=dispute_id)
 
 
 @support_staff_required
 @transaction.atomic
 def update_evidence_notes(request, evidence_id):
-    """Update notes for evidence items"""
-    from matches.models import Evidence
-    
+    """Update evidence description and verification status from the dispute panel."""
     evidence = get_object_or_404(Evidence, id=evidence_id)
-    
+
     if request.method == 'POST':
-        notes = request.POST.get('notes', '')
-        evidence.admin_notes = notes
+        evidence.description = request.POST.get('description', evidence.description or '')
+        if request.POST.get('is_verified') == 'on':
+            evidence.is_verified = True
+            evidence.verified_by = request.user
+            evidence.verified_at = timezone.now()
         evidence.save()
-        
-        return JsonResponse({
-            'status': 'success',
-            'notes': evidence.admin_notes
-        })
-    
+
+        try:
+            dispute_id = evidence.match.dispute.id
+        except Dispute.DoesNotExist:
+            return redirect('open_disputes')
+
+        messages.success(request, "Evidence updated successfully.")
+        return redirect('dispute_detail', dispute_id=dispute_id)
+
     return JsonResponse({'status': 'error', 'message': 'Invalid request'}, status=400)
