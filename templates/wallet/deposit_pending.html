@@ -80,7 +80,7 @@
         stopped = true;
         if (spinner) spinner.style.display = 'none';
         label.textContent = 'Payment failed';
-        detail.textContent = 'The payment could not be completed. Please try again.';
+        detail.textContent = data.failure_reason || 'The payment could not be completed. Please try again.';
         return;
       }
       label.textContent = 'Payment pending';

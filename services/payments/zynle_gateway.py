@@ -262,6 +262,15 @@ class ZynleGateway(PaymentGateway):
             )
 
         payment_status = self.normalize_status(payload)
+        logger.info(
+            'Zynle webhook received: deposit_id=%s code=%s status=%s reference=%s transaction_id=%s description=%s',
+            deposit.id,
+            payload.get('response_code') or payload.get('code'),
+            payment_status,
+            reference,
+            transaction_id,
+            self.response_message(payload),
+        )
         applied = apply_deposit_webhook_status(
             deposit,
             payment_status=payment_status,
@@ -281,6 +290,26 @@ class ZynleGateway(PaymentGateway):
         if code in cls.SUCCESS_CODES:
             return 'Successful'
         if code in cls.PENDING_CODES:
+            return 'Pending'
+        if not code:
+            status_text = ' '.join(
+                str(payload.get(key) or '')
+                for key in (
+                    'status',
+                    'payment_status',
+                    'paymentStatus',
+                    'transaction_status',
+                    'transactionStatus',
+                    'response_description',
+                    'responseDescription',
+                )
+            ).strip().lower()
+            if any(word in status_text for word in ('success', 'successful', 'completed', 'approved')):
+                return 'Successful'
+            if any(word in status_text for word in ('pending', 'processing', 'initiated', 'queued')):
+                return 'Pending'
+            if any(word in status_text for word in ('failed', 'failure', 'declined', 'rejected', 'cancelled', 'canceled', 'expired')):
+                return 'Failed'
             return 'Pending'
         return 'Failed'
 

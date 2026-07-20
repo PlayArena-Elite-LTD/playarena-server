@@ -15,6 +15,26 @@ from wallet.notifications import notify_deposit_completed, notify_deposit_failed
 logger = logging.getLogger('payments')
 
 
+def _provider_failure_reason(raw_payload: Optional[Dict[str, Any]]) -> Optional[str]:
+    if not isinstance(raw_payload, dict):
+        return None
+    payload = raw_payload.get('response') if isinstance(raw_payload.get('response'), dict) else raw_payload
+    for key in (
+        'message',
+        'response_description',
+        'responseDescription',
+        'description',
+        'status_description',
+        'statusDescription',
+        'reason',
+        'error',
+    ):
+        value = payload.get(key)
+        if value:
+            return str(value)
+    return None
+
+
 def _map_provider_status_to_deposit(provider_status: str) -> str:
     s = (provider_status or '').strip()
     if s == 'Successful':
@@ -81,14 +101,10 @@ def apply_deposit_webhook_status(
 
     if internal_status == 'FAILED':
         deposit.status = 'FAILED'
-        deposit.failure_reason = (
-            (raw_payload or {}).get('message')
-            if isinstance(raw_payload, dict)
-            else None
-        ) or 'Payment failed'
+        deposit.failure_reason = _provider_failure_reason(raw_payload) or 'Payment failed'
         deposit.save()
         notify_deposit_failed(deposit, failure_reason=deposit.failure_reason)
-        logger.info('Deposit %s failed via webhook', deposit.id)
+        logger.info('Deposit %s failed via webhook: %s', deposit.id, deposit.failure_reason)
         return {'processed': True, 'message': 'Deposit failed', 'status': 'FAILED'}
 
     deposit.status = 'PROCESSING'

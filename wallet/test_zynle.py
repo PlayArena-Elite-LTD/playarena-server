@@ -170,10 +170,10 @@ class ZynleGatewayTests(TestCase):
         self.gateway = ZynleGateway(service=Mock())
         self.factory = RequestFactory()
 
-    def _callback(self, token='private-callback-token'):
+    def _callback(self, token='private-callback-token', payload=None):
         return self.factory.post(
             f'/api/payments/zynle/webhook/?token={token}',
-            data=json.dumps({
+            data=json.dumps(payload or {
                 'response_code': 100,
                 'response_description': 'Successful Transaction',
                 'reference_no': 'ZYN_DEP_1',
@@ -203,6 +203,31 @@ class ZynleGatewayTests(TestCase):
             Transaction.objects.filter(wallet=self.wallet, transaction_type='DEPOSIT').count(),
             1,
         )
+
+    def test_failure_callback_stores_provider_description(self):
+        result = self.gateway.handle_webhook(self._callback(payload={
+            'response_code': 995,
+            'response_description': 'Insufficient funds',
+            'reference_no': 'ZYN_DEP_1',
+            'transaction_id': 'TX-1',
+        }))
+
+        self.assertTrue(result.processed)
+        self.deposit.refresh_from_db()
+        self.assertEqual(self.deposit.status, 'FAILED')
+        self.assertEqual(self.deposit.failure_reason, 'Insufficient funds')
+
+    def test_callback_without_code_does_not_fail_when_description_is_pending(self):
+        result = self.gateway.handle_webhook(self._callback(payload={
+            'response_description': 'Transaction is initiated',
+            'reference_no': 'ZYN_DEP_1',
+            'transaction_id': 'TX-1',
+        }))
+
+        self.assertTrue(result.processed)
+        self.deposit.refresh_from_db()
+        self.assertEqual(self.deposit.status, 'PROCESSING')
+        self.assertEqual(self.deposit.provider_payment_status, 'Pending')
 
     def test_success_callback_completes_withdrawal_once(self):
         Wallet.objects.filter(id=self.wallet.id).update(balance=Decimal('25.00'))

@@ -143,6 +143,7 @@ def get_deposit_payment_status_payload(deposit):
         'payment_reference': deposit.payment_reference,
         'provider_transaction_id': deposit.provider_transaction_id,
         'amount': str(deposit.amount),
+        'failure_reason': deposit.failure_reason or '',
         'completed': deposit.status == 'COMPLETED',
         'failed': deposit.status == 'FAILED',
         'pending': deposit.status in ('PENDING', 'PROCESSING'),
