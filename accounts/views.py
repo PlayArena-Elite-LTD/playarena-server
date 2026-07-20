@@ -170,15 +170,11 @@ def get_email_from_form(group, request):
     # Fallback to IP if no email provided
     return f"ip:{request.META.get('REMOTE_ADDR', 'unknown')}"
 
+@method_decorator(ratelimit(key=get_email_from_form, rate='3/h', method='POST', block=True), name='post')
 class RateLimitedPasswordResetView(BasePasswordResetView):
     """Password reset view with rate limiting"""
     html_email_template_name = 'registration/password_reset_email.html'
     email_template_name = 'registration/password_reset_email.html'
-    
-    @ratelimit(key=get_email_from_form, rate='3/h', method='POST', block=True)
-    def post(self, request, *args, **kwargs):
-        """Apply rate limiting based on email"""
-        return super().post(request, *args, **kwargs)
 
 
 @login_required
