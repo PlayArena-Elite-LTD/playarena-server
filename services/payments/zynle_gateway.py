@@ -194,11 +194,25 @@ class ZynleGateway(PaymentGateway):
         try:
             response = self.service.check_payment_status(str(reference))
             payment_status = self.normalize_status(response)
+            message = self.response_message(response)
+            if payment_status == 'Failed' and self._is_status_lookup_error(response):
+                logger.warning(
+                    'Zynle status check returned integration error: deposit_id=%s reference=%s message=%s',
+                    deposit.id,
+                    reference,
+                    message,
+                )
+                return PaymentVerifyResult(
+                    success=False,
+                    payment_status='Pending',
+                    message=message or 'Awaiting Zynle callback confirmation',
+                    raw_response=response,
+                )
             return PaymentVerifyResult(
                 success=payment_status == 'Successful',
                 payment_status=payment_status,
                 provider_transaction_id=str(response.get('transaction_id') or '').strip() or None,
-                message=str(response.get('response_description') or ''),
+                message=message,
                 raw_response=response,
             )
         except (requests.RequestException, ValueError) as exc:
@@ -321,6 +335,16 @@ class ZynleGateway(PaymentGateway):
             return description
         code = str(payload.get('response_code') or payload.get('code') or '').strip()
         return cls.CODE_MESSAGES.get(code) or default
+
+    @classmethod
+    def _is_status_lookup_error(cls, payload: Dict[str, Any]) -> bool:
+        message = cls.response_message(payload).strip().lower()
+        return message in {
+            'invalid method',
+            'method not found',
+            'unknown method',
+            'unsupported method',
+        }
 
     @staticmethod
     def _unwrap_payload(payload: Dict[str, Any]) -> Dict[str, Any]:

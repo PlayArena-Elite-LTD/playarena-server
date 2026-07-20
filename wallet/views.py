@@ -170,7 +170,7 @@ def deposit_status_json(request, deposit_id):
                 raw_payload=verify.raw_response,
             )
             deposit.refresh_from_db()
-        elif verify.payment_status == 'Failed':
+        elif verify.payment_status == 'Failed' and deposit.payment_provider != 'zynle':
             apply_deposit_webhook_status(
                 deposit,
                 payment_status='Failed',

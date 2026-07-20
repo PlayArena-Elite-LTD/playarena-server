@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 
+from services.payments.base import PaymentVerifyResult
 from services.payments.factory import get_active_payment_provider, get_payment_gateway
 from services.payments.zynle_gateway import ZynleGateway
 from services.payments.zynle_service import ZynleService
@@ -228,6 +229,45 @@ class ZynleGatewayTests(TestCase):
         self.deposit.refresh_from_db()
         self.assertEqual(self.deposit.status, 'PROCESSING')
         self.assertEqual(self.deposit.provider_payment_status, 'Pending')
+
+    def test_status_lookup_invalid_method_keeps_deposit_pending(self):
+        self.gateway.service.check_payment_status.return_value = {
+            'response_code': 995,
+            'response_description': 'Invalid method',
+            'reference_no': 'ZYN_DEP_1',
+            'transaction_id': 'TX-1',
+        }
+
+        result = self.gateway.verify_payment(self.deposit)
+
+        self.assertEqual(result.payment_status, 'Pending')
+        self.deposit.refresh_from_db()
+        self.assertEqual(self.deposit.status, 'PROCESSING')
+
+    @patch('services.payments.factory.get_payment_gateway')
+    def test_status_poll_does_not_fail_zynle_deposit_from_verification_failure(self, get_gateway):
+        gateway = Mock()
+        gateway.verify_payment.return_value = PaymentVerifyResult(
+            success=False,
+            payment_status='Failed',
+            provider_transaction_id='TX-1',
+            message='Invalid method',
+            raw_response={
+                'response_code': 995,
+                'response_description': 'Invalid method',
+                'reference_no': 'ZYN_DEP_1',
+                'transaction_id': 'TX-1',
+            },
+        )
+        get_gateway.return_value = gateway
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('deposit_status_json', kwargs={'deposit_id': self.deposit.id}))
+
+        self.assertEqual(response.status_code, 200)
+        self.deposit.refresh_from_db()
+        self.assertEqual(self.deposit.status, 'PROCESSING')
+        self.assertEqual(response.json()['status'], 'PROCESSING')
 
     def test_success_callback_completes_withdrawal_once(self):
         Wallet.objects.filter(id=self.wallet.id).update(balance=Decimal('25.00'))
