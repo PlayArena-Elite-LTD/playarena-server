@@ -945,7 +945,7 @@ class PaymentStatusView(APIView):
 
         deposit = get_object_or_404(Deposit, id=order_id, user=request.user)
 
-        if deposit.status in ('PENDING', 'PROCESSING') and deposit.payment_provider in ('lipila', 'zynle'):
+        if deposit.status in ('PENDING', 'PROCESSING') and deposit.payment_provider == 'lipila':
             gateway = get_payment_gateway(deposit.payment_provider)
             verify = gateway.verify_payment(deposit)
             if verify.payment_status == 'Successful':
@@ -956,7 +956,7 @@ class PaymentStatusView(APIView):
                     raw_payload=verify.raw_response,
                 )
                 deposit.refresh_from_db()
-            elif verify.payment_status == 'Failed' and deposit.payment_provider != 'zynle':
+            elif verify.payment_status == 'Failed':
                 apply_deposit_webhook_status(
                     deposit,
                     payment_status='Failed',
@@ -1036,7 +1036,25 @@ class ZynleWebhookView(APIView):
     def post(self, request):
         from services.payments.factory import get_payment_gateway
 
+        raw_body = request.body or b''
+        logger.info(
+            'Zynle webhook HTTP hit: path=%s content_type=%s remote_addr=%s user_agent=%s bytes=%s body=%s',
+            request.path,
+            request.META.get('CONTENT_TYPE', ''),
+            request.META.get('REMOTE_ADDR', ''),
+            request.META.get('HTTP_USER_AGENT', ''),
+            len(raw_body),
+            raw_body.decode('utf-8', errors='replace')[:2000],
+        )
         result = get_payment_gateway('zynle').handle_webhook(request)
+        logger.info(
+            'Zynle webhook handled: processed=%s deposit_id=%s withdrawal_id=%s payment_status=%s message=%s',
+            result.processed,
+            result.deposit_id,
+            result.withdrawal_id,
+            result.payment_status,
+            result.message,
+        )
         if not result.processed and 'token' in (result.message or '').lower():
             return Response(
                 {'status': 'error', 'message': result.message},

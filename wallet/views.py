@@ -159,7 +159,7 @@ def deposit_status_json(request, deposit_id):
     from wallet.payment_processing import apply_deposit_webhook_status
 
     deposit = get_object_or_404(Deposit, id=deposit_id, user=request.user)
-    if deposit.status in ('PENDING', 'PROCESSING') and deposit.payment_provider in ('lipila', 'zynle'):
+    if deposit.status in ('PENDING', 'PROCESSING') and deposit.payment_provider == 'lipila':
         gateway = get_payment_gateway(deposit.payment_provider)
         verify = gateway.verify_payment(deposit)
         if verify.payment_status == 'Successful':
@@ -170,7 +170,7 @@ def deposit_status_json(request, deposit_id):
                 raw_payload=verify.raw_response,
             )
             deposit.refresh_from_db()
-        elif verify.payment_status == 'Failed' and deposit.payment_provider != 'zynle':
+        elif verify.payment_status == 'Failed':
             apply_deposit_webhook_status(
                 deposit,
                 payment_status='Failed',

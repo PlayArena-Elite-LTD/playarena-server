@@ -245,7 +245,7 @@ class ZynleGatewayTests(TestCase):
         self.assertEqual(self.deposit.status, 'PROCESSING')
 
     @patch('services.payments.factory.get_payment_gateway')
-    def test_status_poll_does_not_fail_zynle_deposit_from_verification_failure(self, get_gateway):
+    def test_status_poll_does_not_verify_zynle_deposits(self, get_gateway):
         gateway = Mock()
         gateway.verify_payment.return_value = PaymentVerifyResult(
             success=False,
@@ -265,6 +265,7 @@ class ZynleGatewayTests(TestCase):
         response = self.client.get(reverse('deposit_status_json', kwargs={'deposit_id': self.deposit.id}))
 
         self.assertEqual(response.status_code, 200)
+        get_gateway.assert_not_called()
         self.deposit.refresh_from_db()
         self.assertEqual(self.deposit.status, 'PROCESSING')
         self.assertEqual(response.json()['status'], 'PROCESSING')
