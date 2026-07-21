@@ -15,6 +15,14 @@ from django.conf import settings
 logger = logging.getLogger('payments.lipila')
 
 
+_SENSITIVE_HEADER_NAMES = {
+    'authorization',
+    'cookie',
+    'set-cookie',
+    'x-api-key',
+}
+
+
 def _build_url(base: str, path: str) -> str:
     if path.startswith('http://') or path.startswith('https://'):
         return path
@@ -23,6 +31,13 @@ def _build_url(base: str, path: str) -> str:
     if base_clean.endswith('/api/v1') and path_clean.startswith('api/v1/'):
         path_clean = path_clean[len('api/v1/'):]
     return urljoin(base_clean + '/', path_clean)
+
+
+def _redact_headers(headers) -> Dict[str, str]:
+    return {
+        key: '***REDACTED***' if key.lower() in _SENSITIVE_HEADER_NAMES else value
+        for key, value in dict(headers or {}).items()
+    }
 
 
 class LipilaService:
@@ -69,6 +84,32 @@ class LipilaService:
         if callback_url:
             headers['callbackUrl'] = callback_url
         return headers
+
+    @staticmethod
+    def response_log_details(resp: Optional[requests.Response]) -> Dict[str, Any]:
+        """Return response metadata useful for provider debugging."""
+        if resp is None:
+            return {}
+
+        request = getattr(resp, 'request', None)
+        try:
+            body = resp.text
+        except Exception as exc:
+            body = f'<unable to decode response body: {exc}>'
+
+        details = {
+            'request_method': getattr(request, 'method', None),
+            'request_url': getattr(request, 'url', None) or getattr(resp, 'url', None),
+            'status_code': resp.status_code,
+            'reason': resp.reason,
+            'response_headers': _redact_headers(resp.headers),
+            'response_body': body if body else '<empty>',
+        }
+
+        if request is not None:
+            details['request_headers'] = _redact_headers(getattr(request, 'headers', {}))
+
+        return details
 
     def initiate_mobile_money(
         self,
@@ -201,15 +242,13 @@ class LipilaService:
         )
         resp = requests.post(url, json=payload, headers=headers, timeout=self.timeout)
         logger.info(
-            'Lipila disbursement response: http=%s body=%s',
-            resp.status_code,
-            resp.text[:500],
+            'Lipila disbursement response: %s',
+            self.response_log_details(resp),
         )
         if not resp.ok:
             logger.error(
-                'Lipila disbursement failed: http=%s body=%s',
-                resp.status_code,
-                resp.text[:500],
+                'Lipila disbursement failed: %s',
+                self.response_log_details(resp),
             )
         resp.raise_for_status()
         return resp.json() if resp.content else {}

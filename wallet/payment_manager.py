@@ -298,7 +298,7 @@ class PaymentManager:
 
     def _process_lipila_mobile_money(self, withdrawal) -> Dict[str, Any]:
         """Process mobile money withdrawal via Lipila disbursement API."""
-        from services.payments.lipila_service import get_lipila_service
+        from services.payments.lipila_service import LipilaService, get_lipila_service
 
         if bool(getattr(settings, 'LIPILA_MOCK_MODE', False)):
             transaction_id = f"MOCK_MM_{withdrawal.id}_{int(timezone.now().timestamp())}"
@@ -380,11 +380,25 @@ class PaymentManager:
                 'failure_reason': 'Lipila request timed out after submission; awaiting callback or manual verification.',
             }
         except requests.exceptions.RequestException as e:
-            logger.error(f'Lipila disbursement error for withdrawal {withdrawal.id}: {str(e)}', exc_info=True)
+            response_details = LipilaService.response_log_details(getattr(e, 'response', None))
+            logger.error(
+                'Lipila disbursement error for withdrawal %s: %s response=%s',
+                withdrawal.id,
+                str(e),
+                response_details,
+                exc_info=True,
+            )
             return {
                 'success': False,
                 'transaction_id': None,
-                'gateway_response': {'status': 'error', 'error': str(e)},
+                'gateway_response': {
+                    'status': 'error',
+                    'error': str(e),
+                    'gateway': 'lipila',
+                    'reference_id': reference_id,
+                    'referenceId': reference_id,
+                    'lipila_response': response_details,
+                },
                 'failure_reason': f'Lipila API error: {str(e)}',
             }
 
