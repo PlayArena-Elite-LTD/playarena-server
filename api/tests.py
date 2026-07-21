@@ -120,9 +120,9 @@ class LipilaServiceTests(TestCase):
             'https://api.lipila.dev/api/v1/disbursements/mobile-money',
         ])
         self.assertEqual(posted_headers[0]['x-api-key'], 'secret')
-        self.assertEqual(posted_headers[0]['Authorization'], 'Bearer secret')
+        self.assertNotIn('Authorization', posted_headers[0])
 
-    def test_disbursement_retries_with_api_key_only_after_unauthorized(self):
+    def test_disbursement_raises_unauthorized_with_api_key_only(self):
         class FakeResponse:
             def __init__(self, status_code, body):
                 self.status_code = status_code
@@ -138,15 +138,12 @@ class LipilaServiceTests(TestCase):
                 if not self.ok:
                     raise HTTPError(f'{self.status_code} error', response=self)
 
-        responses = [
-            FakeResponse(401, {}),
-            FakeResponse(200, {'status': 'Pending', 'identifier': 'WDR-123'}),
-        ]
+        response = FakeResponse(401, {})
         posted_headers = []
 
         def fake_post(url, **kwargs):
             posted_headers.append(kwargs['headers'])
-            return responses.pop(0)
+            return response
 
         service = LipilaService(
             secret_key='secret',
@@ -154,17 +151,17 @@ class LipilaServiceTests(TestCase):
         )
 
         with patch('services.payments.lipila_service.requests.post', side_effect=fake_post):
-            result = service.disburse_mobile_money(
-                reference_id='WDR_1',
-                amount=20.0,
-                account_number='260971234567',
-                currency='ZMW',
-            )
+            with self.assertRaises(HTTPError):
+                service.disburse_mobile_money(
+                    reference_id='WDR_1',
+                    amount=20.0,
+                    account_number='260971234567',
+                    currency='ZMW',
+                )
 
-        self.assertEqual(result['identifier'], 'WDR-123')
-        self.assertEqual(posted_headers[0]['Authorization'], 'Bearer secret')
-        self.assertNotIn('Authorization', posted_headers[1])
-        self.assertEqual(posted_headers[1]['x-api-key'], 'secret')
+        self.assertEqual(len(posted_headers), 1)
+        self.assertNotIn('Authorization', posted_headers[0])
+        self.assertEqual(posted_headers[0]['x-api-key'], 'secret')
 
 
 class LipilaGatewayVerifyTests(TestCase):

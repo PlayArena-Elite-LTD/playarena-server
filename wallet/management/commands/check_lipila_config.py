@@ -17,6 +17,8 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         secret = (getattr(settings, 'LIPILA_SECRET_KEY', '') or '').strip()
         base_url = (getattr(settings, 'LIPILA_BASE_URL', '') or '').strip()
+        disbursement_base_url = (getattr(settings, 'LIPILA_DISBURSEMENT_BASE_URL', '') or '').strip()
+        disbursement_path = (getattr(settings, 'LIPILA_MOBILE_MONEY_DISBURSEMENT_PATH', '') or '').strip()
         currency = (getattr(settings, 'LIPILA_CURRENCY', '') or '').strip()
         mock_mode = bool(getattr(settings, 'LIPILA_MOCK_MODE', False))
         public_base = (getattr(settings, 'PUBLIC_BASE_URL', '') or '').strip()
@@ -27,6 +29,8 @@ class Command(BaseCommand):
         self.stdout.write(f'- PAYMENT_PROVIDER:   {provider or "(not set)"}')
         self.stdout.write(f'- LIPILA_SECRET_KEY:  {_mask(secret)}')
         self.stdout.write(f'- LIPILA_BASE_URL:    {base_url or "(not set)"}')
+        self.stdout.write(f'- DISBURSE_BASE_URL:  {disbursement_base_url or "(uses LIPILA_BASE_URL)"}')
+        self.stdout.write(f'- DISBURSE_PATH:      {disbursement_path or "(not set)"}')
         self.stdout.write(f'- LIPILA_CURRENCY:    {currency or "(not set)"}')
         self.stdout.write(f'- LIPILA_MOCK_MODE:   {mock_mode}')
         self.stdout.write(f'- LIPILA_WEBHOOK_URL: {webhook_url or "(auto from PUBLIC_BASE_URL)"}')

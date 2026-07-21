@@ -1,7 +1,7 @@
 """
 Centralized Lipila HTTP client — all provider API calls go through here.
 
-Auth: Bearer {LIPILA_SECRET_KEY} only (no public key).
+Auth: x-api-key {LIPILA_SECRET_KEY} only.
 """
 from __future__ import annotations
 
@@ -189,7 +189,7 @@ class LipilaService:
         if narration:
             payload['narration'] = narration
 
-        headers = self._headers(callback_url=callback_url)
+        headers = self._api_key_headers(callback_url=callback_url)
         if idempotency_key:
             headers['Idempotency-Key'] = idempotency_key
 
@@ -205,20 +205,6 @@ class LipilaService:
             resp.status_code,
             resp.text[:500],
         )
-        if resp.status_code == 401:
-            logger.warning(
-                'Lipila disbursement rejected bearer auth for ref=%s; retrying with x-api-key only',
-                reference_id,
-            )
-            retry_headers = self._api_key_headers(callback_url=callback_url)
-            if idempotency_key:
-                retry_headers['Idempotency-Key'] = idempotency_key
-            resp = requests.post(url, json=payload, headers=retry_headers, timeout=self.timeout)
-            logger.info(
-                'Lipila disbursement retry response: http=%s body=%s',
-                resp.status_code,
-                resp.text[:500],
-            )
         if not resp.ok:
             logger.error(
                 'Lipila disbursement failed: http=%s body=%s',
