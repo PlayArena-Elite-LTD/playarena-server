@@ -138,6 +138,7 @@ INSTALLED_APPS = [
     'django_ratelimit',  # Rate limiting package
     'rest_framework',
     'drf_spectacular',
+    'rest_framework_simplejwt.token_blacklist',
     'strawberry_django',
     'accounts',
     'wallet',
@@ -209,6 +210,23 @@ SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
     'AUTH_HEADER_TYPES': ('Bearer',),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+}
+
+GRAPHQL_MAX_QUERY_DEPTH = int(os.environ.get('GRAPHQL_MAX_QUERY_DEPTH', '8'))
+GRAPHQL_MAX_QUERY_TOKENS = int(os.environ.get('GRAPHQL_MAX_QUERY_TOKENS', '1000'))
+GRAPHQL_MAX_ALIASES = int(os.environ.get('GRAPHQL_MAX_ALIASES', '20'))
+GRAPHQL_MAX_REQUEST_BYTES = int(os.environ.get('GRAPHQL_MAX_REQUEST_BYTES', '20000'))
+
+GRAPHQL_AUTH_THROTTLE_RATES = {
+    'register': os.environ.get('GRAPHQL_REGISTER_RATE', '5/h'),
+    'token_auth': os.environ.get('GRAPHQL_TOKEN_AUTH_RATE', '10/m'),
+    'password_reset': os.environ.get('GRAPHQL_PASSWORD_RESET_RATE', '3/h'),
+    'password_reset_confirm': os.environ.get('GRAPHQL_PASSWORD_RESET_CONFIRM_RATE', '5/h'),
+    'change_password': os.environ.get('GRAPHQL_CHANGE_PASSWORD_RATE', '5/h'),
+    'logout': os.environ.get('GRAPHQL_LOGOUT_RATE', '20/m'),
+    'verify_token': os.environ.get('GRAPHQL_VERIFY_TOKEN_RATE', '30/m'),
 }
 
 SPECTACULAR_SETTINGS = {

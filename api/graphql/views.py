@@ -1,4 +1,5 @@
 from django.contrib.auth.models import AnonymousUser
+from django.conf import settings
 from django.http import JsonResponse
 from strawberry.django.views import GraphQLView
 from rest_framework_simplejwt.authentication import JWTAuthentication
@@ -11,6 +12,17 @@ class JWTGraphQLView(GraphQLView):
     authentication = JWTAuthentication()
 
     def dispatch(self, request, *args, **kwargs):
+        max_bytes = getattr(settings, "GRAPHQL_MAX_REQUEST_BYTES", 20000)
+        try:
+            content_length = int(request.META.get("CONTENT_LENGTH") or 0)
+        except (TypeError, ValueError):
+            content_length = 0
+        if max_bytes and content_length > max_bytes:
+            return JsonResponse(
+                {"errors": [{"message": "GraphQL request body is too large."}]},
+                status=413,
+            )
+
         request.user = getattr(request, "user", AnonymousUser())
 
         try:
