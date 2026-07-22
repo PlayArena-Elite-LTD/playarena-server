@@ -544,3 +544,251 @@ class PanelStatsTrendView(APIView):
                 'users': {'label': 'New players', 'current': monthly(User, 'date_joined', year), 'previous': monthly(User, 'date_joined', prev)},
             },
         })
+
+
+# ---------------------------------------------------------------- Finance / earnings
+class PanelFinanceView(APIView):
+    """Platform earnings (10% commission) vs money held on behalf of players."""
+    permission_classes = [IsSupportStaff]
+
+    def get(self, request):
+        from django.db.models import Sum, F
+
+        def txn_sum(ttype):
+            return Transaction.objects.filter(transaction_type=ttype).aggregate(s=Sum('amount'))['s'] or Decimal('0')
+
+        deposit = txn_sum('DEPOSIT')                  # +
+        withdrawal = txn_sum('WITHDRAWAL')            # - (negative)
+        creation = txn_sum('MATCH_CREATION')          # -
+        joining = txn_sum('MATCH_JOINING')            # -
+        winnings = txn_sum('MATCH_WINNINGS')          # +
+        draw = txn_sum('MATCH_DRAW_RETURN')           # +
+        refund = txn_sum('MATCH_REFUND')              # +
+
+        staked = -(creation + joining)                # money staked out of player wallets (positive)
+        returned = winnings + draw + refund           # money paid back to players (positive)
+
+        # Money still locked in unresolved matches (not yet earnings, not withdrawable).
+        open_escrow = Match.objects.filter(status='OPEN').aggregate(s=Sum('amount'))['s'] or Decimal('0')
+        active_escrow = Match.objects.filter(status__in=['JOINED', 'DISPUTED']).aggregate(s=Sum('amount'))['s'] or Decimal('0')
+        locked_escrow = Decimal(open_escrow) + Decimal(active_escrow) * 2  # OPEN=1 stake, JOINED/DISPUTED=2 stakes
+
+        platform_earnings = staked - returned - locked_escrow
+
+        player_wallets = Wallet.objects.aggregate(s=Sum('balance'))['s'] or Decimal('0')
+        pending_withdrawals = Withdrawal.objects.filter(status__in=['PENDING', 'PROCESSING']).aggregate(s=Sum('amount'))['s'] or Decimal('0')
+        held_for_players = Decimal(player_wallets) + locked_escrow + Decimal(pending_withdrawals)
+
+        completed = Match.objects.filter(status='COMPLETED', winner__isnull=False)
+        commission_settled = completed.aggregate(s=Sum(F('amount') * 2 - F('winnings')))['s'] or Decimal('0')
+
+        def d(x):
+            return str(Decimal(x).quantize(Decimal('0.01')))
+
+        return Response({
+            'platform_earnings': d(platform_earnings),
+            'held_for_players': d(held_for_players),
+            'breakdown': {
+                'total_deposited': d(deposit),
+                'total_withdrawn': d(-withdrawal),
+                'player_wallet_balances': d(player_wallets),
+                'locked_in_active_matches': d(locked_escrow),
+                'pending_withdrawals': d(pending_withdrawals),
+                'commission_from_settled_matches': d(commission_settled),
+                'matches_settled': completed.count(),
+                'total_staked': d(staked),
+                'total_paid_out': d(returned),
+            },
+        })
+
+
+# ---------------------------------------------------------------- Players leaderboard
+class PanelPlayersView(APIView):
+    """Per-player stats + leaderboard: games played/won/lost/drawn, winnings, deposits, withdrawals."""
+    permission_classes = [IsSupportStaff]
+
+    def get(self, request):
+        from django.db.models import Sum
+        from collections import defaultdict
+
+        # --- match results (played / won / lost / draw) ---
+        rec = defaultdict(lambda: {'played': 0, 'won': 0, 'lost': 0, 'draw': 0})
+        draw_match_ids = set(
+            Transaction.objects.filter(transaction_type='MATCH_DRAW_RETURN', related_match__isnull=False)
+            .values_list('related_match_id', flat=True)
+        )
+        matches = Match.objects.filter(status__in=['JOINED', 'COMPLETED', 'DISPUTED']).values(
+            'id', 'creator_id', 'joiner_id', 'winner_id'
+        )
+        for m in matches:
+            participants = [p for p in (m['creator_id'], m['joiner_id']) if p]
+            for p in participants:
+                rec[p]['played'] += 1
+            if m['id'] in draw_match_ids:
+                for p in participants:
+                    rec[p]['draw'] += 1
+            elif m['winner_id']:
+                rec[m['winner_id']]['won'] += 1
+                for p in participants:
+                    if p != m['winner_id']:
+                        rec[p]['lost'] += 1
+
+        # --- money per user (via transactions) ---
+        def per_user(ttype):
+            return {
+                r['wallet__user']: r['s'] or Decimal('0')
+                for r in Transaction.objects.filter(transaction_type=ttype)
+                .values('wallet__user').annotate(s=Sum('amount'))
+            }
+        deposits = per_user('DEPOSIT')
+        withdrawals = per_user('WITHDRAWAL')   # negative
+        winnings = per_user('MATCH_WINNINGS')
+        balances = {r['user_id']: r['balance'] for r in Wallet.objects.values('user_id', 'balance')}
+
+        # --- assemble rows ---
+        q = (request.query_params.get('q') or '').strip().lower()
+        status_f = request.query_params.get('status', '')
+        has_played = request.query_params.get('has_played', '')
+        users = User.objects.all().values('id', 'username', 'is_active')
+        rows = []
+        for u in users:
+            uid = u['id']
+            if q and q not in u['username'].lower():
+                continue
+            if status_f == 'active' and not u['is_active']:
+                continue
+            if status_f == 'disabled' and u['is_active']:
+                continue
+            r = rec.get(uid, {'played': 0, 'won': 0, 'lost': 0, 'draw': 0})
+            if has_played in ('1', 'true') and r['played'] == 0:
+                continue
+            decided = r['won'] + r['lost'] + r['draw']
+            win_rate = round(100 * r['won'] / decided, 1) if decided else 0.0
+            rows.append({
+                'id': uid,
+                'username': u['username'],
+                'is_active': u['is_active'],
+                'played': r['played'],
+                'won': r['won'],
+                'lost': r['lost'],
+                'draw': r['draw'],
+                'win_rate': win_rate,
+                'winnings': str(Decimal(winnings.get(uid, 0)).quantize(Decimal('0.01'))),
+                'deposited': str(Decimal(deposits.get(uid, 0)).quantize(Decimal('0.01'))),
+                'withdrawn': str((-Decimal(withdrawals.get(uid, 0))).quantize(Decimal('0.01'))),
+                'balance': str(Decimal(balances.get(uid, 0)).quantize(Decimal('0.01'))),
+            })
+
+        # --- sort ---
+        ordering = request.query_params.get('ordering') or 'winnings'
+        numeric = {'played', 'won', 'lost', 'draw', 'win_rate', 'winnings', 'deposited', 'withdrawn', 'balance'}
+        if ordering == 'username':
+            rows.sort(key=lambda x: x['username'].lower())
+        elif ordering in numeric:
+            rows.sort(key=lambda x: float(x[ordering]), reverse=True)
+
+        # --- paginate ---
+        try:
+            page = max(1, int(request.query_params.get('page') or 1))
+        except ValueError:
+            page = 1
+        page_size = 25
+        count = len(rows)
+        start = (page - 1) * page_size
+        return Response({
+            'count': count,
+            'next': None if start + page_size >= count else page + 1,
+            'previous': None if page <= 1 else page - 1,
+            'results': rows[start:start + page_size],
+        })
+
+
+class PanelPlayerDetailView(APIView):
+    """Full profile for one player: stats, match history (with outcome), transactions, disputes."""
+    permission_classes = [IsSupportStaff]
+
+    def get(self, request, user_id):
+        from django.db.models import Sum, Q
+
+        user = get_object_or_404(User, id=user_id)
+        wallet, _ = Wallet.objects.get_or_create(user=user)
+
+        draw_match_ids = set(
+            Transaction.objects.filter(transaction_type='MATCH_DRAW_RETURN', related_match__isnull=False)
+            .values_list('related_match_id', flat=True)
+        )
+
+        matches_qs = (
+            Match.objects.filter(Q(creator=user) | Q(joiner=user))
+            .select_related('creator', 'joiner', 'winner')
+            .order_by('-created_at')
+        )
+
+        played = won = lost = draw = 0
+        match_rows = []
+        for m in matches_qs:
+            if m.id in draw_match_ids:
+                outcome = 'DRAW'
+            elif m.winner_id == user.id:
+                outcome = 'WON'
+            elif m.winner_id and m.winner_id != user.id:
+                outcome = 'LOST'
+            elif m.status in ('OPEN', 'JOINED', 'DISPUTED'):
+                outcome = 'PENDING'
+            else:
+                outcome = 'NA'
+
+            if m.status in ('JOINED', 'COMPLETED', 'DISPUTED'):
+                played += 1
+                if outcome == 'WON':
+                    won += 1
+                elif outcome == 'LOST':
+                    lost += 1
+                elif outcome == 'DRAW':
+                    draw += 1
+
+            data = PanelMatchSerializer(m).data
+            data['outcome'] = outcome
+            data['role'] = 'creator' if m.creator_id == user.id else 'joiner'
+            match_rows.append(data)
+
+        decided = won + lost + draw
+        win_rate = round(100 * won / decided, 1) if decided else 0.0
+
+        def money(ttype):
+            return Transaction.objects.filter(wallet=wallet, transaction_type=ttype).aggregate(s=Sum('amount'))['s'] or Decimal('0')
+
+        deposited = money('DEPOSIT')
+        withdrawn = -money('WITHDRAWAL')
+        winnings = money('MATCH_WINNINGS')
+
+        transactions = Transaction.objects.filter(wallet=wallet).select_related('wallet__user').order_by('-created_at')[:100]
+        disputes = (
+            Dispute.objects.filter(Q(match__creator=user) | Q(match__joiner=user))
+            .select_related('match', 'match__creator', 'match__joiner', 'assigned_to')
+            .order_by('-created_at')
+        )
+
+        return Response({
+            'profile': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'date_joined': user.date_joined,
+                'is_active': user.is_active,
+                'is_support_staff': user.is_support_staff,
+                'is_staff': user.is_staff,
+                'is_superuser': user.is_superuser,
+                'balance': str(wallet.balance),
+            },
+            'stats': {
+                'played': played, 'won': won, 'lost': lost, 'draw': draw, 'win_rate': win_rate,
+                'winnings': str(Decimal(winnings).quantize(Decimal('0.01'))),
+                'deposited': str(Decimal(deposited).quantize(Decimal('0.01'))),
+                'withdrawn': str(Decimal(withdrawn).quantize(Decimal('0.01'))),
+                'balance': str(wallet.balance),
+            },
+            'matches': match_rows,
+            'transactions': PanelTransactionSerializer(transactions, many=True).data,
+            'disputes': PanelDisputeSerializer(disputes, many=True).data,
+        })

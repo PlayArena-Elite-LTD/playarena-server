@@ -5,6 +5,9 @@ from . import panel_views as v
 urlpatterns = [
     path('stats/', v.PanelStatsView.as_view(), name='panel_api_stats'),
     path('stats/trend/', v.PanelStatsTrendView.as_view(), name='panel_api_stats_trend'),
+    path('finance/', v.PanelFinanceView.as_view(), name='panel_api_finance'),
+    path('players/', v.PanelPlayersView.as_view(), name='panel_api_players'),
+    path('players/<int:user_id>/', v.PanelPlayerDetailView.as_view(), name='panel_api_player_detail'),
     path('payment-gateway/', v.PanelPaymentGatewayView.as_view(), name='panel_api_payment_gateway'),
 
     # Users
