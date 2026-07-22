@@ -72,6 +72,18 @@ def _split_csv_env(name: str, default: list[str]) -> list[str]:
     return [p for p in parts if p]
 
 
+def _append_unique(items: list[str], value: str) -> None:
+    if value and value not in items:
+        items.append(value)
+
+
+def _origin_from_url(value: str) -> str:
+    parsed = urlparse((value or "").strip())
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
 # Host/origin configuration
 # - In local dev, you may use a public tunnel domain (ngrok/Cloudflare Tunnel). Set `PUBLIC_BASE_URL`
 #   and (optionally) `DJANGO_ALLOWED_HOSTS` / `DJANGO_CSRF_TRUSTED_ORIGINS` to avoid host/CSRF errors.
@@ -94,6 +106,10 @@ _default_csrf_trusted = [
     "http://localhost:8001",
 ]
 CSRF_TRUSTED_ORIGINS = _split_csv_env("DJANGO_CSRF_TRUSTED_ORIGINS", _default_csrf_trusted)
+FRONTEND_ORIGIN = _origin_from_url(
+    os.environ.get("FRONTEND_ORIGIN", "") or os.environ.get("FRONTEND_URL", "")
+)
+_append_unique(CSRF_TRUSTED_ORIGINS, FRONTEND_ORIGIN)
 
 # Security headers for production
 # In production (DEBUG=False), enforce HTTPS and secure cookies
@@ -504,6 +520,7 @@ CORS_ALLOWED_ORIGINS = [
     "https://lucadev.pythonanywhere.com",
 ]
 CORS_ALLOWED_ORIGINS = _split_csv_env("DJANGO_CORS_ALLOWED_ORIGINS", CORS_ALLOWED_ORIGINS)
+_append_unique(CORS_ALLOWED_ORIGINS, FRONTEND_ORIGIN)
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_METHODS = [
     "GET",

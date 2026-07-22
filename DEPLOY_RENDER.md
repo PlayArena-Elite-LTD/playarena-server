@@ -41,8 +41,20 @@ Recommended first deployment values:
 - `PAYMENT_GATEWAY_TEST_MODE=false`
 - `LIPILA_MOCK_MODE=false`
 - `BANK_PAYOUT_MODE=mock`
-- Set `DJANGO_ALLOWED_HOSTS`, `DJANGO_CSRF_TRUSTED_ORIGINS`, `DJANGO_CORS_ALLOWED_ORIGINS`
+- `DJANGO_ALLOWED_HOSTS=<your-render-service>.onrender.com`
+- `DJANGO_CSRF_TRUSTED_ORIGINS=https://<your-render-service>.onrender.com`
+- `DJANGO_CORS_ALLOWED_ORIGINS=https://play-arena-frontend.vercel.app`
+- `FRONTEND_URL=https://play-arena-frontend.vercel.app`
 - `DATABASE_URL` is auto-wired from the managed Render Postgres service
+
+Your Vercel frontend must call the Render backend URL, not localhost. Set the
+frontend API base URL environment variable used by your frontend build, for
+example:
+
+- `VITE_API_BASE_URL=https://<your-render-service>.onrender.com/api`
+- or `NEXT_PUBLIC_API_BASE_URL=https://<your-render-service>.onrender.com/api`
+
+After changing a Vercel build-time environment variable, redeploy the frontend.
 
 ## 4) Switch to real bank endpoints
 
