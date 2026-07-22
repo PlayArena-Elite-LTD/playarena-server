@@ -4,6 +4,8 @@ from . import panel_views as v
 
 urlpatterns = [
     path('stats/', v.PanelStatsView.as_view(), name='panel_api_stats'),
+    path('stats/trend/', v.PanelStatsTrendView.as_view(), name='panel_api_stats_trend'),
+    path('payment-gateway/', v.PanelPaymentGatewayView.as_view(), name='panel_api_payment_gateway'),
 
     # Users
     path('users/', v.PanelUserListView.as_view(), name='panel_api_users'),

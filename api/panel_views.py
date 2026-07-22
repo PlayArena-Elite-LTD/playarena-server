@@ -448,3 +448,99 @@ class PanelDisputeStatsView(APIView):
             .values('id', 'username', 'total_disputes', 'open_disputes', 'pending_disputes', 'resolved_disputes')
         )
         return Response(list(stats))
+
+
+# ---------------------------------------------------------------- Payment gateway
+# Deposit methods available per active provider (mirrors DepositCreateSerializer.validate).
+GATEWAY_DEPOSIT_METHODS = {
+    'lipila': [
+        {'value': 'LIPILA_MOMO', 'label': 'Lipila Mobile Money'},
+        {'value': 'LIPILA', 'label': 'Lipila (Card / Bank)'},
+    ],
+    'zynle': [
+        {'value': 'ZYNLE_MOMO', 'label': 'Zynle Mobile Money'},
+    ],
+}
+GATEWAY_CHOICES = [
+    {'value': 'lipila', 'label': 'Lipila'},
+    {'value': 'zynle', 'label': 'ZynlePay'},
+]
+
+
+def _gateway_payload():
+    from wallet.models import PaymentGatewaySetting
+    setting, _ = PaymentGatewaySetting.objects.get_or_create(pk=1)
+    provider = setting.active_provider
+    return {
+        'active_provider': provider,
+        'choices': GATEWAY_CHOICES,
+        'deposit_methods': GATEWAY_DEPOSIT_METHODS.get(provider, []),
+        'updated_at': setting.updated_at,
+    }
+
+
+class PanelPaymentGatewayView(APIView):
+    """GET/POST the active deposit gateway (admin only)."""
+    permission_classes = [IsSupportStaff]
+
+    def get(self, request):
+        return Response(_gateway_payload())
+
+    def post(self, request):
+        from wallet.models import PaymentGatewaySetting
+        provider = str(request.data.get('active_provider', '')).strip().lower()
+        valid = {c['value'] for c in GATEWAY_CHOICES}
+        if provider not in valid:
+            return Response(
+                {'detail': f"Invalid provider. Choose one of: {', '.join(sorted(valid))}."},
+                status=400,
+            )
+        setting, _ = PaymentGatewaySetting.objects.get_or_create(pk=1)
+        setting.active_provider = provider
+        setting.save()
+        return Response(_gateway_payload())
+
+
+class ActivePaymentGatewayView(APIView):
+    """Read-only active gateway + valid deposit methods for the deposit form (any user)."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        payload = _gateway_payload()
+        return Response({
+            'active_provider': payload['active_provider'],
+            'deposit_methods': payload['deposit_methods'],
+        })
+
+
+# ---------------------------------------------------------------- Trend (monthly)
+class PanelStatsTrendView(APIView):
+    """Monthly counts for the given year and the year before, for the dashboard chart."""
+    permission_classes = [IsSupportStaff]
+
+    def get(self, request):
+        from django.db.models.functions import ExtractMonth
+        try:
+            year = int(request.query_params.get('year') or timezone.now().year)
+        except (TypeError, ValueError):
+            year = timezone.now().year
+        prev = year - 1
+
+        def monthly(model, date_field, yr):
+            rows = (
+                model.objects.filter(**{f'{date_field}__year': yr})
+                .annotate(m=ExtractMonth(date_field))
+                .values('m').annotate(c=Count('id'))
+            )
+            counts = {r['m']: r['c'] for r in rows}
+            return [counts.get(i, 0) for i in range(1, 13)]
+
+        return Response({
+            'year': year,
+            'previous_year': prev,
+            'metrics': {
+                'matches': {'label': 'Matches created', 'current': monthly(Match, 'created_at', year), 'previous': monthly(Match, 'created_at', prev)},
+                'disputes': {'label': 'Disputes opened', 'current': monthly(Dispute, 'created_at', year), 'previous': monthly(Dispute, 'created_at', prev)},
+                'users': {'label': 'New players', 'current': monthly(User, 'date_joined', year), 'previous': monthly(User, 'date_joined', prev)},
+            },
+        })
