@@ -7,6 +7,7 @@ from drf_spectacular.views import (
     SpectacularSwaggerView
 )
 from .panel_views import ActivePaymentGatewayView
+from .views import LeaderboardView
 from .views import (
     MeView,
     ProfileView,
@@ -76,6 +77,7 @@ urlpatterns = [
     path('wallet/withdraw/', WithdrawalCreateView.as_view(), name='api_wallet_withdraw'),
     path('payment/status/<int:order_id>/', PaymentStatusView.as_view(), name='api_payment_status'),
     path('payment/gateway/', ActivePaymentGatewayView.as_view(), name='api_active_gateway'),
+    path('leaderboard/', LeaderboardView.as_view(), name='api_leaderboard'),
     path('payments/lipila/webhook/', LipilaWebhookView.as_view(), name='api_lipila_webhook'),
     path('payments/zynle/webhook/', ZynleWebhookView.as_view(), name='api_zynle_webhook'),
     
