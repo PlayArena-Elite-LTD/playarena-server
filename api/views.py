@@ -1511,3 +1511,81 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
             {'unread_count': unread_count},
             status=status.HTTP_200_OK
         )
+
+
+class LeaderboardView(APIView):
+    """
+    GET /api/leaderboard/?game=&ordering=
+
+    Public, privacy-safe leaderboard of players ranked by game performance.
+    Optional `game` filter; `ordering` in {won, win_rate, winnings, played}.
+    Exposes only competitive stats (no deposits, withdrawals or balances).
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        from django.db.models import Sum
+        from collections import defaultdict
+        from wallet.models import Transaction
+
+        game = (request.query_params.get('game') or '').strip()
+        ordering = request.query_params.get('ordering') or 'won'
+        if ordering not in ('won', 'win_rate', 'winnings', 'played'):
+            ordering = 'won'
+
+        matches_qs = Match.objects.filter(status__in=['JOINED', 'COMPLETED', 'DISPUTED'])
+        if game:
+            matches_qs = matches_qs.filter(game=game)
+
+        draw_ids = set(
+            Transaction.objects.filter(transaction_type='MATCH_DRAW_RETURN', related_match__isnull=False)
+            .values_list('related_match_id', flat=True)
+        )
+
+        rec = defaultdict(lambda: {'played': 0, 'won': 0, 'lost': 0, 'draw': 0})
+        for m in matches_qs.values('id', 'creator_id', 'joiner_id', 'winner_id'):
+            participants = [p for p in (m['creator_id'], m['joiner_id']) if p]
+            for p in participants:
+                rec[p]['played'] += 1
+            if m['id'] in draw_ids:
+                for p in participants:
+                    rec[p]['draw'] += 1
+            elif m['winner_id']:
+                rec[m['winner_id']]['won'] += 1
+                for p in participants:
+                    if p != m['winner_id']:
+                        rec[p]['lost'] += 1
+
+        win_qs = Transaction.objects.filter(transaction_type='MATCH_WINNINGS')
+        if game:
+            win_qs = win_qs.filter(related_match__game=game)
+        winnings = {
+            r['wallet__user']: r['s'] or 0
+            for r in win_qs.values('wallet__user').annotate(s=Sum('amount'))
+        }
+
+        usernames = dict(User.objects.values_list('id', 'username'))
+
+        rows = []
+        for uid, r in rec.items():
+            if r['played'] == 0:
+                continue
+            decided = r['won'] + r['lost'] + r['draw']
+            rows.append({
+                'user_id': uid,
+                'username': usernames.get(uid, f'#{uid}'),
+                'played': r['played'],
+                'won': r['won'],
+                'lost': r['lost'],
+                'draw': r['draw'],
+                'win_rate': round(100 * r['won'] / decided, 1) if decided else 0.0,
+                'winnings': str(winnings.get(uid, 0)),
+            })
+
+        rows.sort(key=lambda x: float(x[ordering]), reverse=True)
+        for i, row in enumerate(rows):
+            row['rank'] = i + 1
+
+        me = next((r for r in rows if r['user_id'] == request.user.id), None)
+
+        return Response({'results': rows[:100], 'me': me, 'game': game or None, 'ordering': ordering})
