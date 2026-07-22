@@ -77,6 +77,9 @@ urlpatterns = [
     path('payments/lipila/webhook/', LipilaWebhookView.as_view(), name='api_lipila_webhook'),
     path('payments/zynle/webhook/', ZynleWebhookView.as_view(), name='api_zynle_webhook'),
     
+    # Admin/support panel API
+    path('panel/', include('api.panel_urls')),
+
     # Include router URLs (disputes, messages, notifications)
     path('', include(router.urls)),
 ]
