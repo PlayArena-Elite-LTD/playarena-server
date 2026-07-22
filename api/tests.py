@@ -2,15 +2,19 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 from decimal import Decimal
 from requests import HTTPError
 from unittest.mock import patch
 
+from django.core import mail
+from django.core.cache import cache
 from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase, APIClient
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from alert.models import Notification, ReadNotification
@@ -483,6 +487,673 @@ class MatchApiTests(APITestCase):
         self.joiner_wallet.refresh_from_db()
         self.assertEqual(match.status, 'JOINED')
         self.assertEqual(self.joiner_wallet.balance, Decimal('90.00'))
+
+
+class GraphQLAPITests(APITestCase):
+    def setUp(self):
+        cache.clear()
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            username='graphql_user',
+            email='graphql@test.com',
+            password='testpass123',
+        )
+        self.opponent = User.objects.create_user(
+            username='opponent',
+            email='opponent@test.com',
+            password='testpass123',
+        )
+        self.other = User.objects.create_user(
+            username='other_graphql',
+            email='other_graphql@test.com',
+            password='testpass123',
+        )
+
+        self.user.profile.first_name = 'Graph'
+        self.user.profile.last_name = 'User'
+        self.user.profile.save(update_fields=['first_name', 'last_name'])
+
+        self.wallet, _created = Wallet.objects.get_or_create(user=self.user)
+        self.wallet.balance = Decimal('125.50')
+        self.wallet.save(update_fields=['balance'])
+        self.opponent_wallet, _created = Wallet.objects.get_or_create(user=self.opponent)
+        self.opponent_wallet.balance = Decimal('100.00')
+        self.opponent_wallet.save(update_fields=['balance'])
+
+        self.match = Match.objects.create(
+            creator=self.user,
+            joiner=self.opponent,
+            game='FIFA_MOBILE',
+            device='MOBILE',
+            privacy='PUBLIC',
+            amount=10,
+            status='JOINED',
+        )
+        self.available_match = Match.objects.create(
+            creator=self.opponent,
+            game='CHESS_COM',
+            device='MOBILE',
+            privacy='PUBLIC',
+            amount=5,
+            status='OPEN',
+        )
+        Match.objects.create(
+            creator=self.other,
+            game='PUBG_MOBILE',
+            device='MOBILE',
+            privacy='PRIVATE',
+            amount=20,
+            status='OPEN',
+        )
+        self.transaction = Transaction.objects.create(
+            wallet=self.wallet,
+            amount=Decimal('125.50'),
+            transaction_type='DEPOSIT',
+            description='Initial balance',
+            related_match=self.match,
+        )
+
+        self.token = str(RefreshToken.for_user(self.user).access_token)
+
+    def graphql(self, query, variables=None, token=None):
+        if token is False:
+            self.client.credentials()
+        elif token is not None:
+            self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+        else:
+            self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.token}')
+        return self.client.post(
+            '/api/graphql/',
+            {'query': query, 'variables': variables or {}},
+            format='json',
+        )
+
+    def test_me_wallet_and_transactions_use_bearer_jwt(self):
+        response = self.graphql(
+            '''
+            query {
+              me {
+                id
+                username
+                email
+                profile {
+                  firstName
+                  lastName
+                }
+              }
+              wallet {
+                id
+                balance
+              }
+              transactions {
+                id
+                amount
+                transactionType
+                description
+                isCredit
+                relatedMatch {
+                  id
+                  game
+                  creator {
+                    username
+                  }
+                }
+              }
+            }
+            '''
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        self.assertEqual(body['data']['me']['username'], self.user.username)
+        self.assertEqual(body['data']['me']['email'], self.user.email)
+        self.assertEqual(body['data']['me']['profile']['firstName'], 'Graph')
+        self.assertEqual(body['data']['wallet']['balance'], '125.50')
+        self.assertEqual(body['data']['transactions'][0]['transactionType'], 'DEPOSIT')
+        self.assertTrue(body['data']['transactions'][0]['isCredit'])
+        self.assertEqual(
+            body['data']['transactions'][0]['relatedMatch']['creator']['username'],
+            self.user.username,
+        )
+
+    def test_matches_support_filters_and_available_flag(self):
+        response = self.graphql(
+            '''
+            query {
+              matches(available: true) {
+                id
+                game
+                status
+                privacy
+              }
+            }
+            '''
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        match_ids = {int(item['id']) for item in body['data']['matches']}
+        self.assertEqual(match_ids, {self.available_match.id})
+        self.assertEqual(body['data']['matches'][0]['status'], 'OPEN')
+        self.assertEqual(body['data']['matches'][0]['privacy'], 'PUBLIC')
+
+    def test_my_matches_only_returns_current_user_matches(self):
+        response = self.graphql(
+            '''
+            query {
+              myMatches {
+                id
+                game
+                joiner {
+                  username
+                }
+              }
+            }
+            '''
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        self.assertEqual([int(item['id']) for item in body['data']['myMatches']], [self.match.id])
+        self.assertEqual(body['data']['myMatches'][0]['joiner']['username'], self.opponent.username)
+
+    def test_authenticated_queries_reject_missing_token(self):
+        self.client.credentials()
+        response = self.client.post(
+            '/api/graphql/',
+            {'query': 'query { wallet { id balance } }'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertIn('errors', body)
+        self.assertEqual(body['data'], None)
+        self.assertEqual(body['errors'][0]['message'], 'Authentication required.')
+
+    def test_auth_and_profile_mutations(self):
+        response = self.graphql(
+            '''
+            mutation {
+              register(
+                username: "new_graphql_user",
+                email: "new_graphql@test.com",
+                password: "testpass123",
+                passwordConfirm: "testpass123"
+              ) {
+                user { username email }
+                access
+                refresh
+              }
+            }
+            ''',
+            token=False,
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        self.assertEqual(body['data']['register']['user']['username'], 'new_graphql_user')
+        self.assertTrue(body['data']['register']['access'])
+
+        response = self.graphql(
+            '''
+            mutation {
+              tokenAuth(username: "new_graphql_user", password: "testpass123") {
+                access
+                refresh
+              }
+            }
+            ''',
+            token=False,
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        self.assertTrue(body['data']['tokenAuth']['access'])
+
+        response = self.graphql(
+            '''
+            mutation {
+              updateProfile(firstName: "Updated", lastName: "Player") {
+                username
+                profile { firstName lastName }
+              }
+            }
+            '''
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        self.assertEqual(body['data']['updateProfile']['profile']['firstName'], 'Updated')
+        self.assertEqual(body['data']['updateProfile']['profile']['lastName'], 'Player')
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_password_reset_request_and_confirm_mutations(self):
+        mail.outbox = []
+        response = self.graphql(
+            '''
+            mutation {
+              requestPasswordReset(email: "graphql@test.com") {
+                message
+              }
+            }
+            ''',
+            token=False,
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        self.assertEqual(len(mail.outbox), 1)
+        reset_match = re.search(r'/accounts/reset/([^/]+)/([^/]+)/', mail.outbox[0].body)
+        self.assertIsNotNone(reset_match)
+        uid, reset_token = reset_match.groups()
+
+        response = self.graphql(
+            '''
+            mutation Reset($uid: String!, $token: String!) {
+              resetPasswordConfirm(
+                uid: $uid,
+                token: $token,
+                newPassword: "newpass12345",
+                newPasswordConfirm: "newpass12345"
+              ) {
+                message
+              }
+            }
+            ''',
+            variables={'uid': uid, 'token': reset_token},
+            token=False,
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        self.assertEqual(
+            body['data']['resetPasswordConfirm']['message'],
+            'Password has been reset successfully.',
+        )
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('newpass12345'))
+
+    def test_token_verify_refresh_rotation_and_logout_blacklist(self):
+        response = self.graphql(
+            '''
+            mutation {
+              tokenAuth(username: "graphql_user", password: "testpass123") {
+                access
+                refresh
+              }
+            }
+            ''',
+            token=False,
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        access = body['data']['tokenAuth']['access']
+        refresh = body['data']['tokenAuth']['refresh']
+
+        response = self.graphql(
+            '''
+            mutation Verify($token: String!) {
+              verifyToken(token: $token) {
+                valid
+                tokenType
+                userId
+              }
+            }
+            ''',
+            variables={'token': access},
+            token=False,
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        self.assertTrue(body['data']['verifyToken']['valid'])
+        self.assertEqual(body['data']['verifyToken']['tokenType'], 'access')
+        self.assertEqual(int(body['data']['verifyToken']['userId']), self.user.id)
+
+        response = self.graphql(
+            '''
+            mutation Refresh($refresh: String!) {
+              refreshToken(refresh: $refresh) {
+                access
+                refresh
+              }
+            }
+            ''',
+            variables={'refresh': refresh},
+            token=False,
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        rotated_refresh = body['data']['refreshToken']['refresh']
+        self.assertTrue(rotated_refresh)
+
+        response = self.graphql(
+            '''
+            mutation Logout($refresh: String!) {
+              logout(refresh: $refresh) {
+                message
+              }
+            }
+            ''',
+            variables={'refresh': rotated_refresh},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        self.assertEqual(body['data']['logout']['message'], 'Logged out successfully.')
+        self.assertTrue(BlacklistedToken.objects.exists())
+
+        response = self.graphql(
+            '''
+            mutation Verify($token: String!) {
+              verifyToken(token: $token) {
+                valid
+              }
+            }
+            ''',
+            variables={'token': rotated_refresh},
+            token=False,
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        self.assertFalse(body['data']['verifyToken']['valid'])
+
+    @override_settings(GRAPHQL_AUTH_THROTTLE_RATES={
+        'register': '5/h',
+        'token_auth': '1/m',
+        'password_reset': '3/h',
+        'password_reset_confirm': '5/h',
+        'change_password': '5/h',
+        'logout': '20/m',
+        'verify_token': '30/m',
+    })
+    def test_auth_mutations_are_throttled(self):
+        for _ in range(2):
+            response = self.graphql(
+                '''
+                mutation {
+                  tokenAuth(username: "graphql_user", password: "wrong-password") {
+                    access
+                  }
+                }
+                ''',
+                token=False,
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertIn('errors', body)
+        self.assertEqual(body['errors'][0]['message'], 'Too many requests. Please try again later.')
+
+    @override_settings(GRAPHQL_MAX_REQUEST_BYTES=50)
+    def test_graphql_request_size_limit(self):
+        response = self.graphql(
+            '''
+            query {
+              me {
+                id
+                username
+              }
+            }
+            '''
+        )
+        self.assertEqual(response.status_code, 413)
+        self.assertEqual(response.json()['errors'][0]['message'], 'GraphQL request body is too large.')
+
+    def test_graphql_alias_limit(self):
+        aliased_fields = '\n'.join(f'a{i}: me {{ id }}' for i in range(25))
+        response = self.graphql(f'query {{ {aliased_fields} }}')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertIn('errors', body)
+
+    def test_match_mutations_create_join_and_submit_result(self):
+        response = self.graphql(
+            '''
+            mutation {
+              createMatch(game: "FIFA_MOBILE", device: "MOBILE", privacy: "PUBLIC", amount: 10) {
+                message
+                match { id status joiningCode creator { username } }
+              }
+            }
+            '''
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        match_id = int(body['data']['createMatch']['match']['id'])
+        joining_code = body['data']['createMatch']['match']['joiningCode']
+
+        opponent_token = str(RefreshToken.for_user(self.opponent).access_token)
+        response = self.graphql(
+            '''
+            mutation Join($joiningCode: String!) {
+              joinMatch(joiningCode: $joiningCode) {
+                match { id status joiner { username } }
+              }
+            }
+            ''',
+            variables={'joiningCode': joining_code},
+            token=opponent_token,
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        self.assertEqual(body['data']['joinMatch']['match']['status'], 'JOINED')
+        self.assertEqual(body['data']['joinMatch']['match']['joiner']['username'], self.opponent.username)
+
+        response = self.graphql(
+            '''
+            mutation Submit($matchId: ID!) {
+              submitMatchResult(matchId: $matchId, submission: "WON") {
+                message
+              }
+            }
+            ''',
+            variables={'matchId': match_id},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn('errors', response.json())
+
+        response = self.graphql(
+            '''
+            mutation Submit($matchId: ID!) {
+              submitMatchResult(matchId: $matchId, submission: "LOST") {
+                status
+                winnerId
+                match { status winner { username } }
+              }
+            }
+            ''',
+            variables={'matchId': match_id},
+            token=opponent_token,
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        self.assertEqual(body['data']['submitMatchResult']['status'], 'COMPLETED')
+        self.assertEqual(body['data']['submitMatchResult']['match']['winner']['username'], self.user.username)
+
+    @override_settings(WALLET_AUTO_PROCESS_WITHDRAWALS=False)
+    def test_wallet_payment_queries_and_mutations(self):
+        response = self.graphql(
+            '''
+            mutation {
+              createDeposit(amount: "20.00", paymentMethod: "BANK_TRANSFER") {
+                orderId
+                status
+                amount
+                pending
+                message
+              }
+            }
+            '''
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        order_id = body['data']['createDeposit']['orderId']
+        self.assertEqual(body['data']['createDeposit']['status'], 'PENDING')
+        self.assertEqual(body['data']['createDeposit']['amount'], '20.00')
+
+        response = self.graphql(
+            '''
+            query PaymentStatus($orderId: ID!) {
+              paymentStatus(orderId: $orderId) {
+                orderId
+                status
+                pending
+              }
+            }
+            ''',
+            variables={'orderId': order_id},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        self.assertEqual(body['data']['paymentStatus']['status'], 'PENDING')
+
+        response = self.graphql(
+            '''
+            mutation {
+              createWithdrawal(
+                amount: "5.00",
+                paymentMethod: "BANK_TRANSFER",
+                accountDetails: "Account 123"
+              ) {
+                withdrawalId
+                status
+                amount
+                message
+              }
+            }
+            '''
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        self.assertEqual(body['data']['createWithdrawal']['status'], 'PENDING')
+        self.assertEqual(body['data']['createWithdrawal']['amount'], '5.00')
+
+    def test_message_notification_and_conversation_operations(self):
+        response = self.graphql(
+            '''
+            mutation Send($receiverId: ID!) {
+              sendMessage(receiverId: $receiverId, message: "Hello from GraphQL") {
+                id
+                message
+                senderUsername
+                receiverUsername
+              }
+            }
+            ''',
+            variables={'receiverId': self.opponent.id},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        self.assertEqual(body['data']['sendMessage']['message'], 'Hello from GraphQL')
+
+        opponent_token = str(RefreshToken.for_user(self.opponent).access_token)
+        response = self.graphql(
+            '''
+            query Conversation($userId: ID!) {
+              conversation(userId: $userId) {
+                message
+                isRead
+              }
+              conversations {
+                username
+                unreadCount
+              }
+              unreadNotificationCount
+              notifications {
+                id
+                message
+                isRead
+              }
+            }
+            ''',
+            variables={'userId': self.user.id},
+            token=opponent_token,
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        self.assertEqual(body['data']['conversation'][0]['message'], 'Hello from GraphQL')
+        self.assertEqual(body['data']['unreadNotificationCount'], 1)
+        notification_id = body['data']['notifications'][0]['id']
+
+        response = self.graphql(
+            '''
+            mutation Mark($notificationId: ID!) {
+              markNotificationRead(notificationId: $notificationId) {
+                id
+                isRead
+              }
+            }
+            ''',
+            variables={'notificationId': notification_id},
+            token=opponent_token,
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        self.assertTrue(body['data']['markNotificationRead']['isRead'])
+
+    def test_dispute_queries_and_resolve_mutation(self):
+        dispute = Dispute.objects.create(match=self.match, status='OPEN')
+        staff = User.objects.create_user(
+            username='graphql_staff',
+            email='graphql_staff@test.com',
+            password='testpass123',
+            is_staff=True,
+            is_support_staff=True,
+        )
+        staff_token = str(RefreshToken.for_user(staff).access_token)
+
+        response = self.graphql(
+            '''
+            query {
+              disputes(status: "OPEN") {
+                id
+                status
+                matchId
+                creatorUsername
+                joinerUsername
+              }
+            }
+            '''
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        self.assertIn(dispute.id, {int(item['id']) for item in body['data']['disputes']})
+
+        response = self.graphql(
+            '''
+            mutation Resolve($disputeId: ID!) {
+              resolveDispute(disputeId: $disputeId, status: "RESOLVED", resolutionNotes: "Resolved") {
+                id
+                status
+                resolutionNotes
+              }
+            }
+            ''',
+            variables={'disputeId': dispute.id},
+            token=staff_token,
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        self.assertEqual(body['data']['resolveDispute']['status'], 'RESOLVED')
+        self.assertEqual(body['data']['resolveDispute']['resolutionNotes'], 'Resolved')
 
 
 class BaseAPITestCase(APITestCase):
