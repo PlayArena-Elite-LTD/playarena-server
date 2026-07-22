@@ -138,6 +138,7 @@ INSTALLED_APPS = [
     'django_ratelimit',  # Rate limiting package
     'rest_framework',
     'drf_spectacular',
+    'strawberry_django',
     'accounts',
     'wallet',
     'matches',

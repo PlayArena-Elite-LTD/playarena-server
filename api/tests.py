@@ -485,6 +485,186 @@ class MatchApiTests(APITestCase):
         self.assertEqual(self.joiner_wallet.balance, Decimal('90.00'))
 
 
+class GraphQLAPITests(APITestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            username='graphql_user',
+            email='graphql@test.com',
+            password='testpass123',
+        )
+        self.opponent = User.objects.create_user(
+            username='opponent',
+            email='opponent@test.com',
+            password='testpass123',
+        )
+        self.other = User.objects.create_user(
+            username='other_graphql',
+            email='other_graphql@test.com',
+            password='testpass123',
+        )
+
+        self.user.profile.first_name = 'Graph'
+        self.user.profile.last_name = 'User'
+        self.user.profile.save(update_fields=['first_name', 'last_name'])
+
+        self.wallet, _created = Wallet.objects.get_or_create(user=self.user)
+        self.wallet.balance = Decimal('125.50')
+        self.wallet.save(update_fields=['balance'])
+
+        self.match = Match.objects.create(
+            creator=self.user,
+            joiner=self.opponent,
+            game='FIFA_MOBILE',
+            device='MOBILE',
+            privacy='PUBLIC',
+            amount=10,
+            status='JOINED',
+        )
+        self.available_match = Match.objects.create(
+            creator=self.opponent,
+            game='CHESS_COM',
+            device='MOBILE',
+            privacy='PUBLIC',
+            amount=5,
+            status='OPEN',
+        )
+        Match.objects.create(
+            creator=self.other,
+            game='PUBG_MOBILE',
+            device='MOBILE',
+            privacy='PRIVATE',
+            amount=20,
+            status='OPEN',
+        )
+        self.transaction = Transaction.objects.create(
+            wallet=self.wallet,
+            amount=Decimal('125.50'),
+            transaction_type='DEPOSIT',
+            description='Initial balance',
+            related_match=self.match,
+        )
+
+        self.token = str(RefreshToken.for_user(self.user).access_token)
+
+    def graphql(self, query, variables=None, token=None):
+        if token is not None:
+            self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+        else:
+            self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.token}')
+        return self.client.post(
+            '/api/graphql/',
+            {'query': query, 'variables': variables or {}},
+            format='json',
+        )
+
+    def test_me_wallet_and_transactions_use_bearer_jwt(self):
+        response = self.graphql(
+            '''
+            query {
+              me {
+                id
+                username
+                email
+                profile {
+                  firstName
+                  lastName
+                }
+              }
+              wallet {
+                id
+                balance
+              }
+              transactions {
+                id
+                amount
+                transactionType
+                description
+                isCredit
+                relatedMatch {
+                  id
+                  game
+                  creator {
+                    username
+                  }
+                }
+              }
+            }
+            '''
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        self.assertEqual(body['data']['me']['username'], self.user.username)
+        self.assertEqual(body['data']['me']['email'], self.user.email)
+        self.assertEqual(body['data']['me']['profile']['firstName'], 'Graph')
+        self.assertEqual(body['data']['wallet']['balance'], '125.50')
+        self.assertEqual(body['data']['transactions'][0]['transactionType'], 'DEPOSIT')
+        self.assertTrue(body['data']['transactions'][0]['isCredit'])
+        self.assertEqual(
+            body['data']['transactions'][0]['relatedMatch']['creator']['username'],
+            self.user.username,
+        )
+
+    def test_matches_support_filters_and_available_flag(self):
+        response = self.graphql(
+            '''
+            query {
+              matches(available: true) {
+                id
+                game
+                status
+                privacy
+              }
+            }
+            '''
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        match_ids = {int(item['id']) for item in body['data']['matches']}
+        self.assertEqual(match_ids, {self.available_match.id})
+        self.assertEqual(body['data']['matches'][0]['status'], 'OPEN')
+        self.assertEqual(body['data']['matches'][0]['privacy'], 'PUBLIC')
+
+    def test_my_matches_only_returns_current_user_matches(self):
+        response = self.graphql(
+            '''
+            query {
+              myMatches {
+                id
+                game
+                joiner {
+                  username
+                }
+              }
+            }
+            '''
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertNotIn('errors', body)
+        self.assertEqual([int(item['id']) for item in body['data']['myMatches']], [self.match.id])
+        self.assertEqual(body['data']['myMatches'][0]['joiner']['username'], self.opponent.username)
+
+    def test_authenticated_queries_reject_missing_token(self):
+        self.client.credentials()
+        response = self.client.post(
+            '/api/graphql/',
+            {'query': 'query { wallet { id balance } }'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertIn('errors', body)
+        self.assertEqual(body['data'], None)
+        self.assertEqual(body['errors'][0]['message'], 'Authentication required.')
+
+
 class BaseAPITestCase(APITestCase):
     """Base test case for API tests"""
     

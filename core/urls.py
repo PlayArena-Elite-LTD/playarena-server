@@ -1,15 +1,26 @@
 from django.contrib import admin
+from django.conf import settings
 from django.urls import path, include
 from django.views.generic import TemplateView
 from django.views.generic.base import RedirectView
 from django.contrib.auth import views as auth_views
 # Import to trigger admin customization
 from core import admin as core_admin
+from api.graphql.schema import schema
+from api.graphql.views import JWTGraphQLView
 
 urlpatterns = [
     path('favicon.ico', RedirectView.as_view(url='/static/favicon.svg', permanent=False)),
     path('admin/', admin.site.urls),
     path('api/', include('api.urls')),
+    path(
+        'api/graphql/',
+        JWTGraphQLView.as_view(
+            schema=schema,
+            graphql_ide='graphiql' if settings.DEBUG else None,
+        ),
+        name='graphql',
+    ),
     path('accounts/', include('accounts.urls')),
     path('accounts/', include('django.contrib.auth.urls')),
     path('matches/', include('matches.urls')),
