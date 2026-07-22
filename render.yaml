@@ -27,6 +27,8 @@ services:
         sync: false
       - key: DJANGO_CORS_ALLOWED_ORIGINS
         sync: false
+      - key: FRONTEND_URL
+        value: "https://play-arena-frontend.vercel.app"
       - key: SECRET_KEY
         generateValue: true
       - key: PAYMENT_GATEWAY_TEST_MODE
