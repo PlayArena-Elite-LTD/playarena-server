@@ -19,7 +19,7 @@ from alert.models import Notification
 
 logger = logging.getLogger(__name__)
 
-WITHDRAWAL_ADMIN_EMAIL = 'josephmbuzi9@gmail.com'
+WITHDRAWAL_ADMIN_EMAIL = 'helloplayarena@gmail.com'
 
 
 def _wallet_link(url_name):
