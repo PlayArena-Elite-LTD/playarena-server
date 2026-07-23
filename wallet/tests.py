@@ -53,7 +53,7 @@ class WithdrawalViewTests(TestCase):
         self.assertEqual(len(mail.outbox), 2)
         self.assertEqual(mail.outbox[0].to, ['withdrawer@test.com'])
         self.assertIn('Withdrawal request received', mail.outbox[0].subject)
-        self.assertEqual(mail.outbox[1].to, ['josephmbuzi9@gmail.com'])
+        self.assertEqual(mail.outbox[1].to, ['helloplayarena@gmail.com'])
         self.assertIn(f'New withdrawal request #{withdrawal.id}', mail.outbox[1].subject)
         self.assertIn('Account details: 260974221154|Airtel', mail.outbox[1].body)
 
