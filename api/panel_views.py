@@ -772,6 +772,7 @@ class PanelPlayerDetailView(APIView):
         return Response({
             'profile': {
                 'id': user.id,
+                'wallet_id': wallet.id,
                 'username': user.username,
                 'email': user.email,
                 'date_joined': user.date_joined,
@@ -792,3 +793,472 @@ class PanelPlayerDetailView(APIView):
             'transactions': PanelTransactionSerializer(transactions, many=True).data,
             'disputes': PanelDisputeSerializer(disputes, many=True).data,
         })
+
+
+# ---------------------------------------------------------------- Audit log
+class PanelAuditLogView(APIView):
+    """Paginated audit trail with action/user/text filters."""
+    permission_classes = [IsSupportStaff]
+
+    def get(self, request):
+        import json
+        from audit.models import AuditLog
+
+        qs = AuditLog.objects.select_related('user').all()
+        action = request.query_params.get('action', '')
+        q = (request.query_params.get('q') or '').strip()
+        user_id = request.query_params.get('user')
+        if action:
+            qs = qs.filter(action=action)
+        if user_id:
+            qs = qs.filter(user_id=user_id)
+        if q:
+            qs = qs.filter(Q(user__username__icontains=q) | Q(action__icontains=q) | Q(details__icontains=q))
+
+        try:
+            page = max(1, int(request.query_params.get('page') or 1))
+        except ValueError:
+            page = 1
+        page_size = 30
+        count = qs.count()
+        start = (page - 1) * page_size
+        rows = []
+        for log in qs[start:start + page_size]:
+            try:
+                details = json.loads(log.details) if log.details else {}
+            except (ValueError, TypeError):
+                details = log.details
+            rows.append({
+                'id': log.id,
+                'action': log.action,
+                'username': log.user.username if log.user else 'System',
+                'user_id': log.user_id,
+                'timestamp': log.timestamp,
+                'ip_address': log.ip_address,
+                'user_agent': log.user_agent,
+                'details': details,
+            })
+
+        actions = list(AuditLog.objects.values_list('action', flat=True).distinct().order_by('action'))
+        return Response({
+            'count': count,
+            'next': None if start + page_size >= count else page + 1,
+            'previous': None if page <= 1 else page - 1,
+            'results': rows,
+            'actions': actions,
+        })
+
+
+# ---------------------------------------------------------------- Wallet integrity
+class PanelWalletIntegrityView(APIView):
+    """List wallets whose balance != sum of transactions; reconcile all."""
+    permission_classes = [IsSupportStaff]
+
+    def get(self, request):
+        discrepancies = Wallet.find_wallets_with_discrepancies().select_related('user')
+        rows = []
+        total_gap = Decimal('0')
+        for w in discrepancies:
+            res = w.verify_balance_integrity()
+            gap = res['discrepancy']
+            total_gap += abs(gap)
+            rows.append({
+                'wallet_id': w.id,
+                'username': w.user.username,
+                'actual_balance': str(res['actual_balance']),
+                'expected_balance': str(res['expected_balance']),
+                'discrepancy': str(gap),
+                'transaction_count': res['transaction_count'],
+            })
+        return Response({
+            'total_wallets': Wallet.objects.count(),
+            'discrepancy_count': len(rows),
+            'total_discrepancy': str(total_gap),
+            'results': rows,
+        })
+
+    def post(self, request):
+        """Reconcile all wallets (recalculate balances from transactions)."""
+        result = Wallet.reconcile_all_wallets(dry_run=False)
+        return Response({
+            'message': f"Reconciled {result['wallets_fixed']} of {result['wallets_with_discrepancies']} flagged wallets.",
+            'total_wallets': result['total_wallets'],
+            'wallets_fixed': result['wallets_fixed'],
+        })
+
+
+# ---------------------------------------------------------------- Risk / suspicious activity
+class PanelRiskView(APIView):
+    """Recompute fraud/risk signals from wallet, withdrawal, deposit and audit data."""
+    permission_classes = [IsSupportStaff]
+
+    def get(self, request):
+        import json
+        from collections import defaultdict
+        from audit.models import AuditLog
+
+        LARGE = Decimal('5000.00')
+
+        usernames = dict(User.objects.values_list('id', 'username'))
+
+        # 1) Withdrawals the live fraud detector flagged (from audit log)
+        flagged = []
+        for log in AuditLog.objects.filter(action='withdrawal_created').order_by('-timestamp')[:500]:
+            try:
+                d = json.loads(log.details) if log.details else {}
+            except (ValueError, TypeError):
+                d = {}
+            if isinstance(d, dict) and d.get('suspicious'):
+                flagged.append({
+                    'withdrawal_id': d.get('withdrawal_id'),
+                    'username': log.user.username if log.user else 'System',
+                    'amount': d.get('amount'),
+                    'payment_method': d.get('payment_method'),
+                    'ip_address': log.ip_address or d.get('ip_address'),
+                    'timestamp': log.timestamp,
+                })
+
+        # 2) Large withdrawals
+        large = [{
+            'withdrawal_id': w.id, 'username': w.user.username, 'amount': str(w.amount),
+            'status': w.status, 'payment_method': w.payment_method, 'created_at': w.created_at,
+        } for w in Withdrawal.objects.filter(amount__gte=LARGE).select_related('user').order_by('-created_at')[:50]]
+
+        # 3) Shared IPs — same IP used by multiple accounts (multi-accounting)
+        ip_users = defaultdict(set)
+        for ip, uid in Withdrawal.objects.exclude(ip_address__isnull=True).values_list('ip_address', 'user_id'):
+            ip_users[ip].add(uid)
+        for ip, uid in Deposit.objects.exclude(ip_address__isnull=True).values_list('ip_address', 'user_id'):
+            ip_users[ip].add(uid)
+        shared_ips = sorted(
+            [{'ip_address': ip, 'user_count': len(uids), 'users': [usernames.get(u, f'#{u}') for u in list(uids)[:12]]}
+             for ip, uids in ip_users.items() if len(uids) > 1],
+            key=lambda x: x['user_count'], reverse=True,
+        )[:50]
+
+        # 4) Users withdrawing from many distinct IPs (possible account compromise)
+        user_ips = defaultdict(set)
+        for uid, ip in Withdrawal.objects.exclude(ip_address__isnull=True).values_list('user_id', 'ip_address'):
+            user_ips[uid].add(ip)
+        multi_ip = sorted(
+            [{'user_id': uid, 'username': usernames.get(uid, f'#{uid}'), 'ip_count': len(ips)}
+             for uid, ips in user_ips.items() if len(ips) > 2],
+            key=lambda x: x['ip_count'], reverse=True,
+        )[:50]
+
+        disc_count = Wallet.find_wallets_with_discrepancies().count()
+
+        return Response({
+            'summary': {
+                'flagged_withdrawals': len(flagged),
+                'large_withdrawals': len(large),
+                'shared_ip_clusters': len(shared_ips),
+                'multi_ip_users': len(multi_ip),
+                'wallet_discrepancies': disc_count,
+                'large_threshold': str(LARGE),
+            },
+            'flagged_withdrawals': flagged[:50],
+            'large_withdrawals': large,
+            'shared_ips': shared_ips,
+            'multi_ip_users': multi_ip,
+        })
+
+
+# ================================================================ Money operations
+class PanelReportsView(APIView):
+    """Daily deposits vs withdrawals, net cash flow and commission earned."""
+    permission_classes = [IsSupportStaff]
+
+    def get(self, request):
+        from collections import defaultdict
+        try:
+            days = min(365, max(7, int(request.query_params.get('days') or 30)))
+        except ValueError:
+            days = 30
+        start = timezone.now() - timedelta(days=days)
+
+        buckets = defaultdict(lambda: {'deposits': Decimal('0'), 'withdrawals': Decimal('0'), 'commission': Decimal('0')})
+        txns = (
+            Transaction.objects.filter(created_at__gte=start)
+            .select_related('related_match')
+            .values('transaction_type', 'amount', 'created_at',
+                    'related_match__amount', 'related_match__winnings')
+        )
+        for t in txns:
+            day = timezone.localtime(t['created_at']).date().isoformat()
+            b = buckets[day]
+            tt = t['transaction_type']
+            amt = Decimal(t['amount'])
+            if tt == 'DEPOSIT':
+                b['deposits'] += amt
+            elif tt == 'WITHDRAWAL':
+                b['withdrawals'] += -amt
+            elif tt == 'MATCH_WINNINGS' and t['related_match__amount'] is not None:
+                b['commission'] += Decimal(t['related_match__amount']) * 2 - Decimal(t['related_match__winnings'])
+            elif tt == 'MATCH_DRAW_RETURN' and t['related_match__amount'] is not None:
+                b['commission'] += Decimal(t['related_match__amount']) - amt
+
+        series = []
+        for i in range(days, -1, -1):
+            day = (timezone.now() - timedelta(days=i)).date().isoformat()
+            b = buckets.get(day, {'deposits': Decimal('0'), 'withdrawals': Decimal('0'), 'commission': Decimal('0')})
+            series.append({
+                'date': day,
+                'deposits': str(b['deposits'].quantize(Decimal('0.01'))),
+                'withdrawals': str(b['withdrawals'].quantize(Decimal('0.01'))),
+                'net': str((b['deposits'] - b['withdrawals']).quantize(Decimal('0.01'))),
+                'commission': str(b['commission'].quantize(Decimal('0.01'))),
+            })
+
+        pending_liability = Withdrawal.objects.filter(status__in=['PENDING', 'PROCESSING']).aggregate(s=Sum('amount'))['s'] or Decimal('0')
+        totals = {
+            'deposits': str(sum((Decimal(r['deposits']) for r in series), Decimal('0')).quantize(Decimal('0.01'))),
+            'withdrawals': str(sum((Decimal(r['withdrawals']) for r in series), Decimal('0')).quantize(Decimal('0.01'))),
+            'commission': str(sum((Decimal(r['commission']) for r in series), Decimal('0')).quantize(Decimal('0.01'))),
+            'net': str(sum((Decimal(r['net']) for r in series), Decimal('0')).quantize(Decimal('0.01'))),
+            'pending_payout_liability': str(Decimal(pending_liability).quantize(Decimal('0.01'))),
+        }
+        return Response({'days': days, 'series': series, 'totals': totals})
+
+
+class PanelWalletAdjustView(APIView):
+    """Manually credit or debit a player's wallet, with a required reason (audited)."""
+    permission_classes = [IsSupportStaff]
+
+    @transaction.atomic
+    def post(self, request, wallet_id):
+        from audit.utils import log_action
+        wallet = get_object_or_404(Wallet.objects.select_related('user'), id=wallet_id)
+        reason = (request.data.get('reason') or '').strip()
+        if not reason:
+            return Response({'detail': 'A reason is required for manual adjustments.'}, status=400)
+        try:
+            amount = Decimal(str(request.data.get('amount')))
+        except Exception:
+            return Response({'detail': 'Invalid amount.'}, status=400)
+        if amount == 0:
+            return Response({'detail': 'Amount cannot be zero.'}, status=400)
+        old_balance = wallet.balance
+        new_balance = old_balance + amount
+        if new_balance < 0:
+            return Response({'detail': f'Debit exceeds balance (ZMW {old_balance}).'}, status=400)
+
+        wallet.balance = new_balance
+        wallet.save(update_fields=['balance'])
+        Transaction.objects.create(
+            wallet=wallet,
+            amount=amount,
+            transaction_type='OTHER',
+            description=f"Manual {'credit' if amount > 0 else 'debit'} by {request.user.username}: {reason}",
+        )
+        log_action(
+            action='wallet_manual_adjustment',
+            user=request.user,
+            details={
+                'wallet_id': wallet.id, 'target_user': wallet.user.username,
+                'amount': str(amount), 'reason': reason,
+                'old_balance': str(old_balance), 'new_balance': str(new_balance),
+            },
+            request=request,
+        )
+        return Response({'message': 'Wallet adjusted.', 'old_balance': str(old_balance), 'new_balance': str(new_balance)})
+
+
+# ================================================================ Analytics
+class PanelAnalyticsView(APIView):
+    """Per-game analytics + growth/retention metrics."""
+    permission_classes = [IsSupportStaff]
+
+    def get(self, request):
+        from collections import defaultdict
+        draw_ids = set(
+            Transaction.objects.filter(transaction_type='MATCH_DRAW_RETURN', related_match__isnull=False)
+            .values_list('related_match_id', flat=True)
+        )
+        games = defaultdict(lambda: {'total': 0, 'played': 0, 'abandoned': 0, 'wins': 0, 'draws': 0,
+                                     'staked': Decimal('0'), 'revenue': Decimal('0')})
+        for m in Match.objects.values('id', 'game', 'status', 'joiner_id', 'winner_id', 'amount', 'winnings'):
+            g = games[m['game']]
+            g['total'] += 1
+            g['staked'] += Decimal(m['amount'])
+            if m['status'] == 'OPEN' and not m['joiner_id']:
+                g['abandoned'] += 1
+            if m['status'] in ('JOINED', 'COMPLETED', 'DISPUTED'):
+                g['played'] += 1
+            if m['id'] in draw_ids:
+                g['draws'] += 1
+                g['revenue'] += Decimal(m['amount']) * 2 - Decimal(m['amount'] * 2 * 90 // 100)
+            elif m['winner_id']:
+                g['wins'] += 1
+                g['revenue'] += Decimal(m['amount']) * 2 - Decimal(m['winnings'])
+
+        game_rows = []
+        for game, g in games.items():
+            decided = g['wins'] + g['draws']
+            game_rows.append({
+                'game': game,
+                'total': g['total'], 'played': g['played'], 'abandoned': g['abandoned'],
+                'wins': g['wins'], 'draws': g['draws'],
+                'avg_stake': str((g['staked'] / g['total']).quantize(Decimal('0.01'))) if g['total'] else '0.00',
+                'revenue': str(g['revenue'].quantize(Decimal('0.01'))),
+                'win_rate': round(100 * g['wins'] / decided, 1) if decided else 0.0,
+                'draw_rate': round(100 * g['draws'] / decided, 1) if decided else 0.0,
+            })
+        game_rows.sort(key=lambda x: x['played'], reverse=True)
+
+        # Growth
+        month_start = timezone.now() - timedelta(days=30)
+        day_start = timezone.now() - timedelta(days=1)
+        total_users = User.objects.count()
+
+        def active_since(since):
+            a = set(Transaction.objects.filter(created_at__gte=since).values_list('wallet__user_id', flat=True))
+            for uid1, uid2 in Match.objects.filter(created_at__gte=since).values_list('creator_id', 'joiner_id'):
+                a.add(uid1)
+                if uid2:
+                    a.add(uid2)
+            a.discard(None)
+            return a
+
+        mau = len(active_since(month_start))
+        dau = len(active_since(day_start))
+        depositors = Transaction.objects.filter(transaction_type='DEPOSIT').values('wallet__user').distinct().count()
+
+        signup_buckets = defaultdict(int)
+        for dj in User.objects.filter(date_joined__gte=month_start).values_list('date_joined', flat=True):
+            signup_buckets[timezone.localtime(dj).date().isoformat()] += 1
+        signups = []
+        for i in range(30, -1, -1):
+            day = (timezone.now() - timedelta(days=i)).date().isoformat()
+            signups.append({'date': day, 'count': signup_buckets.get(day, 0)})
+
+        growth = {
+            'total_users': total_users,
+            'mau': mau, 'dau': dau,
+            'depositors': depositors,
+            'deposit_conversion': round(100 * depositors / total_users, 1) if total_users else 0.0,
+            'signups': signups,
+            'new_last_30d': sum(s['count'] for s in signups),
+        }
+        return Response({'games': game_rows, 'growth': growth})
+
+
+class PanelStuckMatchesView(APIView):
+    """Matches stuck in JOINED with no result for longer than N hours."""
+    permission_classes = [IsSupportStaff]
+
+    def get(self, request):
+        try:
+            hours = max(1, int(request.query_params.get('hours') or 6))
+        except ValueError:
+            hours = 6
+        cutoff = timezone.now() - timedelta(hours=hours)
+        qs = (Match.objects.filter(status='JOINED', created_at__lte=cutoff)
+              .select_related('creator', 'joiner').order_by('created_at'))
+        rows = []
+        now = timezone.now()
+        for m in qs[:200]:
+            age_h = round((now - m.created_at).total_seconds() / 3600, 1)
+            rows.append({
+                'id': m.id, 'game': m.get_game_display(), 'amount': m.amount,
+                'creator': m.creator.username, 'joiner': m.joiner.username if m.joiner else None,
+                'created_at': m.created_at, 'age_hours': age_h,
+            })
+        return Response({'hours': hours, 'count': len(rows), 'results': rows})
+
+
+# ================================================================ Comms
+class PanelBroadcastView(APIView):
+    """Send a notification to one player or everyone."""
+    permission_classes = [IsSupportStaff]
+
+    def post(self, request):
+        from audit.utils import log_action
+        message = (request.data.get('message') or '').strip()
+        link = (request.data.get('link') or '').strip() or None
+        target = request.data.get('target', 'all')
+        user_id = request.data.get('user_id')
+        if not message:
+            return Response({'detail': 'Message is required.'}, status=400)
+
+        if target == 'user' and user_id:
+            users = list(User.objects.filter(id=user_id))
+        elif target == 'active':
+            since = timezone.now() - timedelta(days=30)
+            ids = set(Transaction.objects.filter(created_at__gte=since).values_list('wallet__user_id', flat=True))
+            ids.discard(None)
+            users = list(User.objects.filter(id__in=ids, is_active=True))
+        else:
+            users = list(User.objects.filter(is_active=True))
+
+        Notification.objects.bulk_create([Notification(user=u, message=message, link=link) for u in users])
+        log_action(action='broadcast_sent', user=request.user,
+                   details={'target': target, 'recipients': len(users), 'message': message[:200]}, request=request)
+        return Response({'message': f'Sent to {len(users)} player(s).', 'recipients': len(users)})
+
+
+class PanelSupportRecentView(APIView):
+    """Recent messages across the platform (monitoring feed)."""
+    permission_classes = [IsSupportStaff]
+
+    def get(self, request):
+        from messenger.models import Message
+        msgs = Message.objects.select_related('sender', 'receiver').order_by('-created_at')[:60]
+        return Response({'results': [{
+            'id': m.id, 'sender': m.sender.username, 'sender_id': m.sender_id,
+            'receiver': m.receiver.username, 'receiver_id': m.receiver_id,
+            'message': m.message, 'created_at': m.created_at,
+        } for m in msgs]})
+
+
+# ================================================================ Player management
+class PanelPlayerActionView(APIView):
+    """Admin actions on a player: staff role, password reset, ban/unban."""
+    permission_classes = [IsSupportStaff]
+
+    @transaction.atomic
+    def post(self, request, user_id):
+        from audit.utils import log_action
+        from django.utils.crypto import get_random_string
+        target = get_object_or_404(User, id=user_id)
+        action = request.data.get('action')
+        reason = (request.data.get('reason') or '').strip()
+
+        if target.is_superuser and action in ('ban', 'remove_support', 'reset_password'):
+            return Response({'detail': 'Cannot perform this action on a superuser.'}, status=400)
+        if target.id == request.user.id and action == 'ban':
+            return Response({'detail': 'You cannot ban your own account.'}, status=400)
+
+        result = {}
+        if action == 'make_support':
+            target.is_support_staff = True
+            target.save(update_fields=['is_support_staff'])
+            result['message'] = f'{target.username} is now support staff.'
+        elif action == 'remove_support':
+            target.is_support_staff = False
+            target.save(update_fields=['is_support_staff'])
+            result['message'] = f'{target.username} is no longer support staff.'
+        elif action == 'ban':
+            if not reason:
+                return Response({'detail': 'A reason is required to ban a player.'}, status=400)
+            target.is_active = False
+            target.save(update_fields=['is_active'])
+            result['message'] = f'{target.username} has been banned.'
+        elif action == 'unban':
+            target.is_active = True
+            target.save(update_fields=['is_active'])
+            result['message'] = f'{target.username} has been reinstated.'
+        elif action == 'reset_password':
+            temp = get_random_string(10)
+            target.set_password(temp)
+            target.save(update_fields=['password'])
+            result['message'] = f'Temporary password set for {target.username}.'
+            result['temp_password'] = temp
+        else:
+            return Response({'detail': 'Unknown action.'}, status=400)
+
+        log_action(action=f'player_{action}', user=request.user,
+                   details={'target_user': target.username, 'target_id': target.id, 'reason': reason}, request=request)
+        result['is_active'] = target.is_active
+        result['is_support_staff'] = target.is_support_staff
+        return Response(result)

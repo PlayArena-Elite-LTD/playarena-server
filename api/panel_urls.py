@@ -8,6 +8,24 @@ urlpatterns = [
     path('finance/', v.PanelFinanceView.as_view(), name='panel_api_finance'),
     path('players/', v.PanelPlayersView.as_view(), name='panel_api_players'),
     path('players/<int:user_id>/', v.PanelPlayerDetailView.as_view(), name='panel_api_player_detail'),
+    path('audit/', v.PanelAuditLogView.as_view(), name='panel_api_audit'),
+    path('wallet-integrity/', v.PanelWalletIntegrityView.as_view(), name='panel_api_wallet_integrity'),
+    path('risk/', v.PanelRiskView.as_view(), name='panel_api_risk'),
+
+    # Money operations
+    path('reports/', v.PanelReportsView.as_view(), name='panel_api_reports'),
+    path('wallets/<int:wallet_id>/adjust/', v.PanelWalletAdjustView.as_view(), name='panel_api_wallet_adjust'),
+
+    # Analytics
+    path('analytics/', v.PanelAnalyticsView.as_view(), name='panel_api_analytics'),
+    path('stuck-matches/', v.PanelStuckMatchesView.as_view(), name='panel_api_stuck_matches'),
+
+    # Comms
+    path('broadcast/', v.PanelBroadcastView.as_view(), name='panel_api_broadcast'),
+    path('support/recent/', v.PanelSupportRecentView.as_view(), name='panel_api_support_recent'),
+
+    # Player management
+    path('players/<int:user_id>/action/', v.PanelPlayerActionView.as_view(), name='panel_api_player_action'),
     path('payment-gateway/', v.PanelPaymentGatewayView.as_view(), name='panel_api_payment_gateway'),
 
     # Users
