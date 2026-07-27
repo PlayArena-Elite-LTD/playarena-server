@@ -154,30 +154,10 @@ def deposit_pending_view(request, deposit_id):
 @login_required
 def deposit_status_json(request, deposit_id):
     """Session-authenticated status poll for deposit pending page."""
-    from wallet.utils import get_deposit_payment_status_payload
-    from services.payments.factory import get_payment_gateway
-    from wallet.payment_processing import apply_deposit_webhook_status
+    from wallet.utils import get_deposit_payment_status_payload, refresh_deposit_payment_status
 
     deposit = get_object_or_404(Deposit, id=deposit_id, user=request.user)
-    if deposit.status in ('PENDING', 'PROCESSING') and deposit.payment_provider == 'lipila':
-        gateway = get_payment_gateway(deposit.payment_provider)
-        verify = gateway.verify_payment(deposit)
-        if verify.payment_status == 'Successful':
-            apply_deposit_webhook_status(
-                deposit,
-                payment_status='Successful',
-                provider_transaction_id=verify.provider_transaction_id,
-                raw_payload=verify.raw_response,
-            )
-            deposit.refresh_from_db()
-        elif verify.payment_status == 'Failed':
-            apply_deposit_webhook_status(
-                deposit,
-                payment_status='Failed',
-                provider_transaction_id=verify.provider_transaction_id,
-                raw_payload=verify.raw_response,
-            )
-            deposit.refresh_from_db()
+    deposit = refresh_deposit_payment_status(deposit)
     return JsonResponse(get_deposit_payment_status_payload(deposit))
 
 

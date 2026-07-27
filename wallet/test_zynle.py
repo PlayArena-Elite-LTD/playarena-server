@@ -246,16 +246,16 @@ class ZynleGatewayTests(TestCase):
         self.assertEqual(self.deposit.status, 'PROCESSING')
 
     @patch('services.payments.factory.get_payment_gateway')
-    def test_status_poll_does_not_verify_zynle_deposits(self, get_gateway):
+    def test_status_poll_verifies_zynle_deposits(self, get_gateway):
         gateway = Mock()
         gateway.verify_payment.return_value = PaymentVerifyResult(
-            success=False,
-            payment_status='Failed',
+            success=True,
+            payment_status='Successful',
             provider_transaction_id='TX-1',
-            message='Invalid method',
+            message='Successful Transaction',
             raw_response={
-                'response_code': 995,
-                'response_description': 'Invalid method',
+                'response_code': 100,
+                'response_description': 'Successful Transaction',
                 'reference_no': 'ZYN_DEP_1',
                 'transaction_id': 'TX-1',
             },
@@ -266,10 +266,32 @@ class ZynleGatewayTests(TestCase):
         response = self.client.get(reverse('deposit_status_json', kwargs={'deposit_id': self.deposit.id}))
 
         self.assertEqual(response.status_code, 200)
-        get_gateway.assert_not_called()
+        get_gateway.assert_called_once_with('zynle')
+        gateway.verify_payment.assert_called_once()
         self.deposit.refresh_from_db()
-        self.assertEqual(self.deposit.status, 'PROCESSING')
-        self.assertEqual(response.json()['status'], 'PROCESSING')
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.deposit.status, 'COMPLETED')
+        self.assertEqual(self.wallet.balance, Decimal('10.00'))
+        self.assertEqual(response.json()['status'], 'COMPLETED')
+        self.assertTrue(response.json()['completed'])
+
+    def test_api_webhook_returns_zynle_acknowledgment(self):
+        response = self.client.post(
+            reverse('api_zynle_webhook') + '?token=private-callback-token',
+            data=json.dumps({
+                'response_code': 100,
+                'response_description': 'Successful Transaction',
+                'reference_no': 'ZYN_DEP_1',
+                'transaction_id': 'TX-1',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {
+            'response_code': '130',
+            'reference_no': 'ZYN_DEP_1',
+        })
 
     def test_success_callback_completes_withdrawal_once(self):
         Wallet.objects.filter(id=self.wallet.id).update(balance=Decimal('25.00'))

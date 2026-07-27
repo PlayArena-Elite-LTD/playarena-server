@@ -150,6 +150,34 @@ def get_deposit_payment_status_payload(deposit):
     }
 
 
+def refresh_deposit_payment_status(deposit):
+    """
+    Check provider status for a pending deposit and apply final statuses.
+
+    Webhooks remain authoritative, but polling can recover when a provider
+    callback is delayed, rejected, or not configured correctly.
+    """
+    if deposit.status not in ('PENDING', 'PROCESSING'):
+        return deposit
+    if deposit.payment_provider not in ('lipila', 'zynle'):
+        return deposit
+
+    from services.payments.factory import get_payment_gateway
+    from wallet.payment_processing import apply_deposit_webhook_status
+
+    gateway = get_payment_gateway(deposit.payment_provider)
+    verify = gateway.verify_payment(deposit)
+    if verify.payment_status in ('Successful', 'Failed'):
+        apply_deposit_webhook_status(
+            deposit,
+            payment_status=verify.payment_status,
+            provider_transaction_id=verify.provider_transaction_id,
+            raw_payload=verify.raw_response,
+        )
+        deposit.refresh_from_db()
+    return deposit
+
+
 @transaction.atomic
 def refund_withdrawal_reservation(withdrawal, reason: str = ''):
     """

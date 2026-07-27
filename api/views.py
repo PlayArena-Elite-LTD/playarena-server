@@ -939,31 +939,10 @@ class PaymentStatusView(APIView):
 
     def get(self, request, order_id):
         from wallet.models import Deposit
-        from wallet.utils import get_deposit_payment_status_payload
-        from services.payments.factory import get_payment_gateway
-        from wallet.payment_processing import apply_deposit_webhook_status
+        from wallet.utils import get_deposit_payment_status_payload, refresh_deposit_payment_status
 
         deposit = get_object_or_404(Deposit, id=order_id, user=request.user)
-
-        if deposit.status in ('PENDING', 'PROCESSING') and deposit.payment_provider == 'lipila':
-            gateway = get_payment_gateway(deposit.payment_provider)
-            verify = gateway.verify_payment(deposit)
-            if verify.payment_status == 'Successful':
-                apply_deposit_webhook_status(
-                    deposit,
-                    payment_status='Successful',
-                    provider_transaction_id=verify.provider_transaction_id,
-                    raw_payload=verify.raw_response,
-                )
-                deposit.refresh_from_db()
-            elif verify.payment_status == 'Failed':
-                apply_deposit_webhook_status(
-                    deposit,
-                    payment_status='Failed',
-                    provider_transaction_id=verify.provider_transaction_id,
-                    raw_payload=verify.raw_response,
-                )
-                deposit.refresh_from_db()
+        deposit = refresh_deposit_payment_status(deposit)
 
         return Response(get_deposit_payment_status_payload(deposit))
 
@@ -1060,6 +1039,16 @@ class ZynleWebhookView(APIView):
                 {'status': 'error', 'message': result.message},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
+        raw_payload = result.raw_payload or {}
+        payload = raw_payload.get('response') if isinstance(raw_payload.get('response'), dict) else raw_payload
+        reference_no = ''
+        if isinstance(payload, dict):
+            reference_no = str(payload.get('reference_no') or payload.get('referenceNo') or '').strip()
+        if result.processed:
+            return Response({
+                'response_code': '130',
+                'reference_no': reference_no,
+            })
         return Response({
             'status': 'ok' if result.processed else 'ignored',
             'message': result.message,
