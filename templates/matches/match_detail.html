@@ -310,6 +310,17 @@
           <span>You have already submitted your result: <strong>{{ user_submission }}</strong></span>
         </div>
         <p class="match-result-note">Results cannot be changed once submitted. Waiting for your opponent to submit their result.</p>
+        {% if result_query_info.can_query %}
+          <form action="{% url 'query_unanswered_result' match.id %}" method="post"
+                data-confirm="Send this match to support because your opponent has not submitted a result within 24 hours?"
+                data-confirm-title="Query Match Result"
+                data-confirm-button="Send Query">
+            {% csrf_token %}
+            <button type="submit" class="match-action-button action-dispute">
+              Query Admin
+            </button>
+          </form>
+        {% endif %}
       </div>
     {% else %}
       <div class="match-result-buttons">

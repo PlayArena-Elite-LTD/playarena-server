@@ -1239,6 +1239,11 @@ select.form-control {
   border: 1px solid var(--color-error);
 }
 
+.action-dispute {
+  background-color: var(--color-primary);
+  color: var(--color-white);
+}
+
 .match-action-link {
   color: var(--color-dark-gray);
   text-decoration: none;

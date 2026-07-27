@@ -3,8 +3,58 @@ Utility functions for evidence file validation and processing.
 """
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.utils import timezone
+from datetime import timedelta
 import os
 import hashlib
+
+
+RESULT_QUERY_WAIT = timedelta(hours=24)
+
+
+def get_result_query_info(match, match_result, user, now=None):
+    """
+    Return whether a user can ask support to review an unanswered result.
+
+    A query is allowed only when exactly one player has submitted a result,
+    the current user is that submitter, and the submission has been waiting
+    at least 24 hours.
+    """
+    info = {
+        'can_query': False,
+        'available_at': None,
+        'submitted_at': None,
+        'waiting_on': None,
+    }
+    if not match_result or match.status != 'JOINED' or user not in (match.creator, match.joiner):
+        return info
+
+    creator_submitted = bool(match_result.creator_submission and match_result.creator_submission_time)
+    joiner_submitted = bool(match_result.joiner_submission and match_result.joiner_submission_time)
+    if creator_submitted == joiner_submitted:
+        return info
+
+    if creator_submitted:
+        submitter = match.creator
+        waiting_on = match.joiner
+        submitted_at = match_result.creator_submission_time
+    else:
+        submitter = match.joiner
+        waiting_on = match.creator
+        submitted_at = match_result.joiner_submission_time
+
+    if user != submitter:
+        return info
+
+    now = now or timezone.now()
+    available_at = submitted_at + RESULT_QUERY_WAIT
+    info.update({
+        'available_at': available_at,
+        'submitted_at': submitted_at,
+        'waiting_on': waiting_on,
+        'can_query': now >= available_at,
+    })
+    return info
 
 
 def validate_evidence_file(file, file_type):

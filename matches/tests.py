@@ -1,10 +1,13 @@
+from datetime import timedelta
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
-from matches.models import Match
+from matches.models import Match, MatchResult
+from panel.models import Dispute
 from wallet.models import Wallet
 
 
@@ -63,3 +66,66 @@ class MatchResultSubmissionTests(TestCase):
         response = self.client.get(reverse('match_detail', args=[self.match.id]))
 
         self.assertContains(response, 'Joiner: joiner')
+
+    def test_query_admin_button_hidden_before_result_wait_period(self):
+        self.client.force_login(self.creator)
+        self.client.post(
+            reverse('submit_match_result', args=[self.match.id]),
+            {'submission': 'WON'},
+        )
+        match_result = MatchResult.objects.get(match=self.match)
+        match_result.creator_submission_time = timezone.now() - timedelta(hours=23)
+        match_result.save(update_fields=['creator_submission_time'])
+
+        response = self.client.get(reverse('match_detail', args=[self.match.id]))
+
+        self.assertNotContains(response, 'Query Admin')
+
+    def test_query_admin_button_shows_after_unanswered_result_wait_period(self):
+        self.client.force_login(self.creator)
+        self.client.post(
+            reverse('submit_match_result', args=[self.match.id]),
+            {'submission': 'WON'},
+        )
+        match_result = MatchResult.objects.get(match=self.match)
+        match_result.creator_submission_time = timezone.now() - timedelta(hours=25)
+        match_result.save(update_fields=['creator_submission_time'])
+
+        response = self.client.get(reverse('match_detail', args=[self.match.id]))
+
+        self.assertContains(response, 'Query Admin')
+
+    def test_query_unanswered_result_creates_dispute_for_admin_review(self):
+        self.client.force_login(self.creator)
+        self.client.post(
+            reverse('submit_match_result', args=[self.match.id]),
+            {'submission': 'WON'},
+        )
+        match_result = MatchResult.objects.get(match=self.match)
+        match_result.creator_submission_time = timezone.now() - timedelta(hours=25)
+        match_result.save(update_fields=['creator_submission_time'])
+
+        response = self.client.post(reverse('query_unanswered_result', args=[self.match.id]))
+
+        self.assertRedirects(response, reverse('match_detail', args=[self.match.id]))
+        self.match.refresh_from_db()
+        self.assertEqual(self.match.status, 'DISPUTED')
+        self.assertTrue(Dispute.objects.filter(match=self.match, status='OPEN').exists())
+
+    def test_non_submitter_cannot_query_unanswered_result(self):
+        self.client.force_login(self.creator)
+        self.client.post(
+            reverse('submit_match_result', args=[self.match.id]),
+            {'submission': 'WON'},
+        )
+        match_result = MatchResult.objects.get(match=self.match)
+        match_result.creator_submission_time = timezone.now() - timedelta(hours=25)
+        match_result.save(update_fields=['creator_submission_time'])
+
+        self.client.force_login(self.joiner)
+        response = self.client.post(reverse('query_unanswered_result', args=[self.match.id]))
+
+        self.assertRedirects(response, reverse('match_detail', args=[self.match.id]))
+        self.match.refresh_from_db()
+        self.assertEqual(self.match.status, 'JOINED')
+        self.assertFalse(Dispute.objects.filter(match=self.match).exists())

@@ -1,7 +1,9 @@
 from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.http import HttpResponseNotAllowed, JsonResponse
 from django.urls import reverse
@@ -11,10 +13,12 @@ import logging
 
 from .forms import MatchCreationForm, JoinMatchForm
 from .models import Match, MatchResult
+from .utils import get_result_query_info
 from wallet.models import Wallet, Transaction
 from alert.models import Notification
 
 logger = logging.getLogger('django_ratelimit')
+User = get_user_model()
 
 
 def _get_rate_limit_key(group, request):
@@ -491,6 +495,91 @@ def submit_match_result(request, match_id):
             return redirect('match_detail', match_id=match_id)
 
 
+@ratelimit(key=_get_rate_limit_key, rate='5/h', method='POST', block=True)
+@login_required
+@transaction.atomic
+def query_unanswered_result(request, match_id):
+    """Send a stale one-sided result submission to support for resolution."""
+    if request.method != 'POST':
+        return HttpResponseNotAllowed(['POST'])
+
+    match = get_object_or_404(
+        Match.objects.select_for_update().select_related('creator', 'joiner'),
+        id=match_id,
+    )
+
+    if request.user != match.creator and request.user != match.joiner:
+        messages.error(request, "You are not a participant in this match.")
+        return redirect('my_matches')
+
+    match_result = MatchResult.objects.select_for_update().filter(match=match).first()
+    query_info = get_result_query_info(match, match_result, request.user)
+    if not query_info['can_query']:
+        if query_info['available_at']:
+            messages.error(
+                request,
+                "You can query support if your opponent has not submitted after 24 hours."
+            )
+        else:
+            messages.error(request, "This match is not eligible for a result query.")
+        return redirect('match_detail', match_id=match_id)
+
+    from panel.models import Dispute
+
+    dispute, created = Dispute.objects.get_or_create(
+        match=match,
+        defaults={
+            'status': 'OPEN',
+            'resolution_notes': (
+                f"Result query opened by {request.user.username}. "
+                f"Opponent did not submit within 24 hours."
+            ),
+        },
+    )
+
+    if not created and dispute.status == 'RESOLVED':
+        messages.error(request, "This dispute has already been resolved.")
+        return redirect('match_detail', match_id=match_id)
+
+    match.status = 'DISPUTED'
+    match.save(update_fields=['status'])
+
+    opponent = match.joiner if request.user == match.creator else match.creator
+    Notification.objects.create(
+        user=request.user,
+        message=(
+            f"Your {match.get_game_display()} match result query has been sent to support. "
+            "An admin will review and award the winner."
+        ),
+        link=reverse('match_detail', args=[match.id]),
+    )
+    Notification.objects.create(
+        user=opponent,
+        message=(
+            f"{request.user.username} has sent the {match.get_game_display()} match to support "
+            "because your result was not submitted within 24 hours."
+        ),
+        link=reverse('match_detail', args=[match.id]),
+    )
+
+    dispute_link = reverse('dispute_detail', args=[dispute.id])
+    support_users = User.objects.filter(is_active=True).filter(
+        Q(is_support_staff=True) | Q(is_staff=True) | Q(is_superuser=True)
+    ).distinct()
+    for support_user in support_users:
+        Notification.objects.create(
+            user=support_user,
+            message=(
+                f"Result query opened for {match.get_game_display()} match "
+                f"{match.joining_code}. Review and award the winner."
+            ),
+            link=dispute_link,
+        )
+
+    messages.success(request, "Your query has been sent to support for admin review.")
+    return redirect('match_detail', match_id=match_id)
+
+
 @login_required
 def match_detail(request, match_id):
     """Display match details"""
@@ -517,12 +606,15 @@ def match_detail(request, match_id):
             match_result = None
             user_has_submitted = False
             user_submission = None
+
+        result_query_info = get_result_query_info(match, match_result, request.user)
         
         context = {
             'match': match,
             'match_result': match_result,
             'user_has_submitted': user_has_submitted,
             'user_submission': user_submission,
+            'result_query_info': result_query_info,
             'username': request.user.username
         }
         
