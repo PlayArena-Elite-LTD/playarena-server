@@ -100,9 +100,9 @@ class LipilaService:
         details = {
             'request_method': getattr(request, 'method', None),
             'request_url': getattr(request, 'url', None) or getattr(resp, 'url', None),
-            'status_code': resp.status_code,
-            'reason': resp.reason,
-            'response_headers': _redact_headers(resp.headers),
+            'status_code': getattr(resp, 'status_code', None),
+            'reason': getattr(resp, 'reason', ''),
+            'response_headers': _redact_headers(getattr(resp, 'headers', {})),
             'response_body': body if body else '<empty>',
         }
 

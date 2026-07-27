@@ -6,11 +6,12 @@ from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 
-from services.payments.base import PaymentVerifyResult
+from services.payments.base import PaymentInitResult, PaymentVerifyResult
 from services.payments.factory import get_active_payment_provider, get_payment_gateway
 from services.payments.zynle_gateway import ZynleGateway
 from services.payments.zynle_service import ZynleService
 from wallet.models import Deposit, PaymentGatewaySetting, Transaction, Wallet, Withdrawal
+from wallet.payment_manager import PaymentManager
 
 
 class ZynleServiceTests(TestCase):
@@ -398,3 +399,74 @@ class PaymentProviderSelectionTests(TestCase):
         self.assertContains(response, 'ZynlePay Mobile Money (MoMo)')
         self.assertContains(response, 'mobileMoneyMethods.includes(methodSelect.value)')
         self.assertContains(response, 'name="mobile_number"')
+
+    @patch('services.payments.factory.get_payment_gateway')
+    def test_api_deposit_uses_active_zynle_gateway(self, get_gateway):
+        user = get_user_model().objects.create_user('api-zynle-user', password='pass1234')
+        PaymentGatewaySetting.objects.update_or_create(
+            pk=1, defaults={'active_provider': 'zynle'}
+        )
+        gateway = Mock()
+        gateway.initiate_payment.return_value = PaymentInitResult(
+            success=True,
+            provider='zynle',
+            provider_transaction_id='ZYN-TX-1',
+            payment_reference='ZYN_DEP_1',
+            payment_status='Pending',
+            message='Payment initiated',
+            raw_response={'response_code': 120, 'transaction_id': 'ZYN-TX-1'},
+        )
+        get_gateway.return_value = gateway
+        self.client.force_login(user)
+
+        response = self.client.post(reverse('api_wallet_deposit'), {
+            'amount': '10.00',
+            'payment_method': 'ZYNLE_MOMO',
+            'mobile_number': '260971234567',
+        })
+
+        self.assertEqual(response.status_code, 201)
+        get_gateway.assert_called_once_with('zynle')
+        gateway.initiate_payment.assert_called_once()
+        deposit = Deposit.objects.get(user=user)
+        self.assertEqual(deposit.payment_provider, 'zynle')
+        self.assertEqual(deposit.payment_reference, 'ZYN_DEP_1')
+        self.assertEqual(deposit.status, 'PROCESSING')
+        self.assertEqual(response.json()['payment_provider'], 'zynle')
+
+    @patch('wallet.payment_manager.get_payment_gateway')
+    def test_payment_manager_deposit_uses_active_zynle_gateway(self, get_gateway):
+        user = get_user_model().objects.create_user('manager-zynle-user', password='pass1234')
+        wallet, _ = Wallet.objects.get_or_create(user=user)
+        PaymentGatewaySetting.objects.update_or_create(
+            pk=1, defaults={'active_provider': 'zynle'}
+        )
+        deposit = Deposit.objects.create(
+            user=user,
+            wallet=wallet,
+            amount=Decimal('10.00'),
+            payment_method='ZYNLE_MOMO',
+            status='PENDING',
+        )
+        gateway = Mock()
+        gateway.initiate_payment.return_value = PaymentInitResult(
+            success=True,
+            provider='zynle',
+            provider_transaction_id='ZYN-TX-1',
+            payment_reference='ZYN_DEP_1',
+            payment_status='Pending',
+            message='Payment initiated',
+            raw_response={'response_code': 120},
+        )
+        get_gateway.return_value = gateway
+
+        result = PaymentManager().initialize_deposit(
+            deposit,
+            callback_url='https://example.test/callback',
+            mobile_number='260971234567',
+        )
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['payment_reference'], 'ZYN_DEP_1')
+        get_gateway.assert_called_once_with('zynle')
+        gateway.initiate_payment.assert_called_once()

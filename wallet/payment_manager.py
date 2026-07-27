@@ -101,8 +101,8 @@ class PaymentManager:
         payment_method = deposit.payment_method
         
         try:
-            if payment_method in ('LIPILA', 'LIPILA_MOMO'):
-                return self._initialize_lipila_via_gateway(
+            if payment_method in ('LIPILA', 'LIPILA_MOMO', 'ZYNLE_MOMO'):
+                return self._initialize_gateway_deposit(
                     deposit,
                     callback_url,
                     mobile_number=mobile_number,
@@ -446,19 +446,35 @@ class PaymentManager:
             return None
         return urljoin(public_base.rstrip('/') + '/', reverse('api_lipila_webhook').lstrip('/'))
 
-    def _initialize_lipila_via_gateway(
+    def _initialize_gateway_deposit(
         self,
         deposit,
         callback_url: Optional[str],
         mobile_number: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Delegate Lipila deposit initiation to the payment gateway abstraction."""
+        """Delegate deposit initiation to the selected payment gateway abstraction."""
 
         class _CallbackRequest:
             def build_absolute_uri(self, path):
                 return callback_url or path
 
-        result = get_payment_gateway().initiate_payment(
+        method_provider = 'zynle' if deposit.payment_method == 'ZYNLE_MOMO' else 'lipila'
+        active_provider = get_active_payment_provider()
+        if method_provider != active_provider:
+            return {
+                'success': False,
+                'authorization_url': None,
+                'payment_reference': None,
+                'gateway_response': {
+                    'status': 'error',
+                    'message': 'Selected payment method is not active',
+                    'active_provider': active_provider,
+                    'method_provider': method_provider,
+                },
+                'failure_reason': 'Payment gateway changed before the deposit was submitted',
+            }
+
+        result = get_payment_gateway(method_provider).initiate_payment(
             deposit,
             _CallbackRequest(),
             mobile_number=mobile_number,
@@ -470,6 +486,19 @@ class PaymentManager:
             'gateway_response': result.raw_response,
             'failure_reason': result.failure_reason,
         }
+
+    def _initialize_lipila_via_gateway(
+        self,
+        deposit,
+        callback_url: Optional[str],
+        mobile_number: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Backward-compatible wrapper for older internal callers."""
+        return self._initialize_gateway_deposit(
+            deposit,
+            callback_url,
+            mobile_number=mobile_number,
+        )
 
     def _initialize_bank_transfer_deposit(self, deposit, callback_url: Optional[str]) -> Dict[str, Any]:
         """
