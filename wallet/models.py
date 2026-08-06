@@ -178,15 +178,18 @@ class Transaction(models.Model):
         ('MATCH_WINNINGS', 'Match Winnings'),
         ('MATCH_REFUND', 'Match Refund'),
         ('MATCH_DRAW_RETURN', 'Match Draw Return'),
+        ('TOURNAMENT_JOINING', 'Tournament Joining'),
+        ('TOURNAMENT_REFUND', 'Tournament Refund'),
         ('OTHER', 'Other'),
     ]
-    
+
     wallet = models.ForeignKey(Wallet, on_delete=models.CASCADE, related_name='transactions')
     amount = models.DecimalField(max_digits=10, decimal_places=2)  # Positive for credits, negative for debits
     transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPES)
     description = models.CharField(max_length=255)
     created_at = models.DateTimeField(auto_now_add=True)
     related_match = models.ForeignKey('matches.Match', on_delete=models.SET_NULL, null=True, blank=True)
+    related_tournament = models.ForeignKey('matches.Tournament', on_delete=models.SET_NULL, null=True, blank=True)
     
     @property
     def is_credit(self):

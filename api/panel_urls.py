@@ -32,6 +32,12 @@ urlpatterns = [
     path('users/', v.PanelUserListView.as_view(), name='panel_api_users'),
     path('users/<int:user_id>/toggle/', v.PanelUserToggleView.as_view(), name='panel_api_user_toggle'),
 
+    # Organisers
+    path('organisations/', v.PanelOrganisationListView.as_view(), name='panel_api_organisations'),
+    path('organisations/<int:org_id>/', v.PanelOrganisationDetailView.as_view(), name='panel_api_organisation_detail'),
+    path('organisations/<int:org_id>/verify/', v.PanelOrganisationVerifyView.as_view(), name='panel_api_organisation_verify'),
+    path('organisations/<int:org_id>/toggle/', v.PanelOrganisationToggleView.as_view(), name='panel_api_organisation_toggle'),
+
     # Matches
     path('matches/', v.PanelMatchListView.as_view(), name='panel_api_matches'),
     path('matches/<int:match_id>/', v.PanelMatchDetailView.as_view(), name='panel_api_match_detail'),

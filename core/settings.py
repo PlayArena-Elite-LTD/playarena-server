@@ -104,6 +104,12 @@ _default_csrf_trusted = [
     "http://localhost:8000",
     "http://127.0.0.1:8001",
     "http://localhost:8001",
+    "http://127.0.0.1:3000",
+    "http://localhost:3000",
+    "http://127.0.0.1:3001",
+    "http://localhost:3001",
+    "http://127.0.0.1:3057",
+    "http://localhost:3057",
 ]
 CSRF_TRUSTED_ORIGINS = _split_csv_env("DJANGO_CSRF_TRUSTED_ORIGINS", _default_csrf_trusted)
 FRONTEND_ORIGIN = _origin_from_url(
@@ -517,10 +523,24 @@ PASSWORD_RESET_TIMEOUT = 86400  # 24 hours in seconds
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+    "http://localhost:3057",
+    "http://127.0.0.1:3057",
     "https://lucadev.pythonanywhere.com",
 ]
 CORS_ALLOWED_ORIGINS = _split_csv_env("DJANGO_CORS_ALLOWED_ORIGINS", CORS_ALLOWED_ORIGINS)
 _append_unique(CORS_ALLOWED_ORIGINS, FRONTEND_ORIGIN)
+if DEBUG:
+    for local_origin in [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+        "http://localhost:3057",
+        "http://127.0.0.1:3057",
+    ]:
+        _append_unique(CORS_ALLOWED_ORIGINS, local_origin)
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_METHODS = [
     "GET",

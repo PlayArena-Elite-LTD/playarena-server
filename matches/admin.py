@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Match, Evidence
+from .models import Match, Evidence, Tournament
 
 @admin.register(Match)
 class MatchAdmin(admin.ModelAdmin):
@@ -65,3 +65,21 @@ class EvidenceAdmin(admin.ModelAdmin):
             'fields': ('uploaded_at',)
         }),
     )
+
+
+@admin.register(Tournament)
+class TournamentAdmin(admin.ModelAdmin):
+    list_display = (
+        'id',
+        'name',
+        'organisation',
+        'game',
+        'participation_amount',
+        'max_players',
+        'status',
+        'start_date',
+        'created_at',
+    )
+    list_filter = ('organisation', 'game', 'status', 'start_date', 'created_at')
+    search_fields = ('name', 'organisation__name', 'organisation__email')
+    readonly_fields = ('created_at', 'updated_at')

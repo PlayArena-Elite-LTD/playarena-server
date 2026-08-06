@@ -18,6 +18,20 @@ from .views import (
     MatchJoinView,
     MatchResultSubmitView,
     MatchCancelView,
+    OrganisationDirectoryListView,
+    OrganisationJoinRequestView,
+    OrganisationLoginView,
+    OrganisationMeView,
+    OrganisationMembershipApproveView,
+    OrganisationMembershipRejectView,
+    OrganisationMembershipRequestListView,
+    OrganisationRegistrationView,
+    OrganisationTournamentListCreateView,
+    OrganisationTournamentRegistrationsView,
+    PlayerTournamentListView,
+    MyTournamentsView,
+    TournamentJoinView,
+    TournamentLeaveView,
     UserListView,
     UserDetailView,
     UserRegistrationView,
@@ -50,6 +64,8 @@ urlpatterns = [
     
     # Authentication endpoints
     path('auth/register/', UserRegistrationView.as_view(), name='api_register'),
+    path('auth/organisations/register/', OrganisationRegistrationView.as_view(), name='api_organisation_register'),
+    path('auth/organisations/login/', OrganisationLoginView.as_view(), name='api_organisation_login'),
     path('auth/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('auth/change-password/', ChangePasswordView.as_view(), name='api_change_password'),
@@ -60,6 +76,18 @@ urlpatterns = [
     path('me/profile/', ProfileView.as_view(), name='api_profile'),
     path('users/', UserListView.as_view(), name='api_user_list'),
     path('users/<int:id>/', UserDetailView.as_view(), name='api_user_detail'),
+    path('organisations/', OrganisationDirectoryListView.as_view(), name='api_organisation_list'),
+    path('organisations/<int:id>/request-join/', OrganisationJoinRequestView.as_view(), name='api_organisation_request_join'),
+    path('organisations/me/', OrganisationMeView.as_view(), name='api_organisation_me'),
+    path('organisations/tournaments/', OrganisationTournamentListCreateView.as_view(), name='api_organisation_tournaments'),
+    path('organisations/tournaments/<int:id>/registrations/', OrganisationTournamentRegistrationsView.as_view(), name='api_organisation_tournament_registrations'),
+    path('organisations/membership-requests/', OrganisationMembershipRequestListView.as_view(), name='api_organisation_membership_requests'),
+    path('organisations/membership-requests/<int:id>/approve/', OrganisationMembershipApproveView.as_view(), name='api_organisation_membership_approve'),
+    path('organisations/membership-requests/<int:id>/reject/', OrganisationMembershipRejectView.as_view(), name='api_organisation_membership_reject'),
+    path('player/tournaments/', PlayerTournamentListView.as_view(), name='api_player_tournaments'),
+    path('player/tournaments/mine/', MyTournamentsView.as_view(), name='api_player_tournaments_mine'),
+    path('player/tournaments/<int:id>/join/', TournamentJoinView.as_view(), name='api_player_tournament_join'),
+    path('player/tournaments/<int:id>/leave/', TournamentLeaveView.as_view(), name='api_player_tournament_leave'),
 
     # Match endpoints
     path('my-matches/', MyMatchesView.as_view(), name='api_my_matches'),
@@ -87,4 +115,3 @@ urlpatterns = [
     # Include router URLs (disputes, messages, notifications)
     path('', include(router.urls)),
 ]
-

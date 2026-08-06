@@ -3,7 +3,7 @@ from django.contrib.auth.admin import UserAdmin
 from django.contrib import messages
 from django.utils.html import format_html, mark_safe
 from .forms import CustomUserCreationForm, CustomUserChangeForm
-from .models import CustomUser, Profile
+from .models import CustomUser, Organisation, OrganisationMembership, Profile
 
 class CustomUserAdmin(UserAdmin):
     add_form = CustomUserCreationForm
@@ -140,3 +140,19 @@ admin.site.register(CustomUser, CustomUserAdmin)
 class ProfileAdmin(admin.ModelAdmin):
     list_display = ['user', 'first_name', 'last_name']
     search_fields = ['user__username', 'first_name', 'last_name']
+
+
+@admin.register(Organisation)
+class OrganisationAdmin(admin.ModelAdmin):
+    list_display = ['name', 'email', 'organisation_type', 'city', 'is_verified', 'created_at']
+    list_filter = ['organisation_type', 'is_verified', 'created_at']
+    search_fields = ['name', 'email', 'contact_name', 'owner__username']
+    readonly_fields = ['created_at', 'updated_at']
+
+
+@admin.register(OrganisationMembership)
+class OrganisationMembershipAdmin(admin.ModelAdmin):
+    list_display = ['organisation', 'player', 'status', 'requested_at', 'reviewed_at', 'reviewed_by']
+    list_filter = ['status', 'organisation', 'requested_at', 'reviewed_at']
+    search_fields = ['organisation__name', 'player__username', 'player__email']
+    readonly_fields = ['requested_at', 'reviewed_at']

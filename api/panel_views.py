@@ -18,15 +18,17 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from matches.models import Match, Evidence
+from matches.models import Match, Evidence, Tournament
 from wallet.models import Wallet, Transaction, Deposit, Withdrawal
 from panel.models import Dispute
 from alert.models import Notification
+from accounts.models import Organisation
 
 from .panel_serializers import (
     PanelUserSerializer, PanelMatchSerializer, EvidenceSerializer,
     PanelWalletSerializer, PanelTransactionSerializer, PanelDepositSerializer,
     PanelWithdrawalSerializer, PanelDisputeSerializer, PanelDisputeDetailSerializer,
+    PanelOrganisationSerializer, PanelOrganisationDetailSerializer,
 )
 
 User = get_user_model()
@@ -1262,3 +1264,109 @@ class PanelPlayerActionView(APIView):
         result['is_active'] = target.is_active
         result['is_support_staff'] = target.is_support_staff
         return Response(result)
+
+
+# ---------------------------------------------------------------- Organisers
+class PanelOrganisationListView(ListAPIView):
+    """Directory of organisers on the platform with search and status filters."""
+    permission_classes = [IsSupportStaff]
+    serializer_class = PanelOrganisationSerializer
+    pagination_class = PanelPagination
+
+    def get_queryset(self):
+        qs = (
+            Organisation.objects
+            .select_related('owner')
+            .annotate(
+                tournaments_count=Count('tournaments', distinct=True),
+                active_tournaments_count=Count(
+                    'tournaments',
+                    filter=Q(tournaments__status__in=['OPEN', 'IN_PROGRESS']),
+                    distinct=True,
+                ),
+                members_count=Count(
+                    'memberships',
+                    filter=Q(memberships__status='APPROVED'),
+                    distinct=True,
+                ),
+            )
+            .order_by('-created_at')
+        )
+        q = self.request.query_params.get('q', '').strip()
+        org_type = self.request.query_params.get('type', '')
+        verified = self.request.query_params.get('verified', '')
+        availability = self.request.query_params.get('availability', '')
+        if q:
+            qs = qs.filter(
+                Q(name__icontains=q) |
+                Q(email__icontains=q) |
+                Q(contact_name__icontains=q) |
+                Q(city__icontains=q)
+            )
+        if org_type:
+            qs = qs.filter(organisation_type=org_type)
+        if verified == 'verified':
+            qs = qs.filter(is_verified=True)
+        elif verified == 'unverified':
+            qs = qs.filter(is_verified=False)
+        if availability == 'available':
+            qs = qs.filter(is_verified=True, owner__is_active=True)
+        elif availability == 'unavailable':
+            qs = qs.filter(Q(is_verified=False) | Q(owner__is_active=False))
+        return qs
+
+
+class PanelOrganisationDetailView(APIView):
+    """Single organiser with its tournaments."""
+    permission_classes = [IsSupportStaff]
+
+    def get(self, request, org_id):
+        org = get_object_or_404(Organisation.objects.select_related('owner'), id=org_id)
+        return Response(PanelOrganisationDetailSerializer(org, context={'request': request}).data)
+
+
+class PanelOrganisationVerifyView(APIView):
+    """Verify or un-verify an organiser."""
+    permission_classes = [IsSupportStaff]
+
+    def post(self, request, org_id):
+        org = get_object_or_404(Organisation.objects.select_related('owner'), id=org_id)
+        action = request.data.get('action', 'verify')
+        org.is_verified = (action == 'verify')
+        org.save(update_fields=['is_verified', 'updated_at'])
+        try:
+            from audit.utils import log_action
+            log_action(action=f'organisation_{action}', user=request.user,
+                       details={'organisation': org.name, 'organisation_id': org.id}, request=request)
+        except Exception:
+            pass
+        return Response(PanelOrganisationSerializer(org).data)
+
+
+class PanelOrganisationToggleView(APIView):
+    """Suspend or reactivate an organiser by toggling its owner account.
+    A suspended owner makes the organiser unavailable on the platform."""
+    permission_classes = [IsSupportStaff]
+
+    def post(self, request, org_id):
+        org = get_object_or_404(Organisation.objects.select_related('owner'), id=org_id)
+        action = request.data.get('action', 'disable')
+        owner = org.owner
+        if action == 'disable':
+            if owner.is_superuser:
+                return Response({'detail': 'Cannot suspend a superuser account.'}, status=400)
+            if owner.id == request.user.id:
+                return Response({'detail': 'You cannot suspend your own account.'}, status=400)
+            owner.is_active = False
+        else:
+            owner.is_active = True
+        owner.save(update_fields=['is_active'])
+        try:
+            from audit.utils import log_action
+            log_action(action=f'organisation_{"suspend" if action == "disable" else "reactivate"}',
+                       user=request.user,
+                       details={'organisation': org.name, 'organisation_id': org.id, 'owner': owner.username},
+                       request=request)
+        except Exception:
+            pass
+        return Response(PanelOrganisationSerializer(org).data)

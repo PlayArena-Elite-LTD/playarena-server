@@ -10,6 +10,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Q
+from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from decimal import Decimal
@@ -24,6 +25,12 @@ from .serializers import (
     MatchCreateSerializer,
     MatchJoinSerializer,
     MatchResultSubmissionSerializer,
+    OrganisationLoginSerializer,
+    OrganisationDirectorySerializer,
+    OrganisationMembershipSerializer,
+    OrganisationRegistrationSerializer,
+    OrganisationSerializer,
+    PlayerTournamentSerializer,
     UserRegistrationSerializer,
     ChangePasswordSerializer,
     WalletSerializer,
@@ -34,11 +41,14 @@ from .serializers import (
     DisputeResolutionSerializer,
     MessageSerializer,
     MessageCreateSerializer,
-    NotificationSerializer
+    NotificationSerializer,
+    TournamentCreateSerializer,
+    TournamentSerializer,
+    TournamentRegistrationSerializer,
 )
 from .permissions import IsWalletOwner, IsMatchParticipant
-from accounts.models import CustomUser, Profile
-from matches.models import Match, MatchResult
+from accounts.models import CustomUser, Organisation, OrganisationMembership, Profile
+from matches.models import Match, MatchResult, Tournament, TournamentRegistration
 from panel.models import Dispute
 from messenger.models import Message, ReadMessage
 from alert.models import Notification, ReadNotification
@@ -94,6 +104,428 @@ class UserRegistrationView(APIView):
             }, status=status.HTTP_201_CREATED)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class OrganisationRegistrationView(APIView):
+    """
+    POST /api/auth/organisations/register/
+
+    Register an organisation and return JWT tokens for the organisation owner.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = OrganisationRegistrationSerializer(data=request.data)
+        if serializer.is_valid():
+            organisation = serializer.save()
+            refresh = RefreshToken.for_user(organisation.owner)
+            return Response({
+                'organisation': OrganisationSerializer(organisation).data,
+                'user': UserSerializer(organisation.owner).data,
+                'access': str(refresh.access_token),
+                'refresh': str(refresh),
+            }, status=status.HTTP_201_CREATED)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class OrganisationLoginView(APIView):
+    """
+    POST /api/auth/organisations/login/
+
+    Authenticate an organisation owner and return JWT tokens plus organisation data.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = OrganisationLoginSerializer(data=request.data, context={'request': request})
+        if serializer.is_valid():
+            organisation = serializer.validated_data['organisation']
+            user = serializer.validated_data['user']
+            refresh = RefreshToken.for_user(user)
+            return Response({
+                'organisation': OrganisationSerializer(organisation).data,
+                'user': UserSerializer(user).data,
+                'access': str(refresh.access_token),
+                'refresh': str(refresh),
+            }, status=status.HTTP_200_OK)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class OrganisationMeView(generics.RetrieveAPIView):
+    """
+    GET /api/organisations/me/
+
+    Return the organisation attached to the authenticated owner account.
+    """
+    serializer_class = OrganisationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self):
+        return get_object_or_404(Organisation, owner=self.request.user)
+
+
+class OrganisationDirectoryListView(generics.ListAPIView):
+    """
+    GET /api/organisations/
+
+    List organisations for players, including the current user's membership status.
+    """
+    serializer_class = OrganisationDirectorySerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user_membership = OrganisationMembership.objects.filter(player=self.request.user)
+        return Organisation.objects.prefetch_related(
+            Prefetch('memberships', queryset=user_membership, to_attr='current_user_memberships')
+        ).order_by('name')
+
+
+class OrganisationJoinRequestView(APIView):
+    """
+    POST /api/organisations/{id}/request-join/
+
+    Request membership in an organisation. Rejected requests can be resubmitted.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, id):
+        organisation = get_object_or_404(Organisation, id=id)
+        if organisation.owner_id == request.user.id:
+            return Response(
+                {'detail': 'Organisation owners cannot request to join their own organisation.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        membership, created = OrganisationMembership.objects.get_or_create(
+            organisation=organisation,
+            player=request.user,
+            defaults={'status': OrganisationMembership.Status.PENDING},
+        )
+        if not created and membership.status == OrganisationMembership.Status.REJECTED:
+            membership.status = OrganisationMembership.Status.PENDING
+            membership.reviewed_at = None
+            membership.reviewed_by = None
+            membership.save(update_fields=['status', 'reviewed_at', 'reviewed_by'])
+
+        return Response(
+            {
+                'message': 'Join request submitted.',
+                'membership': OrganisationMembershipSerializer(membership).data,
+            },
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
+class PlayerTournamentListView(generics.ListAPIView):
+    """
+    GET /api/player/tournaments/
+
+    List open tournaments from organisations where the player has approved membership.
+    """
+    serializer_class = PlayerTournamentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        approved_organisation_ids = OrganisationMembership.objects.filter(
+            player=self.request.user,
+            status=OrganisationMembership.Status.APPROVED,
+        ).values('organisation_id')
+        return Tournament.objects.select_related('organisation').filter(
+            organisation_id__in=approved_organisation_ids,
+            status='OPEN',
+        ).order_by('-created_at')
+
+
+class MyTournamentsView(generics.ListAPIView):
+    """
+    GET /api/player/tournaments/mine/
+
+    Tournaments the player is currently registered in.
+    """
+    serializer_class = PlayerTournamentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        registered_ids = TournamentRegistration.objects.filter(
+            player=self.request.user,
+            status=TournamentRegistration.Status.REGISTERED,
+        ).values('tournament_id')
+        return Tournament.objects.select_related('organisation').filter(
+            id__in=registered_ids,
+        ).order_by('-created_at')
+
+
+class TournamentJoinView(APIView):
+    """
+    POST /api/player/tournaments/{id}/join/
+
+    Join a tournament and deduct the participation amount from the player's wallet.
+    Mirrors MatchJoinView: eligibility + funds + capacity checks inside an atomic,
+    row-locked transaction, then a ledger Transaction, audit log, and notification.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, id):
+        tournament = get_object_or_404(
+            Tournament.objects.select_for_update().select_related('organisation'),
+            id=id,
+        )
+        user = request.user
+
+        if tournament.status != 'OPEN':
+            return Response(
+                {'detail': 'This tournament is not open for registration.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Eligibility: player must have approved membership in the organisation.
+        is_member = OrganisationMembership.objects.filter(
+            organisation=tournament.organisation,
+            player=user,
+            status=OrganisationMembership.Status.APPROVED,
+        ).exists()
+        if not is_member:
+            return Response(
+                {'detail': f"You must be an approved member of {tournament.organisation.name} to join."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Already registered?
+        existing = TournamentRegistration.objects.filter(
+            tournament=tournament, player=user,
+        ).first()
+        if existing and existing.status == TournamentRegistration.Status.REGISTERED:
+            return Response(
+                {'detail': 'You have already joined this tournament.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Capacity (locked count).
+        active_count = TournamentRegistration.objects.filter(
+            tournament=tournament,
+            status=TournamentRegistration.Status.REGISTERED,
+        ).count()
+        if active_count >= tournament.max_players:
+            return Response(
+                {'detail': 'This tournament is already full.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        amount = Decimal(tournament.participation_amount)
+        wallet, _created = Wallet.objects.get_or_create(user=user)
+        if wallet.balance < amount:
+            return Response(
+                {'detail': f"Insufficient funds. You need ZMW {amount} to join this tournament."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Create or reactivate the registration.
+        if existing:
+            existing.status = TournamentRegistration.Status.REGISTERED
+            existing.amount_paid = amount
+            existing.left_at = None
+            existing.save(update_fields=['status', 'amount_paid', 'left_at'])
+            registration = existing
+        else:
+            registration = TournamentRegistration.objects.create(
+                tournament=tournament,
+                player=user,
+                amount_paid=amount,
+            )
+
+        old_balance = wallet.balance
+        wallet.balance -= amount
+        wallet.save(update_fields=['balance'])
+
+        transaction_record = Transaction.objects.create(
+            wallet=wallet,
+            amount=-amount,
+            transaction_type='TOURNAMENT_JOINING',
+            description=f"Joined tournament '{tournament.name}' for ZMW {amount}",
+            related_tournament=tournament,
+        )
+
+        Notification.objects.create(
+            user=user,
+            message=f"You joined the tournament '{tournament.name}' for ZMW {amount}.",
+            link='/tournaments',
+        )
+
+        try:
+            from audit.utils import log_action
+            log_action(
+                action='tournament_joined',
+                user=user,
+                details={
+                    'tournament_id': tournament.id,
+                    'tournament_name': tournament.name,
+                    'organisation_id': tournament.organisation_id,
+                    'amount': str(amount),
+                    'player_id': user.id,
+                    'player_username': user.username,
+                    'registration_id': registration.id,
+                    'wallet_id': wallet.id,
+                    'old_balance': str(old_balance),
+                    'new_balance': str(wallet.balance),
+                    'transaction_id': transaction_record.id,
+                },
+                request=request,
+            )
+        except Exception:
+            pass
+
+        return Response(
+            {
+                'message': 'Tournament joined successfully.',
+                'tournament': PlayerTournamentSerializer(tournament, context={'request': request}).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class TournamentLeaveView(APIView):
+    """
+    POST /api/player/tournaments/{id}/leave/
+
+    Leave a tournament while it is still OPEN and refund the participation amount.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, id):
+        tournament = get_object_or_404(
+            Tournament.objects.select_for_update().select_related('organisation'),
+            id=id,
+        )
+        user = request.user
+
+        registration = TournamentRegistration.objects.filter(
+            tournament=tournament,
+            player=user,
+            status=TournamentRegistration.Status.REGISTERED,
+        ).first()
+        if not registration:
+            return Response(
+                {'detail': 'You are not registered for this tournament.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if tournament.status != 'OPEN':
+            return Response(
+                {'detail': 'You can only leave a tournament before it starts.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        amount = Decimal(registration.amount_paid)
+        registration.status = TournamentRegistration.Status.WITHDRAWN
+        registration.left_at = timezone.now()
+        registration.save(update_fields=['status', 'left_at'])
+
+        wallet, _created = Wallet.objects.get_or_create(user=user)
+        old_balance = wallet.balance
+        wallet.balance += amount
+        wallet.save(update_fields=['balance'])
+
+        transaction_record = Transaction.objects.create(
+            wallet=wallet,
+            amount=amount,
+            transaction_type='TOURNAMENT_REFUND',
+            description=f"Left tournament '{tournament.name}', ZMW {amount} refunded",
+            related_tournament=tournament,
+        )
+
+        Notification.objects.create(
+            user=user,
+            message=f"You left the tournament '{tournament.name}'. ZMW {amount} has been refunded.",
+            link='/tournaments',
+        )
+
+        try:
+            from audit.utils import log_action
+            log_action(
+                action='tournament_left',
+                user=user,
+                details={
+                    'tournament_id': tournament.id,
+                    'tournament_name': tournament.name,
+                    'amount': str(amount),
+                    'player_id': user.id,
+                    'player_username': user.username,
+                    'registration_id': registration.id,
+                    'wallet_id': wallet.id,
+                    'old_balance': str(old_balance),
+                    'new_balance': str(wallet.balance),
+                    'transaction_id': transaction_record.id,
+                },
+                request=request,
+            )
+        except Exception:
+            pass
+
+        return Response(
+            {
+                'message': 'You have left the tournament and been refunded.',
+                'tournament': PlayerTournamentSerializer(tournament, context={'request': request}).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class OrganisationMembershipRequestListView(generics.ListAPIView):
+    """
+    GET /api/organisations/membership-requests/
+
+    List membership requests for the authenticated organiser's organisation.
+    """
+    serializer_class = OrganisationMembershipSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_organisation(self):
+        try:
+            return self.request.user.organisation
+        except Organisation.DoesNotExist as exc:
+            raise PermissionDenied("Only organisation accounts can review membership requests.") from exc
+
+    def get_queryset(self):
+        return OrganisationMembership.objects.select_related('player', 'organisation', 'reviewed_by').filter(
+            organisation=self.get_organisation(),
+        ).order_by('-requested_at')
+
+
+class OrganisationMembershipReviewView(APIView):
+    """
+    POST /api/organisations/membership-requests/{id}/approve/
+    POST /api/organisations/membership-requests/{id}/reject/
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    review_status = None
+
+    def post(self, request, id):
+        try:
+            organisation = request.user.organisation
+        except Organisation.DoesNotExist as exc:
+            raise PermissionDenied("Only organisation accounts can review membership requests.") from exc
+
+        membership = get_object_or_404(
+            OrganisationMembership.objects.select_related('player', 'organisation'),
+            id=id,
+            organisation=organisation,
+        )
+        membership.status = self.review_status
+        membership.reviewed_at = timezone.now()
+        membership.reviewed_by = request.user
+        membership.save(update_fields=['status', 'reviewed_at', 'reviewed_by'])
+        return Response(OrganisationMembershipSerializer(membership).data, status=status.HTTP_200_OK)
+
+
+class OrganisationMembershipApproveView(OrganisationMembershipReviewView):
+    review_status = OrganisationMembership.Status.APPROVED
+
+
+class OrganisationMembershipRejectView(OrganisationMembershipReviewView):
+    review_status = OrganisationMembership.Status.REJECTED
 
 
 class ChangePasswordView(APIView):
@@ -843,6 +1275,74 @@ class MatchCancelView(APIView):
             {'message': 'You have left the match and been refunded.', 'status': match.status},
             status=status.HTTP_200_OK,
         )
+
+
+class OrganisationTournamentListCreateView(generics.ListCreateAPIView):
+    """
+    GET /api/organisations/tournaments/
+    POST /api/organisations/tournaments/
+
+    List and create tournaments for the authenticated organiser's organisation.
+    Tournaments are restricted to that organisation's players when join flows are added.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_organisation(self):
+        try:
+            return self.request.user.organisation
+        except Organisation.DoesNotExist as exc:
+            raise PermissionDenied("Only organisation accounts can manage tournaments.") from exc
+
+    def get_queryset(self):
+        return Tournament.objects.select_related('organisation').filter(
+            organisation=self.get_organisation()
+        ).order_by('-created_at')
+
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            return TournamentCreateSerializer
+        return TournamentSerializer
+
+    def perform_create(self, serializer):
+        serializer.save(organisation=self.get_organisation())
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        output_serializer = TournamentSerializer(
+            serializer.instance,
+            context=self.get_serializer_context(),
+        )
+        return Response(output_serializer.data, status=status.HTTP_201_CREATED)
+
+
+class OrganisationTournamentRegistrationsView(generics.ListAPIView):
+    """
+    GET /api/organisations/tournaments/{id}/registrations/
+
+    List the players registered for one of the authenticated organiser's
+    tournaments. Only the organisation that owns the tournament may view it.
+    """
+    serializer_class = TournamentRegistrationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_organisation(self):
+        try:
+            return self.request.user.organisation
+        except Organisation.DoesNotExist as exc:
+            raise PermissionDenied("Only organisation accounts can view registrations.") from exc
+
+    def get_queryset(self):
+        tournament = get_object_or_404(
+            Tournament,
+            id=self.kwargs['id'],
+            organisation=self.get_organisation(),
+        )
+        return TournamentRegistration.objects.select_related('player', 'player__profile').filter(
+            tournament=tournament,
+            status=TournamentRegistration.Status.REGISTERED,
+        ).order_by('joined_at')
 
 
 class WalletDetailView(generics.RetrieveAPIView):

@@ -1,10 +1,14 @@
 from django.db import models
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
 from django.utils import timezone
 import random
 import string
 import hashlib
+
+from accounts.models import Organisation
+
 
 class Match(models.Model):
     # Game choices
@@ -182,3 +186,93 @@ class Evidence(models.Model):
     def is_video(self):
         """Check if file is a video"""
         return self.file_type == 'VIDEO'
+
+
+class Tournament(models.Model):
+    STATUS_CHOICES = [
+        ('DRAFT', 'Draft'),
+        ('OPEN', 'Open'),
+        ('IN_PROGRESS', 'In progress'),
+        ('COMPLETED', 'Completed'),
+        ('CANCELLED', 'Cancelled'),
+    ]
+
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name='tournaments',
+    )
+    name = models.CharField(max_length=255)
+    game = models.CharField(max_length=32, choices=Match.GAME_CHOICES)
+    participation_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        validators=[MinValueValidator(0)],
+    )
+    max_players = models.PositiveIntegerField(validators=[MinValueValidator(2)])
+    rules = models.TextField(blank=True)
+    start_date = models.DateField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='OPEN')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.name} ({self.organisation.name})"
+
+    @property
+    def registered_players_count(self):
+        """Number of players actively registered for this tournament."""
+        return self.registrations.filter(
+            status=TournamentRegistration.Status.REGISTERED
+        ).count()
+
+    @property
+    def is_full(self):
+        return self.registered_players_count >= self.max_players
+
+
+class TournamentRegistration(models.Model):
+    """A player's participation in a tournament.
+
+    Mirrors the 1-on-1 match join flow: joining debits the player's wallet by the
+    participation amount and creates a registration; leaving (while the tournament
+    is still OPEN) refunds the stake and marks the registration WITHDRAWN.
+    """
+
+    class Status(models.TextChoices):
+        REGISTERED = 'REGISTERED', 'Registered'
+        WITHDRAWN = 'WITHDRAWN', 'Withdrawn'
+
+    tournament = models.ForeignKey(
+        Tournament,
+        on_delete=models.CASCADE,
+        related_name='registrations',
+    )
+    player = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='tournament_registrations',
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.REGISTERED,
+    )
+    amount_paid = models.DecimalField(max_digits=10, decimal_places=2)
+    joined_at = models.DateTimeField(auto_now_add=True)
+    left_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-joined_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['tournament', 'player'],
+                name='unique_tournament_player_registration',
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.player} -> {self.tournament.name} ({self.status})"

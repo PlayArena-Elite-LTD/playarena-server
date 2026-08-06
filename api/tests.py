@@ -18,7 +18,8 @@ from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from alert.models import Notification, ReadNotification
-from matches.models import Match
+from accounts.models import Organisation, OrganisationMembership
+from matches.models import Match, Tournament
 from messenger.models import Message, ReadMessage
 from panel.models import Dispute
 from wallet.models import Wallet, Transaction
@@ -487,6 +488,182 @@ class MatchApiTests(APITestCase):
         self.joiner_wallet.refresh_from_db()
         self.assertEqual(match.status, 'JOINED')
         self.assertEqual(self.joiner_wallet.balance, Decimal('90.00'))
+
+
+class OrganisationTournamentApiTests(APITestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.owner = User.objects.create_user(
+            username='org-owner',
+            email='org-owner@test.com',
+            password='pass1234',
+        )
+        self.other_owner = User.objects.create_user(
+            username='other-org-owner',
+            email='other-org-owner@test.com',
+            password='pass1234',
+        )
+        self.player = User.objects.create_user(
+            username='player',
+            email='player@test.com',
+            password='pass1234',
+        )
+        self.organisation = Organisation.objects.create(
+            owner=self.owner,
+            name='Lusaka Esports Hub',
+            contact_name='Martha Banda',
+            email='hub@test.com',
+            phone='+260971234567',
+            organisation_type=Organisation.OrganisationType.TOURNAMENT_ORGANISER,
+            city='Lusaka',
+        )
+        self.other_organisation = Organisation.objects.create(
+            owner=self.other_owner,
+            name='Copperbelt Arena',
+            contact_name='Joseph Phiri',
+            email='copperbelt@test.com',
+            phone='+260961234567',
+            organisation_type=Organisation.OrganisationType.GAMING_LOUNGE,
+            city='Kitwe',
+        )
+
+    def test_organisation_owner_can_create_tournament(self):
+        self.client.force_authenticate(self.owner)
+        payload = {
+            'name': 'Friday FC Knockout',
+            'game': 'FIFA_MOBILE',
+            'participation_amount': '25.00',
+            'max_players': 32,
+            'rules': 'Single elimination. Check in 15 minutes before start.',
+            'start_date': '2026-08-09',
+        }
+
+        response = self.client.post('/api/organisations/tournaments/', payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        tournament = Tournament.objects.get(id=response.data['id'])
+        self.assertEqual(tournament.organisation, self.organisation)
+        self.assertEqual(tournament.game, 'FIFA_MOBILE')
+        self.assertEqual(tournament.participation_amount, Decimal('25.00'))
+        self.assertEqual(tournament.max_players, 32)
+        self.assertEqual(tournament.status, 'OPEN')
+
+    def test_regular_player_cannot_create_organisation_tournament(self):
+        self.client.force_authenticate(self.player)
+        payload = {
+            'name': 'Unauthorised Tournament',
+            'game': 'FIFA_MOBILE',
+            'participation_amount': '25.00',
+            'max_players': 16,
+        }
+
+        response = self.client.post('/api/organisations/tournaments/', payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(Tournament.objects.filter(name='Unauthorised Tournament').exists())
+
+    def test_tournament_list_is_scoped_to_authenticated_organisation(self):
+        own_tournament = Tournament.objects.create(
+            organisation=self.organisation,
+            name='Own Tournament',
+            game='COD_MOBILE',
+            participation_amount=Decimal('10.00'),
+            max_players=16,
+        )
+        Tournament.objects.create(
+            organisation=self.other_organisation,
+            name='Other Tournament',
+            game='PUBG_MOBILE',
+            participation_amount=Decimal('20.00'),
+            max_players=16,
+        )
+
+        self.client.force_authenticate(self.owner)
+        response = self.client.get('/api/organisations/tournaments/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item['id'] for item in response.data], [own_tournament.id])
+
+
+class OrganisationMembershipApiTests(APITestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.owner = User.objects.create_user(
+            username='membership-owner',
+            email='membership-owner@test.com',
+            password='pass1234',
+        )
+        self.player = User.objects.create_user(
+            username='membership-player',
+            email='membership-player@test.com',
+            password='pass1234',
+        )
+        self.organisation = Organisation.objects.create(
+            owner=self.owner,
+            name='Lusaka Esports Hub',
+            contact_name='Martha Banda',
+            email='membership-hub@test.com',
+            phone='+260971234567',
+            organisation_type=Organisation.OrganisationType.TOURNAMENT_ORGANISER,
+            city='Lusaka',
+        )
+        self.tournament = Tournament.objects.create(
+            organisation=self.organisation,
+            name='Members Only FC Cup',
+            game='FIFA_MOBILE',
+            participation_amount=Decimal('25.00'),
+            max_players=32,
+            status='OPEN',
+        )
+
+    def test_player_can_request_to_join_organisation(self):
+        self.client.force_authenticate(self.player)
+
+        response = self.client.post(f'/api/organisations/{self.organisation.id}/request-join/')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        membership = OrganisationMembership.objects.get(
+            organisation=self.organisation,
+            player=self.player,
+        )
+        self.assertEqual(membership.status, OrganisationMembership.Status.PENDING)
+
+    def test_player_sees_membership_status_in_organisation_list(self):
+        OrganisationMembership.objects.create(
+            organisation=self.organisation,
+            player=self.player,
+            status=OrganisationMembership.Status.PENDING,
+        )
+        self.client.force_authenticate(self.player)
+
+        response = self.client.get('/api/organisations/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data[0]['membership_status'], 'PENDING')
+
+    def test_player_only_sees_organisation_tournaments_after_approval(self):
+        self.client.force_authenticate(self.player)
+        response = self.client.get('/api/player/tournaments/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, [])
+
+        membership = OrganisationMembership.objects.create(
+            organisation=self.organisation,
+            player=self.player,
+            status=OrganisationMembership.Status.PENDING,
+        )
+
+        self.client.force_authenticate(self.owner)
+        response = self.client.post(f'/api/organisations/membership-requests/{membership.id}/approve/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        membership.refresh_from_db()
+        self.assertEqual(membership.status, OrganisationMembership.Status.APPROVED)
+
+        self.client.force_authenticate(self.player)
+        response = self.client.get('/api/player/tournaments/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item['id'] for item in response.data], [self.tournament.id])
 
 
 class GraphQLAPITests(APITestCase):
