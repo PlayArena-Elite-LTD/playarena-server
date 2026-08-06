@@ -1,0 +1,91 @@
+{% extends "admin/change_list.html" %}
+
+{% block content %}
+{{ block.super }}
+
+<div id="declare-winner-modal" class="declare-winner-modal">
+    <div class="declare-winner-modal__backdrop" data-action="close-declare-winner"></div>
+    <div class="declare-winner-modal__container">
+        <div class="declare-winner-modal__header">
+            <h3>Declare Winner</h3>
+            <button type="button" class="declare-winner-modal__close" data-action="close-declare-winner">&times;</button>
+        </div>
+        <form id="declare-winner-form" method="post">
+            {% csrf_token %}
+            <div class="declare-winner-modal__body">
+                <p class="declare-winner-modal__hint">
+                    Match <strong id="declare-winner-code"></strong> &mdash; select the player who won.
+                    Use this when the other player refused to upload results.
+                </p>
+                <label class="declare-winner-option">
+                    <input type="radio" name="winner_id" id="declare-winner-creator">
+                    <span id="declare-winner-creator-name"></span>
+                </label>
+                <label class="declare-winner-option">
+                    <input type="radio" name="winner_id" id="declare-winner-joiner">
+                    <span id="declare-winner-joiner-name"></span>
+                </label>
+            </div>
+            <div class="declare-winner-modal__footer">
+                <button type="button" class="dispute-action dispute-action--secondary" data-action="close-declare-winner">Cancel</button>
+                <button type="submit" class="dispute-action dispute-action--primary">Declare Winner</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+(function () {
+    var modal = document.getElementById('declare-winner-modal');
+    var form = document.getElementById('declare-winner-form');
+    var codeEl = document.getElementById('declare-winner-code');
+    var creatorInput = document.getElementById('declare-winner-creator');
+    var creatorName = document.getElementById('declare-winner-creator-name');
+    var joinerInput = document.getElementById('declare-winner-joiner');
+    var joinerName = document.getElementById('declare-winner-joiner-name');
+
+    function openModal(btn) {
+        form.action = btn.getAttribute('data-url');
+        codeEl.textContent = btn.getAttribute('data-code');
+        creatorInput.value = btn.getAttribute('data-creator-id');
+        creatorName.textContent = btn.getAttribute('data-creator-name');
+        joinerInput.value = btn.getAttribute('data-joiner-id');
+        joinerName.textContent = btn.getAttribute('data-joiner-name');
+        creatorInput.checked = false;
+        joinerInput.checked = false;
+        modal.classList.add('is-open');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeModal() {
+        modal.classList.remove('is-open');
+        document.body.style.overflow = '';
+    }
+
+    document.addEventListener('click', function (e) {
+        var trigger = e.target.closest('[data-action="declare-winner"]');
+        if (trigger) {
+            e.preventDefault();
+            openModal(trigger);
+            return;
+        }
+        if (e.target.closest('[data-action="close-declare-winner"]')) {
+            closeModal();
+        }
+    });
+
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && modal.classList.contains('is-open')) {
+            closeModal();
+        }
+    });
+
+    form.addEventListener('submit', function (e) {
+        if (!creatorInput.checked && !joinerInput.checked) {
+            e.preventDefault();
+            alert('Please select a winner.');
+        }
+    });
+})();
+</script>
+{% endblock %}

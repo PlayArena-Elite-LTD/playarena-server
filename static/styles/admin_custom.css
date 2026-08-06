@@ -4068,3 +4068,108 @@ html[data-theme="dark"] .dispute-assignee--empty {
         margin-top: 0;
     }
 }
+
+.declare-winner-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-modal, 1050);
+}
+
+.declare-winner-modal.is-open {
+    display: block;
+}
+
+.declare-winner-modal__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(16, 24, 40, 0.55);
+    z-index: var(--z-modal-backdrop, 1040);
+}
+
+.declare-winner-modal__container {
+    position: relative;
+    z-index: var(--z-modal, 1050);
+    width: min(420px, calc(100% - 32px));
+    margin: 10vh auto 0;
+    background: var(--admin-panel, #FFFFFF);
+    border: 1px solid var(--admin-line, #E4E7EC);
+    border-radius: 12px;
+    box-shadow: 0 12px 32px rgba(16, 24, 40, 0.24);
+    overflow: hidden;
+}
+
+.declare-winner-modal__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--admin-line, #E4E7EC);
+}
+
+.declare-winner-modal__header h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 900;
+    color: var(--admin-ink, #101828);
+}
+
+.declare-winner-modal__close {
+    background: none;
+    border: none;
+    font-size: 1.4rem;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--admin-muted, #667085);
+}
+
+.declare-winner-modal__body {
+    padding: 16px 18px;
+}
+
+.declare-winner-modal__hint {
+    margin: 0 0 14px;
+    font-size: 0.82rem;
+    color: var(--admin-muted, #667085);
+}
+
+.declare-winner-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--admin-line, #E4E7EC);
+    border-radius: 8px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    font-weight: 700;
+    color: var(--admin-ink, #101828);
+}
+
+.declare-winner-option:has(input:checked) {
+    border-color: var(--admin-blue, #0066FF);
+    background: #E0EAFF;
+}
+
+.declare-winner-option input {
+    accent-color: var(--admin-blue, #0066FF);
+}
+
+.declare-winner-modal__footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 14px 18px;
+    border-top: 1px solid var(--admin-line, #E4E7EC);
+}
+
+body.theme-dark .declare-winner-modal__container,
+html[data-theme="dark"] .declare-winner-modal__container {
+    background: var(--admin-panel, #1D2939);
+    border-color: var(--admin-line, #344054);
+}
+
+body.theme-dark .declare-winner-option,
+html[data-theme="dark"] .declare-winner-option {
+    border-color: var(--admin-line, #344054);
+}
