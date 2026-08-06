@@ -6,6 +6,7 @@ Auth: x-api-key {LIPILA_SECRET_KEY} only.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urljoin
 
@@ -13,6 +14,19 @@ import requests
 from django.conf import settings
 
 logger = logging.getLogger('payments.lipila')
+
+
+def sanitize_narration(narration: Optional[str]) -> str:
+    """Lipila only permits letters, numbers, and spaces in narration.
+
+    Strips any other character (underscores, dots, hyphens, @, etc. that
+    commonly appear in usernames) and collapses whitespace so requests
+    don't fail 400 validation.
+    """
+    if not narration:
+        return ''
+    clean = re.sub(r'[^A-Za-z0-9 ]', ' ', narration)
+    return re.sub(r'\s+', ' ', clean).strip()
 
 
 _SENSITIVE_HEADER_NAMES = {
@@ -140,14 +154,15 @@ class LipilaService:
             )
 
         url = _build_url(self.base_url, self.mobile_money_path)
+        clean_narration = sanitize_narration(narration)
         payload: Dict[str, Any] = {
             'referenceId': reference_id,
             'identifier': reference_id,
             'externalReference': reference_id,
             'amount': amount,
             'currency': currency,
-            'narration': narration,
-            'referenceData': narration,
+            'narration': clean_narration,
+            'referenceData': clean_narration,
             'accountNumber': account_number,
             'phoneNumber': account_number,
         }
@@ -227,8 +242,9 @@ class LipilaService:
             'accountNumber': account_number,
             'currency': currency,
         }
-        if narration:
-            payload['narration'] = narration
+        clean_narration = sanitize_narration(narration)
+        if clean_narration:
+            payload['narration'] = clean_narration
 
         headers = self._api_key_headers(callback_url=callback_url)
         if idempotency_key:
@@ -322,12 +338,13 @@ class LipilaService:
         """Blaze docs style (x-api-key) for backward compatibility."""
         url = _build_url(self.base_url, '/api/v1/collections/mobile-money')
         reference_id = kwargs['reference_id']
+        clean_narration = sanitize_narration(kwargs['narration'])
         payload = {
             'referenceId': reference_id,
             'identifier': reference_id,
             'amount': kwargs['amount'],
-            'narration': kwargs['narration'],
-            'referenceData': kwargs['narration'],
+            'narration': clean_narration,
+            'referenceData': clean_narration,
             'accountNumber': kwargs['account_number'],
             'currency': kwargs['currency'],
         }
