@@ -6,7 +6,7 @@ from django.utils.html import format_html
 
 from wallet.models import Wallet, Transaction
 from alert.models import Notification
-from .models import Match, Evidence
+from .models import Match, Evidence, Tournament
 
 @admin.register(Match)
 class MatchAdmin(admin.ModelAdmin):
