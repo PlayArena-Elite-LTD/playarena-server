@@ -2,9 +2,10 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 
-from matches.models import Match, Evidence
+from matches.models import Match, Evidence, Tournament
 from wallet.models import Wallet, Transaction, Deposit, Withdrawal
 from panel.models import Dispute
+from accounts.models import Organisation
 
 User = get_user_model()
 
@@ -143,3 +144,74 @@ class PanelDisputeDetailSerializer(PanelDisputeSerializer):
         if obj.match.joiner:
             parts.append(obj.match.joiner)
         return [{'id': u.id, 'username': u.username, 'is_active': u.is_active} for u in parts]
+
+
+# ---------------------------------------------------------------- Organisers
+class PanelOrganisationSerializer(serializers.ModelSerializer):
+    """Organiser row for the admin directory. Availability is derived from
+    verification + owner account status (organisers have no dedicated flag)."""
+    type_label = serializers.CharField(source='get_organisation_type_display', read_only=True)
+    owner_id = serializers.IntegerField(source='owner.id', read_only=True)
+    owner_username = serializers.CharField(source='owner.username', read_only=True)
+    owner_active = serializers.BooleanField(source='owner.is_active', read_only=True)
+    tournaments_count = serializers.SerializerMethodField()
+    active_tournaments_count = serializers.SerializerMethodField()
+    members_count = serializers.SerializerMethodField()
+    is_available = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Organisation
+        fields = [
+            'id', 'name', 'contact_name', 'email', 'phone',
+            'organisation_type', 'type_label', 'city', 'is_verified',
+            'created_at', 'owner_id', 'owner_username', 'owner_active',
+            'tournaments_count', 'active_tournaments_count', 'members_count',
+            'is_available',
+        ]
+
+    def get_tournaments_count(self, obj):
+        return getattr(obj, 'tournaments_count', None) if hasattr(obj, 'tournaments_count') else obj.tournaments.count()
+
+    def get_active_tournaments_count(self, obj):
+        val = getattr(obj, 'active_tournaments_count', None)
+        if val is not None:
+            return val
+        return obj.tournaments.filter(status__in=['OPEN', 'IN_PROGRESS']).count()
+
+    def get_members_count(self, obj):
+        val = getattr(obj, 'members_count', None)
+        if val is not None:
+            return val
+        return obj.memberships.filter(status='APPROVED').count()
+
+    def get_is_available(self, obj):
+        return bool(obj.is_verified and obj.owner.is_active)
+
+
+class PanelTournamentSerializer(serializers.ModelSerializer):
+    game_label = serializers.CharField(source='get_game_display', read_only=True)
+    status_label = serializers.CharField(source='get_status_display', read_only=True)
+    registered_players_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Tournament
+        fields = [
+            'id', 'name', 'game', 'game_label', 'participation_amount',
+            'max_players', 'registered_players_count', 'status', 'status_label',
+            'start_date', 'created_at',
+        ]
+
+    def get_registered_players_count(self, obj):
+        # Registration model not yet implemented; mirrors api.serializers.TournamentSerializer.
+        return 0
+
+
+class PanelOrganisationDetailSerializer(PanelOrganisationSerializer):
+    tournaments = serializers.SerializerMethodField()
+
+    class Meta(PanelOrganisationSerializer.Meta):
+        fields = PanelOrganisationSerializer.Meta.fields + ['tournaments']
+
+    def get_tournaments(self, obj):
+        qs = obj.tournaments.all().order_by('-created_at')
+        return PanelTournamentSerializer(qs, many=True, context=self.context).data
