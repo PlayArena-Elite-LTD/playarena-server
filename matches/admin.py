@@ -6,7 +6,10 @@ from django.utils.html import format_html
 
 from wallet.models import Wallet, Transaction
 from alert.models import Notification
-from .models import Match, Evidence, Tournament
+from .models import (
+    Match, Evidence, Tournament, TournamentRegistration, TournamentPrize,
+    TournamentStanding, TournamentPayout, TournamentMatch,
+)
 
 @admin.register(Match)
 class MatchAdmin(admin.ModelAdmin):
@@ -171,12 +174,47 @@ class TournamentAdmin(admin.ModelAdmin):
         'name',
         'organisation',
         'game',
+        'format',
         'participation_amount',
         'max_players',
         'status',
         'start_date',
         'created_at',
     )
-    list_filter = ('organisation', 'game', 'status', 'start_date', 'created_at')
+    list_filter = ('organisation', 'game', 'format', 'status', 'start_date', 'created_at')
     search_fields = ('name', 'organisation__name', 'organisation__email')
     readonly_fields = ('created_at', 'updated_at')
+
+
+class TournamentPrizeInline(admin.TabularInline):
+    model = TournamentPrize
+    extra = 0
+
+
+@admin.register(TournamentPrize)
+class TournamentPrizeAdmin(admin.ModelAdmin):
+    list_display = ('id', 'tournament', 'position', 'percentage')
+    list_filter = ('tournament',)
+    search_fields = ('tournament__name',)
+
+
+@admin.register(TournamentStanding)
+class TournamentStandingAdmin(admin.ModelAdmin):
+    list_display = ('id', 'tournament', 'position', 'player', 'points', 'updated_at')
+    list_filter = ('tournament',)
+    search_fields = ('tournament__name', 'player__username')
+
+
+@admin.register(TournamentPayout)
+class TournamentPayoutAdmin(admin.ModelAdmin):
+    list_display = ('id', 'tournament', 'position', 'player', 'amount', 'status', 'paid_at')
+    list_filter = ('status', 'tournament')
+    search_fields = ('tournament__name', 'player__username')
+    readonly_fields = ('created_at', 'paid_at')
+
+
+@admin.register(TournamentMatch)
+class TournamentMatchAdmin(admin.ModelAdmin):
+    list_display = ('id', 'tournament', 'round_number', 'slot_number', 'player1', 'player2', 'winner', 'status')
+    list_filter = ('status', 'tournament', 'round_number')
+    search_fields = ('tournament__name',)

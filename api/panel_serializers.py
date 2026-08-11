@@ -176,7 +176,9 @@ class PanelOrganisationSerializer(serializers.ModelSerializer):
         val = getattr(obj, 'active_tournaments_count', None)
         if val is not None:
             return val
-        return obj.tournaments.filter(status__in=['OPEN', 'IN_PROGRESS']).count()
+        return obj.tournaments.filter(
+            status__in=['OPEN', 'REG_CLOSED', 'SCHEDULED', 'LIVE', 'RESULTS_PENDING', 'PAYOUT_PROCESSING']
+        ).count()
 
     def get_members_count(self, obj):
         val = getattr(obj, 'members_count', None)

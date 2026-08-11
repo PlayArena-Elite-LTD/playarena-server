@@ -6,7 +6,10 @@ from django.utils.text import slugify
 from django.db import IntegrityError, transaction
 from accounts.models import CustomUser, Organisation, OrganisationMembership, Profile
 from accounts.forms import signup_integrity_error_messages
-from matches.models import Match, MatchResult, Tournament, TournamentRegistration
+from matches.models import (
+    Match, MatchResult, Tournament, TournamentRegistration, TournamentPrize,
+    TournamentStanding, TournamentPayout, TournamentMatch,
+)
 from wallet.models import Wallet, Transaction, Deposit, Withdrawal
 from panel.models import Dispute
 from messenger.models import Message, ReadMessage
@@ -622,13 +625,58 @@ class MatchResultSubmissionSerializer(serializers.Serializer):
     submission = serializers.ChoiceField(choices=['WON', 'LOST', 'DRAW'])
 
 
-class TournamentSerializer(serializers.ModelSerializer):
+class TournamentPrizeSerializer(serializers.ModelSerializer):
+    """A configured prize position with its live cash value."""
+    expected_amount = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TournamentPrize
+        fields = ['position', 'percentage', 'expected_amount']
+
+    def get_expected_amount(self, obj):
+        pool = self.context.get('prize_pool')
+        return str(obj.expected_amount(pool))
+
+
+class TournamentFinancialsMixin:
+    """Shared serializer helpers for the entry-fee split and prize pool."""
+
+    def get_fee_percent(self, obj):
+        return str(Tournament.fee_percent())
+
+    def get_entry_breakdown(self, obj):
+        fee, contribution = Tournament.split_entry(obj.participation_amount)
+        return {
+            'entry_fee': str(obj.participation_amount),
+            'platform_fee': str(fee),
+            'prize_contribution': str(contribution),
+        }
+
+    def get_prize_pool(self, obj):
+        return str(obj.prize_pool)
+
+    def get_prizes(self, obj):
+        pool = obj.prize_pool
+        return TournamentPrizeSerializer(
+            obj.prizes.all(), many=True, context={'prize_pool': pool},
+        ).data
+
+
+class TournamentSerializer(TournamentFinancialsMixin, serializers.ModelSerializer):
     """Serializer for organisation tournament data."""
     organisation = OrganisationSerializer(read_only=True)
     game_label = serializers.CharField(source='get_game_display', read_only=True)
     status_label = serializers.CharField(source='get_status_display', read_only=True)
     registered_players_count = serializers.SerializerMethodField()
     eligibility = serializers.SerializerMethodField()
+    display_status = serializers.CharField(read_only=True)
+    display_status_label = serializers.SerializerMethodField()
+    fee_percent = serializers.SerializerMethodField()
+    entry_breakdown = serializers.SerializerMethodField()
+    prize_pool = serializers.SerializerMethodField()
+    platform_fee_total = serializers.SerializerMethodField()
+    gross_entries = serializers.SerializerMethodField()
+    prizes = serializers.SerializerMethodField()
 
     class Meta:
         model = Tournament
@@ -638,14 +686,25 @@ class TournamentSerializer(serializers.ModelSerializer):
             'name',
             'game',
             'game_label',
+            'format',
             'participation_amount',
             'max_players',
             'registered_players_count',
             'rules',
             'start_date',
+            'registration_opens_at',
+            'registration_closes_at',
             'status',
             'status_label',
+            'display_status',
+            'display_status_label',
             'eligibility',
+            'fee_percent',
+            'entry_breakdown',
+            'prize_pool',
+            'platform_fee_total',
+            'gross_entries',
+            'prizes',
             'created_at',
             'updated_at',
         ]
@@ -656,10 +715,27 @@ class TournamentSerializer(serializers.ModelSerializer):
             'registered_players_count',
             'status',
             'status_label',
+            'display_status',
+            'display_status_label',
             'eligibility',
+            'fee_percent',
+            'entry_breakdown',
+            'prize_pool',
+            'platform_fee_total',
+            'gross_entries',
+            'prizes',
             'created_at',
             'updated_at',
         ]
+
+    def get_display_status_label(self, obj):
+        return dict(Tournament.STATUS_CHOICES).get(obj.display_status, obj.display_status)
+
+    def get_platform_fee_total(self, obj):
+        return str(obj.platform_fee_total)
+
+    def get_gross_entries(self, obj):
+        return str(obj.gross_entries)
 
     def get_eligibility(self, obj):
         return {
@@ -672,11 +748,13 @@ class TournamentSerializer(serializers.ModelSerializer):
         return obj.registered_players_count
 
 
-class PlayerTournamentSerializer(serializers.ModelSerializer):
+class PlayerTournamentSerializer(TournamentFinancialsMixin, serializers.ModelSerializer):
     """Tournament data visible to approved organisation players.
 
     Includes per-player join state (is_registered / spots_left / is_full) so the
     frontend can render the correct Join / Leave action, mirroring open matches.
+    Also exposes the entry-fee split, live prize pool and configured prizes so
+    players see the financial structure before registering.
     """
     organisation = OrganisationDirectorySerializer(read_only=True)
     game_label = serializers.CharField(source='get_game_display', read_only=True)
@@ -684,6 +762,16 @@ class PlayerTournamentSerializer(serializers.ModelSerializer):
     spots_left = serializers.SerializerMethodField()
     is_full = serializers.SerializerMethodField()
     is_registered = serializers.SerializerMethodField()
+    fee_percent = serializers.SerializerMethodField()
+    entry_breakdown = serializers.SerializerMethodField()
+    prize_pool = serializers.SerializerMethodField()
+    prizes = serializers.SerializerMethodField()
+    my_position = serializers.SerializerMethodField()
+    my_points = serializers.SerializerMethodField()
+    my_winnings = serializers.SerializerMethodField()
+    display_status = serializers.CharField(read_only=True)
+    display_status_label = serializers.SerializerMethodField()
+    is_registration_open = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Tournament
@@ -693,16 +781,54 @@ class PlayerTournamentSerializer(serializers.ModelSerializer):
             'name',
             'game',
             'game_label',
+            'format',
             'participation_amount',
             'max_players',
             'registered_players_count',
             'spots_left',
             'is_full',
             'is_registered',
+            'fee_percent',
+            'entry_breakdown',
+            'prize_pool',
+            'prizes',
+            'my_position',
+            'my_points',
+            'my_winnings',
             'rules',
             'start_date',
+            'registration_closes_at',
             'status',
+            'display_status',
+            'display_status_label',
+            'is_registration_open',
         ]
+
+    def get_display_status_label(self, obj):
+        return dict(Tournament.STATUS_CHOICES).get(obj.display_status, obj.display_status)
+
+    def _my_standing(self, obj):
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return None
+        return obj.standings.filter(player=request.user).first()
+
+    def get_my_position(self, obj):
+        standing = self._my_standing(obj)
+        return standing.position if standing else None
+
+    def get_my_points(self, obj):
+        standing = self._my_standing(obj)
+        return str(standing.points) if standing and standing.points is not None else None
+
+    def get_my_winnings(self, obj):
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return None
+        payout = obj.payouts.filter(player=request.user).first()
+        if not payout:
+            return None
+        return {'amount': str(payout.amount), 'status': payout.status}
 
     def get_registered_players_count(self, obj):
         return obj.registered_players_count
@@ -741,6 +867,8 @@ class TournamentRegistrationSerializer(serializers.ModelSerializer):
             'player_name',
             'status',
             'amount_paid',
+            'platform_fee',
+            'prize_contribution',
             'joined_at',
         ]
 
@@ -753,17 +881,29 @@ class TournamentRegistrationSerializer(serializers.ModelSerializer):
         return obj.player.username
 
 
+class TournamentPrizeInputSerializer(serializers.Serializer):
+    """A single prize position submitted when creating/configuring a tournament."""
+    position = serializers.IntegerField(min_value=1)
+    percentage = serializers.DecimalField(max_digits=5, decimal_places=2, min_value=Decimal('0'))
+
+
 class TournamentCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating an organisation tournament."""
+    prizes = TournamentPrizeInputSerializer(many=True, required=False)
+
     class Meta:
         model = Tournament
         fields = [
             'name',
             'game',
+            'format',
             'participation_amount',
             'max_players',
             'rules',
             'start_date',
+            'registration_opens_at',
+            'registration_closes_at',
+            'prizes',
         ]
 
     def validate_name(self, value):
@@ -784,6 +924,132 @@ class TournamentCreateSerializer(serializers.ModelSerializer):
         if value < Decimal('0'):
             raise serializers.ValidationError("Participation amount cannot be negative.")
         return value
+
+    def validate_prizes(self, value):
+        if not value:
+            return value
+        positions = [p['position'] for p in value]
+        if len(positions) != len(set(positions)):
+            raise serializers.ValidationError("Prize positions must be unique.")
+        total = sum((p['percentage'] for p in value), Decimal('0'))
+        if total > Decimal('100'):
+            raise serializers.ValidationError(
+                f"Total prize distribution is {total}%, which exceeds 100% of the pool."
+            )
+        return value
+
+    def create(self, validated_data):
+        prizes = validated_data.pop('prizes', [])
+        tournament = super().create(validated_data)
+        for prize in prizes:
+            TournamentPrize.objects.create(
+                tournament=tournament,
+                position=prize['position'],
+                percentage=prize['percentage'],
+            )
+        return tournament
+
+def _player_display_name(player):
+    profile = getattr(player, 'profile', None)
+    if profile:
+        full = f"{profile.first_name} {profile.last_name}".strip()
+        if full:
+            return full
+    return player.username
+
+
+class TournamentStandingSerializer(serializers.ModelSerializer):
+    """A player's ranked position in a tournament."""
+    player_id = serializers.IntegerField(source='player.id', read_only=True)
+    player_username = serializers.CharField(source='player.username', read_only=True)
+    player_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TournamentStanding
+        fields = ['position', 'player_id', 'player_username', 'player_name', 'points']
+
+    def get_player_name(self, obj):
+        return _player_display_name(obj.player)
+
+
+class TournamentStandingInputSerializer(serializers.Serializer):
+    """A single standing row submitted by an organiser."""
+    player_id = serializers.IntegerField()
+    position = serializers.IntegerField(min_value=1)
+    points = serializers.DecimalField(
+        max_digits=10, decimal_places=2, required=False, allow_null=True,
+    )
+
+
+class TournamentPayoutSerializer(serializers.ModelSerializer):
+    """An automatic payout record for a winning position."""
+    player_id = serializers.IntegerField(source='player.id', read_only=True)
+    player_username = serializers.CharField(source='player.username', read_only=True)
+    player_name = serializers.SerializerMethodField()
+    transaction_id = serializers.IntegerField(source='transaction.id', read_only=True, allow_null=True)
+
+    class Meta:
+        model = TournamentPayout
+        fields = [
+            'id',
+            'position',
+            'player_id',
+            'player_username',
+            'player_name',
+            'amount',
+            'status',
+            'transaction_id',
+            'failure_reason',
+            'created_at',
+            'paid_at',
+        ]
+
+    def get_player_name(self, obj):
+        return _player_display_name(obj.player)
+
+
+def _player_brief(player):
+    if not player:
+        return None
+    return {'id': player.id, 'name': _player_display_name(player)}
+
+
+class TournamentMatchSerializer(serializers.ModelSerializer):
+    """A bracket match with lightweight player info for rendering the bracket."""
+    player1 = serializers.SerializerMethodField()
+    player2 = serializers.SerializerMethodField()
+    winner = serializers.SerializerMethodField()
+    reported_winner = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TournamentMatch
+        fields = [
+            'id',
+            'round_number',
+            'slot_number',
+            'player1',
+            'player2',
+            'player1_score',
+            'player2_score',
+            'winner',
+            'reported_winner',
+            'status',
+            'next_match',
+            'next_slot',
+        ]
+
+    def get_player1(self, obj):
+        return _player_brief(obj.player1)
+
+    def get_player2(self, obj):
+        return _player_brief(obj.player2)
+
+    def get_winner(self, obj):
+        return _player_brief(obj.winner)
+
+    def get_reported_winner(self, obj):
+        return _player_brief(obj.reported_winner)
+
 
 class DisputeSerializer(serializers.ModelSerializer):
     """Serializer for Dispute model"""

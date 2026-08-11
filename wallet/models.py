@@ -180,6 +180,7 @@ class Transaction(models.Model):
         ('MATCH_DRAW_RETURN', 'Match Draw Return'),
         ('TOURNAMENT_JOINING', 'Tournament Joining'),
         ('TOURNAMENT_REFUND', 'Tournament Refund'),
+        ('TOURNAMENT_WINNINGS', 'Tournament Winnings'),
         ('OTHER', 'Other'),
     ]
 

@@ -45,10 +45,19 @@ from .serializers import (
     TournamentCreateSerializer,
     TournamentSerializer,
     TournamentRegistrationSerializer,
+    TournamentPrizeInputSerializer,
+    TournamentStandingSerializer,
+    TournamentStandingInputSerializer,
+    TournamentPayoutSerializer,
+    TournamentMatchSerializer,
 )
 from .permissions import IsWalletOwner, IsMatchParticipant
 from accounts.models import CustomUser, Organisation, OrganisationMembership, Profile
-from matches.models import Match, MatchResult, Tournament, TournamentRegistration
+from matches.models import (
+    Match, MatchResult, Tournament, TournamentRegistration, TournamentPrize,
+    TournamentStanding, TournamentPayout, TournamentMatch,
+)
+from matches import brackets, leagues
 from panel.models import Dispute
 from messenger.models import Message, ReadMessage
 from alert.models import Notification, ReadNotification
@@ -275,9 +284,17 @@ class TournamentJoinView(APIView):
         )
         user = request.user
 
-        if tournament.status != 'OPEN':
+        # Auto-close registration if the deadline passed or capacity is reached.
+        tournament.auto_close_registration()
+
+        if tournament.registration_not_yet_open:
             return Response(
-                {'detail': 'This tournament is not open for registration.'},
+                {'detail': 'Registration for this tournament has not opened yet.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if tournament.status != 'OPEN' or tournament.past_registration_deadline:
+            return Response(
+                {'detail': 'Registration for this tournament is closed.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -322,18 +339,28 @@ class TournamentJoinView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Split the entry into the PlayArena platform fee and the prize-pool
+        # contribution so both are recorded separately (audit trail).
+        platform_fee, prize_contribution = Tournament.split_entry(amount)
+
         # Create or reactivate the registration.
         if existing:
             existing.status = TournamentRegistration.Status.REGISTERED
             existing.amount_paid = amount
+            existing.platform_fee = platform_fee
+            existing.prize_contribution = prize_contribution
             existing.left_at = None
-            existing.save(update_fields=['status', 'amount_paid', 'left_at'])
+            existing.save(update_fields=[
+                'status', 'amount_paid', 'platform_fee', 'prize_contribution', 'left_at',
+            ])
             registration = existing
         else:
             registration = TournamentRegistration.objects.create(
                 tournament=tournament,
                 player=user,
                 amount_paid=amount,
+                platform_fee=platform_fee,
+                prize_contribution=prize_contribution,
             )
 
         old_balance = wallet.balance
@@ -364,6 +391,8 @@ class TournamentJoinView(APIView):
                     'tournament_name': tournament.name,
                     'organisation_id': tournament.organisation_id,
                     'amount': str(amount),
+                    'platform_fee': str(platform_fee),
+                    'prize_contribution': str(prize_contribution),
                     'player_id': user.id,
                     'player_username': user.username,
                     'registration_id': registration.id,
@@ -412,7 +441,7 @@ class TournamentLeaveView(APIView):
                 {'detail': 'You are not registered for this tournament.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if tournament.status != 'OPEN':
+        if tournament.status not in Tournament.PRE_PLAY_STATUSES:
             return Response(
                 {'detail': 'You can only leave a tournament before it starts.'},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -1343,6 +1372,753 @@ class OrganisationTournamentRegistrationsView(generics.ListAPIView):
             tournament=tournament,
             status=TournamentRegistration.Status.REGISTERED,
         ).order_by('joined_at')
+
+
+class OrganisationTournamentPrizesView(APIView):
+    """
+    PUT /api/organisations/tournaments/{id}/prizes/
+
+    Replace the configured prize distribution for one of the authenticated
+    organiser's tournaments. Accepts {"prizes": [{"position": 1,
+    "percentage": "60"}, ...]}. Only allowed before the tournament starts.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_organisation(self):
+        try:
+            return self.request.user.organisation
+        except Organisation.DoesNotExist as exc:
+            raise PermissionDenied("Only organisation accounts can configure prizes.") from exc
+
+    @transaction.atomic
+    def put(self, request, id):
+        tournament = get_object_or_404(
+            Tournament,
+            id=id,
+            organisation=self.get_organisation(),
+        )
+        if tournament.status not in Tournament.PRE_PLAY_STATUSES:
+            return Response(
+                {'detail': 'Prizes can only be changed before the tournament starts.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        input_serializer = TournamentPrizeInputSerializer(data=request.data.get('prizes', []), many=True)
+        input_serializer.is_valid(raise_exception=True)
+        prizes = input_serializer.validated_data
+
+        positions = [p['position'] for p in prizes]
+        if len(positions) != len(set(positions)):
+            return Response(
+                {'detail': 'Prize positions must be unique.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        total = sum((p['percentage'] for p in prizes), Decimal('0'))
+        if total > Decimal('100'):
+            return Response(
+                {'detail': f"Total prize distribution is {total}%, which exceeds 100% of the pool."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        tournament.prizes.all().delete()
+        for prize in prizes:
+            TournamentPrize.objects.create(
+                tournament=tournament,
+                position=prize['position'],
+                percentage=prize['percentage'],
+            )
+
+        return Response(
+            TournamentSerializer(tournament, context={'request': request}).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+def _process_tournament_payout(payout, request=None):
+    """Credit a single payout to the winner's wallet.
+
+    Runs in its own atomic block so a failure marks the payout FAILED (with a
+    reason) and leaves the record intact for later resolution — winnings are
+    never lost. Idempotent: an already-PAID payout is left untouched.
+    """
+    try:
+        with transaction.atomic():
+            Wallet.objects.get_or_create(user=payout.player)
+            wallet = Wallet.objects.select_for_update().get(user=payout.player)
+            locked = TournamentPayout.objects.select_for_update().get(id=payout.id)
+            if locked.status == TournamentPayout.Status.PAID:
+                return locked
+
+            old_balance = wallet.balance
+            wallet.balance += locked.amount
+            wallet.save(update_fields=['balance'])
+
+            txn = Transaction.objects.create(
+                wallet=wallet,
+                amount=locked.amount,
+                transaction_type='TOURNAMENT_WINNINGS',
+                description=(
+                    f"Tournament '{locked.tournament.name}' winnings — "
+                    f"position {locked.position}"
+                ),
+                related_tournament=locked.tournament,
+            )
+
+            locked.status = TournamentPayout.Status.PAID
+            locked.transaction = txn
+            locked.paid_at = timezone.now()
+            locked.failure_reason = ''
+            locked.save(update_fields=['status', 'transaction', 'paid_at', 'failure_reason'])
+
+            Notification.objects.create(
+                user=locked.player,
+                message=(
+                    f"You won ZMW {locked.amount} (position {locked.position}) in "
+                    f"'{locked.tournament.name}'. It's been credited to your wallet."
+                ),
+                link='/tournaments',
+            )
+
+            try:
+                from audit.utils import log_action
+                log_action(
+                    action='tournament_payout_paid',
+                    user=locked.player,
+                    details={
+                        'tournament_id': locked.tournament_id,
+                        'tournament_name': locked.tournament.name,
+                        'payout_id': locked.id,
+                        'position': locked.position,
+                        'amount': str(locked.amount),
+                        'player_id': locked.player_id,
+                        'wallet_id': wallet.id,
+                        'old_balance': str(old_balance),
+                        'new_balance': str(wallet.balance),
+                        'transaction_id': txn.id,
+                    },
+                    request=request,
+                )
+            except Exception:
+                pass
+            return locked
+    except Exception as exc:  # noqa: BLE001 — record failure, keep it traceable
+        TournamentPayout.objects.filter(id=payout.id).update(
+            status=TournamentPayout.Status.FAILED,
+            failure_reason=str(exc)[:500],
+        )
+        return None
+
+
+def _settle_tournament_if_paid(tournament):
+    """Flip a paying-out tournament to PAID once every payout is settled."""
+    if tournament.status != 'PAYOUT_PROCESSING':
+        return
+    payouts = tournament.payouts.all()
+    if payouts and all(p.status == TournamentPayout.Status.PAID for p in payouts):
+        tournament.status = 'PAID'
+        tournament.save(update_fields=['status'])
+
+
+class OrganisationTournamentStandingsView(APIView):
+    """
+    GET  /api/organisations/tournaments/{id}/standings/
+    PUT  /api/organisations/tournaments/{id}/standings/
+
+    View or replace the (draft) final standings for one of the organiser's
+    tournaments. PUT accepts {"standings": [{"player_id", "position",
+    "points"?}, ...]} and is allowed until the tournament is locked.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_organisation(self):
+        try:
+            return self.request.user.organisation
+        except Organisation.DoesNotExist as exc:
+            raise PermissionDenied("Only organisation accounts can manage standings.") from exc
+
+    def get_tournament(self, id):
+        return get_object_or_404(Tournament, id=id, organisation=self.get_organisation())
+
+    def get(self, request, id):
+        tournament = self.get_tournament(id)
+        standings = tournament.standings.select_related('player', 'player__profile').all()
+        return Response(TournamentStandingSerializer(standings, many=True).data)
+
+    @transaction.atomic
+    def put(self, request, id):
+        tournament = self.get_tournament(id)
+        if tournament.status in Tournament.TERMINAL_STATUSES:
+            return Response(
+                {'detail': 'Standings can no longer be changed for this tournament.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        input_serializer = TournamentStandingInputSerializer(
+            data=request.data.get('standings', []), many=True,
+        )
+        input_serializer.is_valid(raise_exception=True)
+        rows = input_serializer.validated_data
+
+        positions = [r['position'] for r in rows]
+        player_ids = [r['player_id'] for r in rows]
+        if len(positions) != len(set(positions)):
+            return Response({'detail': 'Positions must be unique.'}, status=status.HTTP_400_BAD_REQUEST)
+        if len(player_ids) != len(set(player_ids)):
+            return Response({'detail': 'Each player can only appear once.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Every ranked player must be an active participant of this tournament.
+        registered_ids = set(
+            TournamentRegistration.objects.filter(
+                tournament=tournament,
+                status=TournamentRegistration.Status.REGISTERED,
+            ).values_list('player_id', flat=True)
+        )
+        invalid = [pid for pid in player_ids if pid not in registered_ids]
+        if invalid:
+            return Response(
+                {'detail': f"These players are not registered for this tournament: {invalid}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        tournament.standings.all().delete()
+        for row in rows:
+            TournamentStanding.objects.create(
+                tournament=tournament,
+                player_id=row['player_id'],
+                position=row['position'],
+                points=row.get('points'),
+            )
+
+        standings = tournament.standings.select_related('player', 'player__profile').all()
+        return Response(TournamentStandingSerializer(standings, many=True).data)
+
+
+class OrganisationTournamentLockView(APIView):
+    """
+    POST /api/organisations/tournaments/{id}/lock/
+
+    Lock final results and pay out automatically. Freezes standings, sets the
+    tournament COMPLETED, and credits each configured prize position from the
+    prize pool. Payout records are created first (traceable) and each credit is
+    processed in isolation so a single failure never loses winnings.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_organisation(self):
+        try:
+            return self.request.user.organisation
+        except Organisation.DoesNotExist as exc:
+            raise PermissionDenied("Only organisation accounts can lock tournaments.") from exc
+
+    def post(self, request, id):
+        organisation = self.get_organisation()
+        with transaction.atomic():
+            tournament = get_object_or_404(
+                Tournament.objects.select_for_update(),
+                id=id,
+                organisation=organisation,
+            )
+            if tournament.status in Tournament.TERMINAL_STATUSES:
+                already = 'already locked' if tournament.status != 'CANCELLED' else 'cancelled'
+                return Response(
+                    {'detail': f'This tournament is {already} and cannot be locked.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            standings = list(tournament.standings.select_related('player').all())
+            if not standings:
+                return Response(
+                    {'detail': 'Enter final standings before locking the tournament.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            prizes = list(tournament.prizes.all())
+            standing_by_position = {s.position: s for s in standings}
+            missing = [p.position for p in prizes if p.position not in standing_by_position]
+            if missing:
+                return Response(
+                    {'detail': f"Prize positions {missing} have no ranked player. Fix standings or prizes first."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            pool = tournament.prize_pool  # snapshot at lock time
+            pending_payouts = []
+            for prize in prizes:
+                standing = standing_by_position[prize.position]
+                amount = prize.expected_amount(pool)
+                payout, _created = TournamentPayout.objects.get_or_create(
+                    tournament=tournament,
+                    position=prize.position,
+                    defaults={'player': standing.player, 'amount': amount},
+                )
+                if payout.status != TournamentPayout.Status.PAID:
+                    pending_payouts.append(payout)
+
+            # COMPLETED = final standings locked; move to PAYOUT_PROCESSING while
+            # winnings are credited (skipped straight to PAID if nothing to pay).
+            tournament.status = 'PAYOUT_PROCESSING' if pending_payouts else 'PAID'
+            tournament.save(update_fields=['status'])
+
+            try:
+                from audit.utils import log_action
+                log_action(
+                    action='tournament_locked',
+                    user=request.user,
+                    details={
+                        'tournament_id': tournament.id,
+                        'tournament_name': tournament.name,
+                        'organisation_id': organisation.id,
+                        'prize_pool': str(pool),
+                        'payout_count': len(pending_payouts),
+                    },
+                    request=request,
+                )
+            except Exception:
+                pass
+
+        # Process credits after the lock commits so failures stay traceable.
+        for payout in pending_payouts:
+            _process_tournament_payout(payout, request=request)
+
+        _settle_tournament_if_paid(tournament)
+        tournament.refresh_from_db()
+
+        payouts = tournament.payouts.select_related('player', 'player__profile', 'transaction').all()
+        all_paid = all(p.status == TournamentPayout.Status.PAID for p in payouts)
+        return Response(
+            {
+                'message': (
+                    'Final results locked. All winnings have been paid out.'
+                    if all_paid else
+                    'Final results locked. Some payouts need attention — see failed payouts.'
+                ),
+                'tournament': TournamentSerializer(tournament, context={'request': request}).data,
+                'payouts': TournamentPayoutSerializer(payouts, many=True).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class OrganisationTournamentPayoutsView(APIView):
+    """
+    GET  /api/organisations/tournaments/{id}/payouts/
+
+    List payout records (paid / pending / failed) for one of the organiser's
+    tournaments so they can reconcile and spot failures.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_organisation(self):
+        try:
+            return self.request.user.organisation
+        except Organisation.DoesNotExist as exc:
+            raise PermissionDenied("Only organisation accounts can view payouts.") from exc
+
+    def get(self, request, id):
+        tournament = get_object_or_404(Tournament, id=id, organisation=self.get_organisation())
+        payouts = tournament.payouts.select_related('player', 'player__profile', 'transaction').all()
+        return Response(TournamentPayoutSerializer(payouts, many=True).data)
+
+
+class OrganisationTournamentPayoutRetryView(APIView):
+    """
+    POST /api/organisations/tournaments/{id}/payouts/{payout_id}/retry/
+
+    Retry a FAILED payout. The record already exists, so this only re-attempts
+    the wallet credit — winnings are never re-created or lost.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_organisation(self):
+        try:
+            return self.request.user.organisation
+        except Organisation.DoesNotExist as exc:
+            raise PermissionDenied("Only organisation accounts can retry payouts.") from exc
+
+    def post(self, request, id, payout_id):
+        tournament = get_object_or_404(Tournament, id=id, organisation=self.get_organisation())
+        payout = get_object_or_404(TournamentPayout, id=payout_id, tournament=tournament)
+        if payout.status == TournamentPayout.Status.PAID:
+            return Response(
+                {'detail': 'This payout has already been paid.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        _process_tournament_payout(payout, request=request)
+        _settle_tournament_if_paid(tournament)
+        payout.refresh_from_db()
+        return Response(TournamentPayoutSerializer(payout).data, status=status.HTTP_200_OK)
+
+
+def _refund_all_registrations(tournament, request=None):
+    """Refund every active registration's entry fee to the player's wallet."""
+    active = tournament.registrations.select_related('player').filter(
+        status=TournamentRegistration.Status.REGISTERED,
+    )
+    for registration in active:
+        amount = Decimal(registration.amount_paid)
+        registration.status = TournamentRegistration.Status.WITHDRAWN
+        registration.left_at = timezone.now()
+        registration.save(update_fields=['status', 'left_at'])
+
+        Wallet.objects.get_or_create(user=registration.player)
+        wallet = Wallet.objects.select_for_update().get(user=registration.player)
+        wallet.balance += amount
+        wallet.save(update_fields=['balance'])
+
+        Transaction.objects.create(
+            wallet=wallet,
+            amount=amount,
+            transaction_type='TOURNAMENT_REFUND',
+            description=f"Tournament '{tournament.name}' cancelled — ZMW {amount} refunded",
+            related_tournament=tournament,
+        )
+        Notification.objects.create(
+            user=registration.player,
+            message=f"'{tournament.name}' was cancelled. Your entry of ZMW {amount} has been refunded.",
+            link='/tournaments',
+        )
+
+
+class OrganisationTournamentLifecycleView(APIView):
+    """
+    POST /api/organisations/tournaments/{id}/lifecycle/
+
+    Manual lifecycle transitions for an organiser's tournament.
+    Body: {"action": "publish" | "open" | "close_registration" | "schedule" | "cancel"}.
+    Cancelling refunds every registered player's entry fee.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    # action -> (allowed-from statuses, resulting status)
+    TRANSITIONS = {
+        'publish': (('DRAFT',), 'OPEN'),
+        'open': (('DRAFT', 'REG_CLOSED', 'SCHEDULED'), 'OPEN'),
+        'close_registration': (('OPEN',), 'REG_CLOSED'),
+        'schedule': (('OPEN', 'REG_CLOSED'), 'SCHEDULED'),
+        'cancel': (('DRAFT', 'OPEN', 'REG_CLOSED', 'SCHEDULED', 'LIVE', 'RESULTS_PENDING'), 'CANCELLED'),
+    }
+
+    def get_organisation(self):
+        try:
+            return self.request.user.organisation
+        except Organisation.DoesNotExist as exc:
+            raise PermissionDenied("Only organisation accounts can manage tournaments.") from exc
+
+    @transaction.atomic
+    def post(self, request, id):
+        organisation = self.get_organisation()
+        action = str(request.data.get('action', '')).strip()
+        if action not in self.TRANSITIONS:
+            return Response(
+                {'detail': f"Unknown action. Use one of: {', '.join(self.TRANSITIONS)}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        allowed_from, new_status = self.TRANSITIONS[action]
+
+        tournament = get_object_or_404(
+            Tournament.objects.select_for_update(),
+            id=id,
+            organisation=organisation,
+        )
+        if tournament.status not in allowed_from:
+            return Response(
+                {'detail': f"Cannot '{action}' a tournament that is {tournament.get_status_display()}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if action == 'cancel':
+            _refund_all_registrations(tournament, request=request)
+
+        tournament.status = new_status
+        tournament.save(update_fields=['status'])
+
+        try:
+            from audit.utils import log_action
+            log_action(
+                action=f'tournament_{action}',
+                user=request.user,
+                details={
+                    'tournament_id': tournament.id,
+                    'tournament_name': tournament.name,
+                    'organisation_id': organisation.id,
+                    'new_status': new_status,
+                },
+                request=request,
+            )
+        except Exception:
+            pass
+
+        return Response(
+            TournamentSerializer(tournament, context={'request': request}).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+class PlayerTournamentStandingsView(APIView):
+    """
+    GET /api/player/tournaments/{id}/standings/
+
+    Standings visible to approved members of the tournament's organisation.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, id):
+        tournament = get_object_or_404(Tournament.objects.select_related('organisation'), id=id)
+        is_member = OrganisationMembership.objects.filter(
+            organisation=tournament.organisation,
+            player=request.user,
+            status=OrganisationMembership.Status.APPROVED,
+        ).exists()
+        if not is_member:
+            raise PermissionDenied("You must be an approved member to view these standings.")
+        standings = tournament.standings.select_related('player', 'player__profile').all()
+        return Response(TournamentStandingSerializer(standings, many=True).data)
+
+
+def _bracket_queryset(tournament):
+    return tournament.bracket_matches.select_related(
+        'player1', 'player1__profile', 'player2', 'player2__profile',
+        'winner', 'winner__profile', 'reported_winner', 'reported_winner__profile',
+    ).order_by('round_number', 'slot_number')
+
+
+class OrganisationTournamentBracketView(APIView):
+    """
+    GET  /api/organisations/tournaments/{id}/bracket/   — view the bracket
+    POST /api/organisations/tournaments/{id}/bracket/   — generate the bracket
+
+    Generating closes registration (tournament → LIVE) and pairs players
+    into a single-elimination bracket with byes.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_organisation(self):
+        try:
+            return self.request.user.organisation
+        except Organisation.DoesNotExist as exc:
+            raise PermissionDenied("Only organisation accounts can manage brackets.") from exc
+
+    def get_tournament(self, id):
+        return get_object_or_404(Tournament, id=id, organisation=self.get_organisation())
+
+    def get(self, request, id):
+        tournament = self.get_tournament(id)
+        matches = _bracket_queryset(tournament)
+        return Response(TournamentMatchSerializer(matches, many=True).data)
+
+    def post(self, request, id):
+        tournament = self.get_tournament(id)
+        if tournament.status not in Tournament.PRE_PLAY_STATUSES:
+            return Response(
+                {'detail': 'Fixtures can only be generated before the tournament goes live.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            if tournament.format == 'LEAGUE':
+                leagues.generate_league(tournament)
+            else:
+                brackets.generate_bracket(tournament)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        tournament.status = 'LIVE'
+        tournament.save(update_fields=['status'])
+
+        try:
+            from audit.utils import log_action
+            log_action(
+                action='tournament_bracket_generated',
+                user=request.user,
+                details={
+                    'tournament_id': tournament.id,
+                    'tournament_name': tournament.name,
+                    'organisation_id': tournament.organisation_id,
+                    'players': tournament.registered_players_count,
+                },
+                request=request,
+            )
+        except Exception:
+            pass
+
+        matches = _bracket_queryset(tournament)
+        return Response(
+            TournamentMatchSerializer(matches, many=True).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class OrganisationTournamentMatchConfirmView(APIView):
+    """
+    POST /api/organisations/tournaments/{id}/matches/{match_id}/confirm/
+
+    Confirm (or correct) a bracket match result and advance the winner. Body may
+    include {"winner_id"} to override the player-reported winner. Confirming the
+    final rebuilds the tournament's final standings automatically.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_organisation(self):
+        try:
+            return self.request.user.organisation
+        except Organisation.DoesNotExist as exc:
+            raise PermissionDenied("Only organisation accounts can confirm results.") from exc
+
+    def post(self, request, id, match_id):
+        tournament = get_object_or_404(Tournament, id=id, organisation=self.get_organisation())
+        match = get_object_or_404(TournamentMatch, id=match_id, tournament=tournament)
+        try:
+            if tournament.format == 'LEAGUE':
+                match = leagues.confirm_score(
+                    tournament, match,
+                    s1=request.data.get('player1_score'),
+                    s2=request.data.get('player2_score'),
+                )
+                remaining = tournament.bracket_matches.exclude(
+                    status=TournamentMatch.Status.CONFIRMED
+                ).exists()
+                is_final = not remaining
+            else:
+                match, is_final = brackets.confirm_result(
+                    match, winner_id=request.data.get('winner_id'),
+                )
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        if tournament.format != 'LEAGUE':
+            for player in (match.player1, match.player2):
+                if player:
+                    won = player.id == match.winner_id
+                    Notification.objects.create(
+                        user=player,
+                        message=(
+                            f"Your match in '{tournament.name}' is confirmed — "
+                            f"{'you advanced!' if won else 'you were eliminated.'}"
+                        ),
+                        link='/tournaments',
+                    )
+
+        matches = _bracket_queryset(tournament)
+        return Response(
+            {
+                'final': is_final,
+                'bracket': TournamentMatchSerializer(matches, many=True).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class PlayerTournamentBracketView(APIView):
+    """
+    GET /api/player/tournaments/{id}/bracket/
+
+    Bracket visible to approved members of the tournament's organisation.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, id):
+        tournament = get_object_or_404(Tournament.objects.select_related('organisation'), id=id)
+        is_member = OrganisationMembership.objects.filter(
+            organisation=tournament.organisation,
+            player=request.user,
+            status=OrganisationMembership.Status.APPROVED,
+        ).exists()
+        if not is_member:
+            raise PermissionDenied("You must be an approved member to view this bracket.")
+        matches = _bracket_queryset(tournament)
+        return Response(TournamentMatchSerializer(matches, many=True).data)
+
+
+class PlayerTournamentMatchReportView(APIView):
+    """
+    POST /api/player/tournaments/{id}/matches/{match_id}/report/
+
+    A participant reports their match winner; it awaits organiser confirmation.
+    Body: {"winner_id"}.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, id, match_id):
+        tournament = get_object_or_404(Tournament, id=id)
+        match = get_object_or_404(TournamentMatch, id=match_id, tournament=tournament)
+        try:
+            if tournament.format == 'LEAGUE':
+                leagues.report_score(
+                    match,
+                    reporter_id=request.user.id,
+                    s1=request.data.get('player1_score'),
+                    s2=request.data.get('player2_score'),
+                )
+            else:
+                try:
+                    winner_id = int(request.data.get('winner_id'))
+                except (TypeError, ValueError):
+                    return Response({'detail': 'winner_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+                brackets.report_result(match, reporter_id=request.user.id, winner_id=winner_id)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        matches = _bracket_queryset(tournament)
+        return Response(TournamentMatchSerializer(matches, many=True).data, status=status.HTTP_200_OK)
+
+
+def _enriched_league_table(tournament):
+    table = leagues.compute_table(tournament)
+    ids = [r['player_id'] for r in table]
+    users = {u.id: u for u in CustomUser.objects.filter(id__in=ids).select_related('profile')}
+    rows = []
+    for position, r in enumerate(table, start=1):
+        user = users.get(r['player_id'])
+        name = user.username if user else str(r['player_id'])
+        if user:
+            profile = getattr(user, 'profile', None)
+            if profile:
+                full = f"{profile.first_name} {profile.last_name}".strip()
+                if full:
+                    name = full
+        rows.append({
+            'position': position,
+            'player_id': r['player_id'],
+            'player_username': user.username if user else '',
+            'player_name': name,
+            'played': r['played'],
+            'won': r['won'],
+            'drawn': r['drawn'],
+            'lost': r['lost'],
+            'gf': r['gf'],
+            'ga': r['ga'],
+            'gd': r['gd'],
+            'points': r['points'],
+        })
+    return rows
+
+
+class OrganisationTournamentTableView(APIView):
+    """GET /api/organisations/tournaments/{id}/table/ — live league table."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, id):
+        try:
+            organisation = request.user.organisation
+        except Organisation.DoesNotExist as exc:
+            raise PermissionDenied("Only organisation accounts can view this table.") from exc
+        tournament = get_object_or_404(Tournament, id=id, organisation=organisation)
+        return Response(_enriched_league_table(tournament))
+
+
+class PlayerTournamentTableView(APIView):
+    """GET /api/player/tournaments/{id}/table/ — live league table for members."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, id):
+        tournament = get_object_or_404(Tournament.objects.select_related('organisation'), id=id)
+        is_member = OrganisationMembership.objects.filter(
+            organisation=tournament.organisation,
+            player=request.user,
+            status=OrganisationMembership.Status.APPROVED,
+        ).exists()
+        if not is_member:
+            raise PermissionDenied("You must be an approved member to view this table.")
+        return Response(_enriched_league_table(tournament))
 
 
 class WalletDetailView(generics.RetrieveAPIView):

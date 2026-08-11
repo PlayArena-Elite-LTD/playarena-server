@@ -1281,7 +1281,7 @@ class PanelOrganisationListView(ListAPIView):
                 tournaments_count=Count('tournaments', distinct=True),
                 active_tournaments_count=Count(
                     'tournaments',
-                    filter=Q(tournaments__status__in=['OPEN', 'IN_PROGRESS']),
+                    filter=Q(tournaments__status__in=['OPEN', 'REG_CLOSED', 'SCHEDULED', 'LIVE', 'RESULTS_PENDING', 'PAYOUT_PROCESSING']),
                     distinct=True,
                 ),
                 members_count=Count(
