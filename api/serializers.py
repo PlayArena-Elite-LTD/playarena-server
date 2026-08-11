@@ -8,7 +8,7 @@ from accounts.models import CustomUser, Organisation, OrganisationMembership, Pr
 from accounts.forms import signup_integrity_error_messages
 from matches.models import (
     Match, MatchResult, Tournament, TournamentRegistration, TournamentPrize,
-    TournamentStanding, TournamentPayout, TournamentMatch,
+    TournamentStanding, TournamentPayout, TournamentMatch, TournamentMatchSubmission,
 )
 from wallet.models import Wallet, Transaction, Deposit, Withdrawal
 from panel.models import Dispute
@@ -1014,12 +1014,37 @@ def _player_brief(player):
     return {'id': player.id, 'name': _player_display_name(player)}
 
 
+class TournamentMatchSubmissionSerializer(serializers.ModelSerializer):
+    """One player's submitted result, shown to the organiser for dispute review."""
+    player = serializers.SerializerMethodField()
+    winner = serializers.SerializerMethodField()
+    evidence_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TournamentMatchSubmission
+        fields = ['player', 'winner', 'player1_score', 'player2_score', 'evidence_url', 'submitted_at']
+
+    def get_player(self, obj):
+        return _player_brief(obj.player)
+
+    def get_winner(self, obj):
+        return _player_brief(obj.winner)
+
+    def get_evidence_url(self, obj):
+        if not obj.evidence:
+            return None
+        request = self.context.get('request')
+        url = obj.evidence.url
+        return request.build_absolute_uri(url) if request else url
+
+
 class TournamentMatchSerializer(serializers.ModelSerializer):
     """A bracket match with lightweight player info for rendering the bracket."""
     player1 = serializers.SerializerMethodField()
     player2 = serializers.SerializerMethodField()
     winner = serializers.SerializerMethodField()
     reported_winner = serializers.SerializerMethodField()
+    submissions = serializers.SerializerMethodField()
 
     class Meta:
         model = TournamentMatch
@@ -1033,10 +1058,15 @@ class TournamentMatchSerializer(serializers.ModelSerializer):
             'player2_score',
             'winner',
             'reported_winner',
+            'submissions',
             'status',
             'next_match',
             'next_slot',
         ]
+
+    def get_submissions(self, obj):
+        subs = obj.submissions.all() if hasattr(obj, 'submissions') else []
+        return TournamentMatchSubmissionSerializer(subs, many=True, context=self.context).data
 
     def get_player1(self, obj):
         return _player_brief(obj.player1)

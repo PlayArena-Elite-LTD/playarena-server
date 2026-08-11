@@ -8,7 +8,7 @@ from wallet.models import Wallet, Transaction
 from alert.models import Notification
 from .models import (
     Match, Evidence, Tournament, TournamentRegistration, TournamentPrize,
-    TournamentStanding, TournamentPayout, TournamentMatch,
+    TournamentStanding, TournamentPayout, TournamentMatch, TournamentMatchSubmission,
 )
 
 @admin.register(Match)
@@ -218,3 +218,10 @@ class TournamentMatchAdmin(admin.ModelAdmin):
     list_display = ('id', 'tournament', 'round_number', 'slot_number', 'player1', 'player2', 'winner', 'status')
     list_filter = ('status', 'tournament', 'round_number')
     search_fields = ('tournament__name',)
+
+
+@admin.register(TournamentMatchSubmission)
+class TournamentMatchSubmissionAdmin(admin.ModelAdmin):
+    list_display = ('id', 'match', 'player', 'winner', 'player1_score', 'player2_score', 'submitted_at')
+    list_filter = ('match__tournament',)
+    search_fields = ('match__tournament__name', 'player__username')

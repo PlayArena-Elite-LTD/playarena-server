@@ -542,11 +542,12 @@ class TournamentMatch(models.Model):
     """
 
     class Status(models.TextChoices):
-        PENDING = 'PENDING', 'Pending'       # slot(s) still to be filled (TBD)
-        READY = 'READY', 'Ready'             # both players known, awaiting result
-        REPORTED = 'REPORTED', 'Reported'    # a player reported, awaiting confirmation
+        PENDING = 'PENDING', 'Pending'        # slot(s) still to be filled (TBD)
+        READY = 'READY', 'Ready'              # both players known, awaiting result
+        REPORTED = 'REPORTED', 'Reported'     # one player submitted, awaiting the other
+        DISPUTED = 'DISPUTED', 'Disputed'     # both submitted but disagree — organiser resolves
         CONFIRMED = 'CONFIRMED', 'Confirmed'  # result final
-        BYE = 'BYE', 'Bye'                   # auto-advanced (no opponent)
+        BYE = 'BYE', 'Bye'                    # auto-advanced (no opponent)
 
     tournament = models.ForeignKey(
         Tournament,
@@ -604,3 +605,48 @@ class TournamentMatch(models.Model):
 
     def has_player(self, user_id):
         return user_id in (self.player1_id, self.player2_id)
+
+
+def tournament_evidence_path(instance, filename):
+    return f"tournament_evidence/{instance.match.tournament_id}/{instance.match_id}/{filename}"
+
+
+class TournamentMatchSubmission(models.Model):
+    """One participant's submitted result for a tournament match.
+
+    Mirrors the 1v1 flow: both players submit; if they agree the match
+    auto-confirms, if they disagree the match is Disputed for the organiser to
+    resolve. Knockout submissions carry a ``winner``; league submissions carry
+    a scoreline. An optional screenshot can back the claim.
+    """
+
+    match = models.ForeignKey(
+        TournamentMatch,
+        on_delete=models.CASCADE,
+        related_name='submissions',
+    )
+    player = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='+',
+    )
+    # Knockout: who this player says won.
+    winner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+    )
+    # League: the scoreline this player reports (player1 vs player2 orientation).
+    player1_score = models.PositiveSmallIntegerField(null=True, blank=True)
+    player2_score = models.PositiveSmallIntegerField(null=True, blank=True)
+    evidence = models.FileField(upload_to=tournament_evidence_path, null=True, blank=True)
+    submitted_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['submitted_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['match', 'player'],
+                name='unique_tournament_match_submission',
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.player} → {self.match} submission"

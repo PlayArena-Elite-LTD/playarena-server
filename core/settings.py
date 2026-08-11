@@ -470,10 +470,13 @@ if DEBUG:
 if 'test' in sys.argv:
     STORAGES["staticfiles"]["BACKEND"] = "django.contrib.staticfiles.storage.StaticFilesStorage"
 
-# Media files (User-uploaded files)
+# Media files (User-uploaded files) — default filesystem storage.
 # https://docs.djangoproject.com/en/5.2/topics/files/
+# MEDIA_ROOT is env-overridable so hosts with an ephemeral working dir (e.g.
+# Azure App Service, whose only persisted path is /home) can point uploads at a
+# durable location: set DJANGO_MEDIA_ROOT=/home/media in production.
 MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+MEDIA_ROOT = os.environ.get('DJANGO_MEDIA_ROOT', str(BASE_DIR / 'media'))
 
 # File storage configuration
 # Development: Use local file system storage (configured in STORAGES above)
@@ -652,6 +655,11 @@ ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL')
 ADMINS = [('Admin', ADMIN_EMAIL)] if ADMIN_EMAIL else []
 SERVER_EMAIL = os.environ.get('SERVER_EMAIL', EMAIL_HOST_USER)
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
+
+# OneSignal web push. App ID is public (used by the frontend too); the REST API
+# key is secret and only used server-side. Push is a no-op until both are set.
+ONESIGNAL_APP_ID = os.environ.get('ONESIGNAL_APP_ID', '').strip()
+ONESIGNAL_REST_API_KEY = os.environ.get('ONESIGNAL_REST_API_KEY', '').strip()
 
 # Logging configuration
 LOGGING = {

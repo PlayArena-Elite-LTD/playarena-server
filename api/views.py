@@ -55,7 +55,7 @@ from .permissions import IsWalletOwner, IsMatchParticipant
 from accounts.models import CustomUser, Organisation, OrganisationMembership, Profile
 from matches.models import (
     Match, MatchResult, Tournament, TournamentRegistration, TournamentPrize,
-    TournamentStanding, TournamentPayout, TournamentMatch,
+    TournamentStanding, TournamentPayout, TournamentMatch, TournamentMatchSubmission,
 )
 from matches import brackets, leagues
 from panel.models import Dispute
@@ -1333,7 +1333,25 @@ class OrganisationTournamentListCreateView(generics.ListCreateAPIView):
         return TournamentSerializer
 
     def perform_create(self, serializer):
-        serializer.save(organisation=self.get_organisation())
+        organisation = self.get_organisation()
+        tournament = serializer.save(organisation=organisation)
+        self._announce_new_tournament(tournament, organisation)
+
+    def _announce_new_tournament(self, tournament, organisation):
+        """Notify + push every approved member that a new tournament is open."""
+        from alert.notify import notify
+        members = OrganisationMembership.objects.select_related('player').filter(
+            organisation=organisation,
+            status=OrganisationMembership.Status.APPROVED,
+        )
+        label = '7-day league' if tournament.format == 'LEAGUE' else 'knockout'
+        for membership in members:
+            notify(
+                membership.player,
+                f"{organisation.name} just opened a new {label} tournament: '{tournament.name}'. Registration is open — join now.",
+                link='/tournaments',
+                subject=f"New tournament from {organisation.name}",
+            )
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -1470,13 +1488,16 @@ def _process_tournament_payout(payout, request=None):
             locked.failure_reason = ''
             locked.save(update_fields=['status', 'transaction', 'paid_at', 'failure_reason'])
 
-            Notification.objects.create(
-                user=locked.player,
-                message=(
+            from alert.notify import notify
+            notify(
+                locked.player,
+                (
                     f"You won ZMW {locked.amount} (position {locked.position}) in "
                     f"'{locked.tournament.name}'. It's been credited to your wallet."
                 ),
                 link='/tournaments',
+                email=True,
+                subject=f"You won a prize in {locked.tournament.name}",
             )
 
             try:
@@ -1772,10 +1793,13 @@ def _refund_all_registrations(tournament, request=None):
             description=f"Tournament '{tournament.name}' cancelled — ZMW {amount} refunded",
             related_tournament=tournament,
         )
-        Notification.objects.create(
-            user=registration.player,
-            message=f"'{tournament.name}' was cancelled. Your entry of ZMW {amount} has been refunded.",
+        from alert.notify import notify
+        notify(
+            registration.player,
+            f"'{tournament.name}' was cancelled. Your entry of ZMW {amount} has been refunded.",
             link='/tournaments',
+            email=True,
+            subject=f"{tournament.name} was cancelled — you've been refunded",
         )
 
 
@@ -1876,9 +1900,12 @@ class PlayerTournamentStandingsView(APIView):
 
 
 def _bracket_queryset(tournament):
+    from django.db.models import Prefetch
     return tournament.bracket_matches.select_related(
         'player1', 'player1__profile', 'player2', 'player2__profile',
         'winner', 'winner__profile', 'reported_winner', 'reported_winner__profile',
+    ).prefetch_related(
+        Prefetch('submissions', queryset=TournamentMatchSubmission.objects.select_related('player', 'player__profile', 'winner', 'winner__profile')),
     ).order_by('round_number', 'slot_number')
 
 
@@ -1904,7 +1931,7 @@ class OrganisationTournamentBracketView(APIView):
     def get(self, request, id):
         tournament = self.get_tournament(id)
         matches = _bracket_queryset(tournament)
-        return Response(TournamentMatchSerializer(matches, many=True).data)
+        return Response(TournamentMatchSerializer(matches, many=True, context={"request": request}).data)
 
     def post(self, request, id):
         tournament = self.get_tournament(id)
@@ -1940,9 +1967,25 @@ class OrganisationTournamentBracketView(APIView):
         except Exception:
             pass
 
+        # Notify + email every registered player that play has begun.
+        from alert.notify import notify
+        kind = 'fixtures' if tournament.format == 'LEAGUE' else 'bracket'
+        registrations = TournamentRegistration.objects.select_related('player').filter(
+            tournament=tournament,
+            status=TournamentRegistration.Status.REGISTERED,
+        )
+        for reg in registrations:
+            notify(
+                reg.player,
+                f"'{tournament.name}' has started — the {kind} is ready. Head to the tournament to play your matches.",
+                link='/tournaments',
+                email=True,
+                subject=f"{tournament.name} has started",
+            )
+
         matches = _bracket_queryset(tournament)
         return Response(
-            TournamentMatchSerializer(matches, many=True).data,
+            TournamentMatchSerializer(matches, many=True, context={"request": request}).data,
             status=status.HTTP_201_CREATED,
         )
 
@@ -1985,12 +2028,13 @@ class OrganisationTournamentMatchConfirmView(APIView):
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         if tournament.format != 'LEAGUE':
+            from alert.notify import notify
             for player in (match.player1, match.player2):
                 if player:
                     won = player.id == match.winner_id
-                    Notification.objects.create(
-                        user=player,
-                        message=(
+                    notify(
+                        player,
+                        (
                             f"Your match in '{tournament.name}' is confirmed — "
                             f"{'you advanced!' if won else 'you were eliminated.'}"
                         ),
@@ -2001,7 +2045,7 @@ class OrganisationTournamentMatchConfirmView(APIView):
         return Response(
             {
                 'final': is_final,
-                'bracket': TournamentMatchSerializer(matches, many=True).data,
+                'bracket': TournamentMatchSerializer(matches, many=True, context={"request": request}).data,
             },
             status=status.HTTP_200_OK,
         )
@@ -2025,40 +2069,87 @@ class PlayerTournamentBracketView(APIView):
         if not is_member:
             raise PermissionDenied("You must be an approved member to view this bracket.")
         matches = _bracket_queryset(tournament)
-        return Response(TournamentMatchSerializer(matches, many=True).data)
+        return Response(TournamentMatchSerializer(matches, many=True, context={"request": request}).data)
 
 
 class PlayerTournamentMatchReportView(APIView):
     """
     POST /api/player/tournaments/{id}/matches/{match_id}/report/
 
-    A participant reports their match winner; it awaits organiser confirmation.
-    Body: {"winner_id"}.
+    A participant submits their result (both players submit; agreement
+    auto-confirms, disagreement goes to the organiser). Accepts multipart with
+    an optional ``evidence`` screenshot.
+    Knockout body: {"winner_id"}. League body: {"player1_score","player2_score"}.
     """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, id, match_id):
+        from matches import results
+        from alert.notify import notify
+
         tournament = get_object_or_404(Tournament, id=id)
         match = get_object_or_404(TournamentMatch, id=match_id, tournament=tournament)
+
+        winner_id = request.data.get('winner_id')
+        if winner_id is not None:
+            try:
+                winner_id = int(winner_id)
+            except (TypeError, ValueError):
+                return Response({'detail': 'winner_id must be a player id.'}, status=status.HTTP_400_BAD_REQUEST)
+
         try:
-            if tournament.format == 'LEAGUE':
-                leagues.report_score(
-                    match,
-                    reporter_id=request.user.id,
-                    s1=request.data.get('player1_score'),
-                    s2=request.data.get('player2_score'),
-                )
-            else:
-                try:
-                    winner_id = int(request.data.get('winner_id'))
-                except (TypeError, ValueError):
-                    return Response({'detail': 'winner_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
-                brackets.report_result(match, reporter_id=request.user.id, winner_id=winner_id)
+            match, outcome = results.submit_result(
+                tournament,
+                match,
+                player_id=request.user.id,
+                winner_id=winner_id,
+                s1=request.data.get('player1_score'),
+                s2=request.data.get('player2_score'),
+                evidence=request.FILES.get('evidence'),
+            )
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Notify the relevant people based on how the submission resolved.
+        opponent = match.player2 if request.user.id == match.player1_id else match.player1
+        if outcome == results.AWAITING_OPPONENT and opponent:
+            notify(
+                opponent,
+                f"Your opponent submitted a result for your match in '{tournament.name}'. Please submit yours to confirm it.",
+                link='/tournaments', email=True,
+                subject=f"Submit your result — {tournament.name}",
+            )
+        elif outcome == results.CONFIRMED:
+            for player in (match.player1, match.player2):
+                if player:
+                    won = player.id == match.winner_id
+                    notify(
+                        player,
+                        f"Your match result in '{tournament.name}' is confirmed — "
+                        + ("it's a draw." if match.winner_id is None and tournament.format == 'LEAGUE'
+                           else ("you advanced!" if won else "you were eliminated.")),
+                        link='/tournaments',
+                    )
+        elif outcome == results.DISPUTED:
+            for player in (match.player1, match.player2):
+                if player:
+                    notify(
+                        player,
+                        f"Your submitted results for a match in '{tournament.name}' don't match. The organiser will review and confirm.",
+                        link='/tournaments', email=True,
+                        subject=f"Result needs review — {tournament.name}",
+                    )
+            # Nudge the organiser too.
+            org_user = getattr(tournament.organisation, 'user', None) or getattr(tournament.organisation, 'owner', None)
+            if org_user:
+                notify(
+                    org_user,
+                    f"A match in '{tournament.name}' has conflicting player results and needs your decision.",
+                    link='/organiser/dashboard',
+                )
+
         matches = _bracket_queryset(tournament)
-        return Response(TournamentMatchSerializer(matches, many=True).data, status=status.HTTP_200_OK)
+        return Response(TournamentMatchSerializer(matches, many=True, context={"request": request}).data, status=status.HTTP_200_OK)
 
 
 def _enriched_league_table(tournament):
