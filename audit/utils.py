@@ -4,13 +4,42 @@ Utility functions for audit logging.
 This module provides helper functions to create audit log entries
 for tracking user actions and system events.
 """
+import ipaddress
 import logging
 import json
 from typing import Optional, Dict, Any
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.http import HttpRequest
 
 from .models import AuditLog
+
+
+def _normalise_ip(value: Optional[str]) -> Optional[str]:
+    """Return a clean IP for a GenericIPAddressField (Postgres ``inet``).
+
+    Proxies (notably Azure) put ``ip:port`` in X-Forwarded-For, and bracketed
+    IPv6 as ``[::1]:port``. ``inet`` rejects a port, so strip it and validate;
+    return None for anything that isn't a usable address.
+    """
+    if not value:
+        return None
+    ip = value.strip()
+    # Bracketed IPv6, optionally with a port: [2001:db8::1]:443
+    if ip.startswith('['):
+        ip = ip[1:].split(']', 1)[0]
+    else:
+        try:
+            ipaddress.ip_address(ip)
+        except ValueError:
+            # Likely IPv4 with a port (1.2.3.4:5678); drop the port.
+            if ip.count(':') == 1:
+                ip = ip.split(':', 1)[0]
+    try:
+        ipaddress.ip_address(ip)
+        return ip
+    except ValueError:
+        return None
 
 User = get_user_model()
 logger = logging.getLogger('audit')
@@ -35,7 +64,8 @@ def get_client_ip(request: HttpRequest) -> Optional[str]:
         ip = x_forwarded_for.split(',')[0].strip()
     else:
         ip = request.META.get('REMOTE_ADDR')
-    return ip
+    # Strip any :port (proxies like Azure add it) and validate for `inet`.
+    return _normalise_ip(ip)
 
 
 def get_user_agent(request: HttpRequest) -> str:
@@ -109,18 +139,24 @@ def log_action(
                 logger.warning(f"Failed to serialize audit log details: {e}")
                 details_str = str(details)
         
-        # Create audit log entry
-        audit_log = AuditLog.objects.create(
-            action=action,
-            user=user,
-            details=details_str,
-            ip_address=ip_address,
-            user_agent=user_agent or '',
-        )
-        
+        # Normalise a directly-supplied IP too (may carry a :port).
+        ip_address = _normalise_ip(ip_address)
+
+        # Create the entry inside a savepoint. Audit logging must never break
+        # the caller's flow — and, critically, a failed write here must not
+        # leave the caller's surrounding atomic transaction in a broken state.
+        with transaction.atomic():
+            audit_log = AuditLog.objects.create(
+                action=action,
+                user=user,
+                details=details_str,
+                ip_address=ip_address,
+                user_agent=user_agent or '',
+            )
+
         logger.debug(f"Audit log created: {action} by {user.username if user else 'System'}")
         return audit_log
-        
+
     except Exception as e:
         # Log the error but don't raise it - audit logging should never break the main flow
         logger.error(
