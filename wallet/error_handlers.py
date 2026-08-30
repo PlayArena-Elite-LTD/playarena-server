@@ -18,6 +18,7 @@ from django.shortcuts import redirect
 from django.contrib import messages
 from django.db import DatabaseError, IntegrityError
 from django.utils import timezone
+from audit.utils import _normalise_ip
 from decimal import Decimal, InvalidOperation
 
 from .models import Deposit, Withdrawal
@@ -111,13 +112,18 @@ def log_security_event(event_type, details, request=None, severity='WARNING'):
 
 
 def _get_client_ip(request):
-    """Extract client IP address securely"""
+    """Extract client IP address securely.
+
+    Proxies (notably Azure App Service) put ``ip:port`` in X-Forwarded-For.
+    The value is written to / queried against a GenericIPAddressField
+    (Postgres ``inet``), which rejects a port, so normalise before returning.
+    """
     x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
     if x_forwarded_for:
         ip = x_forwarded_for.split(',')[0].strip()
     else:
         ip = request.META.get('REMOTE_ADDR')
-    return ip
+    return _normalise_ip(ip)
 
 
 def handle_payment_error(error, request=None, deposit=None, operation='payment_operation'):
