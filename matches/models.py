@@ -189,6 +189,11 @@ class Evidence(models.Model):
         return self.file_type == 'VIDEO'
 
 
+def _default_platform_fee_percent():
+    """Default PlayArena administration percentage (from settings)."""
+    return Decimal(str(getattr(settings, 'TOURNAMENT_PLATFORM_FEE_PERCENT', 10)))
+
+
 class Tournament(models.Model):
     STATUS_CHOICES = [
         ('DRAFT', 'Draft'),
@@ -221,6 +226,17 @@ class Tournament(models.Model):
     name = models.CharField(max_length=255)
     game = models.CharField(max_length=32, choices=Match.GAME_CHOICES)
     format = models.CharField(max_length=20, choices=FORMAT_CHOICES, default='KNOCKOUT')
+    platform_fee_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=_default_platform_fee_percent,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="PlayArena administration / revenue percentage taken from each entry (configurable per tournament).",
+    )
+    home_and_away = models.BooleanField(
+        default=True,
+        help_text="Leagues only: play each matchup twice (home and away). Knockouts are always single-leg.",
+    )
     participation_amount = models.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -242,21 +258,30 @@ class Tournament(models.Model):
         return f"{self.name} ({self.organisation.name})"
 
     @staticmethod
-    def fee_percent():
-        """Platform fee percentage applied to every tournament entry (fixed)."""
-        return Decimal(str(getattr(settings, 'TOURNAMENT_PLATFORM_FEE_PERCENT', 10)))
+    def default_fee_percent():
+        """Default PlayArena administration percentage (from settings)."""
+        return _default_platform_fee_percent()
 
-    @classmethod
-    def split_entry(cls, amount):
+    def fee_percent(self):
+        """PlayArena administration percentage for THIS tournament.
+
+        Configurable per tournament rather than permanently hard-coded; falls
+        back to the platform default when unset.
+        """
+        if self.platform_fee_percent is not None:
+            return Decimal(self.platform_fee_percent)
+        return _default_platform_fee_percent()
+
+    def split_entry(self, amount):
         """Split an entry fee into (platform_fee, prize_contribution).
 
-        PlayArena keeps ``fee_percent()``% as the platform fee; the remainder is
-        the player's contribution to the prize pool. The fee is rounded to 2 dp
-        and the contribution is the exact remainder, so the two always sum back
-        to the original entry with no rounding drift.
+        PlayArena keeps ``fee_percent()``% of the entry as the administration
+        fee; the remainder is the player's contribution to the prize pool. The
+        fee is rounded to 2 dp and the contribution is the exact remainder, so
+        the two always sum back to the original entry with no rounding drift.
         """
         amount = Decimal(amount)
-        fee = (amount * cls.fee_percent() / Decimal('100')).quantize(
+        fee = (amount * self.fee_percent() / Decimal('100')).quantize(
             Decimal('0.01'), rounding=ROUND_HALF_UP
         )
         contribution = amount - fee
@@ -368,6 +393,18 @@ class TournamentRegistration(models.Model):
         decimal_places=2,
         default=Decimal('0.00'),
         help_text="Portion of this entry added to the tournament prize pool.",
+    )
+    team_name = models.CharField(
+        max_length=120,
+        blank=True,
+        default='',
+        help_text="Team the player represents in this tournament (e.g. 'Power Dynamos').",
+    )
+    phone = models.CharField(
+        max_length=32,
+        blank=True,
+        default='',
+        help_text="WhatsApp / phone number for the player, stored with the +260 country code where applicable.",
     )
     joined_at = models.DateTimeField(auto_now_add=True)
     left_at = models.DateTimeField(null=True, blank=True)

@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from decimal import Decimal
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth import authenticate, get_user_model
 from django.utils.text import slugify
@@ -400,6 +401,63 @@ class ChangePasswordSerializer(serializers.Serializer):
         return user
 
 
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    """Validate an organiser password-reset link and set a new password.
+
+    Resolves the user from the encoded uid, checks the one-time token
+    (``default_token_generator``), and only accepts accounts that own an
+    organisation.
+    """
+    uid = serializers.CharField(write_only=True)
+    token = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(
+        write_only=True,
+        validators=[validate_password],
+        style={'input_type': 'password'},
+    )
+    new_password_confirm = serializers.CharField(
+        write_only=True,
+        style={'input_type': 'password'},
+    )
+
+    def validate(self, attrs):
+        from django.contrib.auth.tokens import default_token_generator
+        from django.utils.http import urlsafe_base64_decode
+        from django.utils.encoding import force_str
+
+        if attrs['new_password'] != attrs['new_password_confirm']:
+            raise serializers.ValidationError({
+                'new_password_confirm': "Password fields didn't match.",
+            })
+
+        try:
+            uid = force_str(urlsafe_base64_decode(attrs['uid']))
+            user = CustomUser.objects.get(pk=uid)
+        except (TypeError, ValueError, OverflowError, CustomUser.DoesNotExist):
+            raise serializers.ValidationError({
+                'token': 'This reset link is invalid or has expired.',
+            })
+
+        if not default_token_generator.check_token(user, attrs['token']):
+            raise serializers.ValidationError({
+                'token': 'This reset link is invalid or has expired.',
+            })
+
+        if not Organisation.objects.filter(owner=user).exists():
+            raise serializers.ValidationError({
+                'token': 'This reset link is not valid for an organisation account.',
+            })
+
+        attrs['user'] = user
+        return attrs
+
+    def save(self):
+        user = self.validated_data['user']
+        user.set_password(self.validated_data['new_password'])
+        user.save(update_fields=['password'])
+        return user
+
+
 class WalletSerializer(serializers.ModelSerializer):
     """Serializer for wallet summary data"""
     class Meta:
@@ -505,7 +563,14 @@ class WithdrawalCreateSerializer(serializers.ModelSerializer):
                 ip_address=ip_address,
                 user_agent=user_agent,
             )
-            withdrawal.full_clean()
+            try:
+                withdrawal.full_clean()
+            except DjangoValidationError as exc:
+                # Surface model validation (amount limits, balance, account
+                # details, daily limits) as a clean 400 instead of a 500.
+                raise serializers.ValidationError(
+                    exc.message_dict if hasattr(exc, 'message_dict') else exc.messages
+                )
 
             if wallet.balance < withdrawal.amount:
                 raise serializers.ValidationError({
@@ -522,6 +587,43 @@ class WithdrawalCreateSerializer(serializers.ModelSerializer):
                 description=f'Withdrawal request - {withdrawal.get_payment_method_display()}',
             )
         return withdrawal
+
+
+class WithdrawalSerializer(serializers.ModelSerializer):
+    """Read serializer for a user's withdrawal request (status + reference)."""
+    status_label = serializers.CharField(source='get_status_display', read_only=True)
+    payment_method_label = serializers.CharField(source='get_payment_method_display', read_only=True)
+    reference = serializers.SerializerMethodField()
+    account_details_masked = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Withdrawal
+        fields = [
+            'id',
+            'amount',
+            'status',
+            'status_label',
+            'payment_method',
+            'payment_method_label',
+            'account_details_masked',
+            'reference',
+            'failure_reason',
+            'retry_count',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = fields
+
+    def get_reference(self, obj):
+        return obj.transaction_id or obj.gateway_transaction_id or None
+
+    def get_account_details_masked(self, obj):
+        raw = (obj.account_details or '').strip()
+        if not raw:
+            return ''
+        # Show only the last 4 characters of the payout destination.
+        tail = raw[-4:]
+        return f"•••• {tail}" if len(raw) > 4 else raw
 
 
 class MatchSerializer(serializers.ModelSerializer):
@@ -642,10 +744,10 @@ class TournamentFinancialsMixin:
     """Shared serializer helpers for the entry-fee split and prize pool."""
 
     def get_fee_percent(self, obj):
-        return str(Tournament.fee_percent())
+        return str(obj.fee_percent())
 
     def get_entry_breakdown(self, obj):
-        fee, contribution = Tournament.split_entry(obj.participation_amount)
+        fee, contribution = obj.split_entry(obj.participation_amount)
         return {
             'entry_fee': str(obj.participation_amount),
             'platform_fee': str(fee),
@@ -687,6 +789,8 @@ class TournamentSerializer(TournamentFinancialsMixin, serializers.ModelSerialize
             'game',
             'game_label',
             'format',
+            'platform_fee_percent',
+            'home_and_away',
             'participation_amount',
             'max_players',
             'registered_players_count',
@@ -782,6 +886,7 @@ class PlayerTournamentSerializer(TournamentFinancialsMixin, serializers.ModelSer
             'game',
             'game_label',
             'format',
+            'home_and_away',
             'participation_amount',
             'max_players',
             'registered_players_count',
@@ -856,6 +961,7 @@ class TournamentRegistrationSerializer(serializers.ModelSerializer):
     player_username = serializers.CharField(source='player.username', read_only=True)
     player_email = serializers.EmailField(source='player.email', read_only=True)
     player_name = serializers.SerializerMethodField()
+    player_label = serializers.SerializerMethodField()
 
     class Meta:
         model = TournamentRegistration
@@ -865,6 +971,9 @@ class TournamentRegistrationSerializer(serializers.ModelSerializer):
             'player_username',
             'player_email',
             'player_name',
+            'player_label',
+            'team_name',
+            'phone',
             'status',
             'amount_paid',
             'platform_fee',
@@ -878,6 +987,12 @@ class TournamentRegistrationSerializer(serializers.ModelSerializer):
             full = f"{profile.first_name} {profile.last_name}".strip()
             if full:
                 return full
+        return obj.player.username
+
+    def get_player_label(self, obj):
+        """'Username (Team Name)' — as league fixtures/standings should show."""
+        if obj.team_name:
+            return f"{obj.player.username} ({obj.team_name})"
         return obj.player.username
 
 
@@ -897,6 +1012,8 @@ class TournamentCreateSerializer(serializers.ModelSerializer):
             'name',
             'game',
             'format',
+            'platform_fee_percent',
+            'home_and_away',
             'participation_amount',
             'max_players',
             'rules',
@@ -905,6 +1022,10 @@ class TournamentCreateSerializer(serializers.ModelSerializer):
             'registration_closes_at',
             'prizes',
         ]
+        extra_kwargs = {
+            'platform_fee_percent': {'required': False},
+            'home_and_away': {'required': False},
+        }
 
     def validate_name(self, value):
         value = value.strip()
@@ -923,6 +1044,13 @@ class TournamentCreateSerializer(serializers.ModelSerializer):
     def validate_participation_amount(self, value):
         if value < Decimal('0'):
             raise serializers.ValidationError("Participation amount cannot be negative.")
+        return value
+
+    def validate_platform_fee_percent(self, value):
+        if value is None:
+            return value
+        if value < Decimal('0') or value > Decimal('100'):
+            raise serializers.ValidationError("PlayArena percentage must be between 0 and 100.")
         return value
 
     def validate_prizes(self, value):
@@ -958,18 +1086,58 @@ def _player_display_name(player):
     return player.username
 
 
-class TournamentStandingSerializer(serializers.ModelSerializer):
+def tournament_team_map(tournament):
+    """Map of {player_id: team_name} for a tournament's active registrations."""
+    if tournament is None:
+        return {}
+    from matches.models import TournamentRegistration
+    return {
+        r.player_id: r.team_name
+        for r in tournament.registrations.filter(
+            status=TournamentRegistration.Status.REGISTERED,
+        ).only('player_id', 'team_name')
+        if r.team_name
+    }
+
+
+def _player_label(player, team_map=None):
+    """Display a player as 'Username (Team Name)' when a team is known."""
+    base = _player_display_name(player)
+    if team_map:
+        team = team_map.get(player.id)
+        if team:
+            return f"{base} ({team})"
+    return base
+
+
+class _TeamMapMixin:
+    """Lazily builds & caches a per-tournament {player_id: team_name} map."""
+
+    def _team_map_for(self, tournament):
+        if tournament is None:
+            return {}
+        cache = self.context.setdefault('_team_maps', {})
+        if tournament.id not in cache:
+            cache[tournament.id] = tournament_team_map(tournament)
+        return cache[tournament.id]
+
+
+class TournamentStandingSerializer(_TeamMapMixin, serializers.ModelSerializer):
     """A player's ranked position in a tournament."""
     player_id = serializers.IntegerField(source='player.id', read_only=True)
     player_username = serializers.CharField(source='player.username', read_only=True)
     player_name = serializers.SerializerMethodField()
+    team_name = serializers.SerializerMethodField()
 
     class Meta:
         model = TournamentStanding
-        fields = ['position', 'player_id', 'player_username', 'player_name', 'points']
+        fields = ['position', 'player_id', 'player_username', 'player_name', 'team_name', 'points']
 
     def get_player_name(self, obj):
-        return _player_display_name(obj.player)
+        return _player_label(obj.player, self._team_map_for(getattr(obj, 'tournament', None)))
+
+    def get_team_name(self, obj):
+        return self._team_map_for(getattr(obj, 'tournament', None)).get(obj.player_id) or None
 
 
 class TournamentStandingInputSerializer(serializers.Serializer):
@@ -981,11 +1149,13 @@ class TournamentStandingInputSerializer(serializers.Serializer):
     )
 
 
-class TournamentPayoutSerializer(serializers.ModelSerializer):
+class TournamentPayoutSerializer(_TeamMapMixin, serializers.ModelSerializer):
     """An automatic payout record for a winning position."""
     player_id = serializers.IntegerField(source='player.id', read_only=True)
     player_username = serializers.CharField(source='player.username', read_only=True)
     player_name = serializers.SerializerMethodField()
+    team_name = serializers.SerializerMethodField()
+    percentage = serializers.SerializerMethodField()
     transaction_id = serializers.IntegerField(source='transaction.id', read_only=True, allow_null=True)
 
     class Meta:
@@ -993,9 +1163,11 @@ class TournamentPayoutSerializer(serializers.ModelSerializer):
         fields = [
             'id',
             'position',
+            'percentage',
             'player_id',
             'player_username',
             'player_name',
+            'team_name',
             'amount',
             'status',
             'transaction_id',
@@ -1005,13 +1177,33 @@ class TournamentPayoutSerializer(serializers.ModelSerializer):
         ]
 
     def get_player_name(self, obj):
-        return _player_display_name(obj.player)
+        return _player_label(obj.player, self._team_map_for(getattr(obj, 'tournament', None)))
+
+    def get_team_name(self, obj):
+        return self._team_map_for(getattr(obj, 'tournament', None)).get(obj.player_id) or None
+
+    def get_percentage(self, obj):
+        """The configured prize percentage for this position (for the record)."""
+        cache = self.context.setdefault('_prize_pcts', {})
+        tid = obj.tournament_id
+        if tid not in cache:
+            from matches.models import TournamentPrize
+            cache[tid] = {
+                p.position: p.percentage
+                for p in TournamentPrize.objects.filter(tournament_id=tid)
+            }
+        pct = cache[tid].get(obj.position)
+        return str(pct) if pct is not None else None
 
 
-def _player_brief(player):
+def _player_brief(player, team_map=None):
     if not player:
         return None
-    return {'id': player.id, 'name': _player_display_name(player)}
+    return {
+        'id': player.id,
+        'name': _player_label(player, team_map),
+        'team_name': (team_map.get(player.id) if team_map else None) or None,
+    }
 
 
 class TournamentMatchSubmissionSerializer(serializers.ModelSerializer):
@@ -1025,10 +1217,10 @@ class TournamentMatchSubmissionSerializer(serializers.ModelSerializer):
         fields = ['player', 'winner', 'player1_score', 'player2_score', 'evidence_url', 'submitted_at']
 
     def get_player(self, obj):
-        return _player_brief(obj.player)
+        return _player_brief(obj.player, self.context.get('_active_team_map'))
 
     def get_winner(self, obj):
-        return _player_brief(obj.winner)
+        return _player_brief(obj.winner, self.context.get('_active_team_map'))
 
     def get_evidence_url(self, obj):
         if not obj.evidence:
@@ -1038,7 +1230,7 @@ class TournamentMatchSubmissionSerializer(serializers.ModelSerializer):
         return request.build_absolute_uri(url) if request else url
 
 
-class TournamentMatchSerializer(serializers.ModelSerializer):
+class TournamentMatchSerializer(_TeamMapMixin, serializers.ModelSerializer):
     """A bracket match with lightweight player info for rendering the bracket."""
     player1 = serializers.SerializerMethodField()
     player2 = serializers.SerializerMethodField()
@@ -1066,19 +1258,21 @@ class TournamentMatchSerializer(serializers.ModelSerializer):
 
     def get_submissions(self, obj):
         subs = obj.submissions.all() if hasattr(obj, 'submissions') else []
-        return TournamentMatchSubmissionSerializer(subs, many=True, context=self.context).data
+        ctx = dict(self.context)
+        ctx['_active_team_map'] = self._team_map_for(getattr(obj, 'tournament', None))
+        return TournamentMatchSubmissionSerializer(subs, many=True, context=ctx).data
 
     def get_player1(self, obj):
-        return _player_brief(obj.player1)
+        return _player_brief(obj.player1, self._team_map_for(getattr(obj, 'tournament', None)))
 
     def get_player2(self, obj):
-        return _player_brief(obj.player2)
+        return _player_brief(obj.player2, self._team_map_for(getattr(obj, 'tournament', None)))
 
     def get_winner(self, obj):
-        return _player_brief(obj.winner)
+        return _player_brief(obj.winner, self._team_map_for(getattr(obj, 'tournament', None)))
 
     def get_reported_winner(self, obj):
-        return _player_brief(obj.reported_winner)
+        return _player_brief(obj.reported_winner, self._team_map_for(getattr(obj, 'tournament', None)))
 
 
 class DisputeSerializer(serializers.ModelSerializer):

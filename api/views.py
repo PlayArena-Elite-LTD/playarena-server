@@ -11,6 +11,7 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Q
 from django.db.models import Prefetch
+from django.db.models import Max
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from decimal import Decimal
@@ -37,6 +38,8 @@ from .serializers import (
     TransactionSerializer,
     DepositCreateSerializer,
     WithdrawalCreateSerializer,
+    WithdrawalSerializer,
+    PasswordResetConfirmSerializer,
     DisputeSerializer,
     DisputeResolutionSerializer,
     MessageSerializer,
@@ -61,7 +64,7 @@ from matches import brackets, leagues
 from panel.models import Dispute
 from messenger.models import Message, ReadMessage
 from alert.models import Notification, ReadNotification
-from wallet.models import Wallet, Transaction
+from wallet.models import Wallet, Transaction, Withdrawal
 from wallet.notifications import notify_withdrawal_created
 from wallet.withdrawal_processing import process_withdrawal_now
 
@@ -266,6 +269,31 @@ class MyTournamentsView(generics.ListAPIView):
         ).order_by('-created_at')
 
 
+def _normalize_phone(raw):
+    """Normalise a player's phone number to +<country code> form.
+
+    Zambian local numbers (e.g. ``0974930662`` or ``974930662``) are stored with
+    the ``+260`` country code as the spec requires; numbers already in
+    international form are preserved.
+    """
+    import re
+    digits = re.sub(r'[^0-9+]', '', str(raw or ''))
+    if not digits:
+        return ''
+    if digits.startswith('+'):
+        return '+' + re.sub(r'[^0-9]', '', digits[1:])
+    if digits.startswith('00'):
+        return '+' + digits[2:]
+    if digits.startswith('260'):
+        return '+' + digits
+    if digits.startswith('0'):
+        return '+260' + digits[1:]
+    # Bare local subscriber number (Zambian mobile numbers are 9 digits).
+    if len(digits) == 9:
+        return '+260' + digits
+    return '+260' + digits
+
+
 class TournamentJoinView(APIView):
     """
     POST /api/player/tournaments/{id}/join/
@@ -283,6 +311,21 @@ class TournamentJoinView(APIView):
             id=id,
         )
         user = request.user
+
+        # Standardised player metadata (spec 2): team name + WhatsApp/phone are
+        # mandatory and captured per registration.
+        team_name = str(request.data.get('team_name', '')).strip()
+        phone = _normalize_phone(request.data.get('phone', ''))
+        if not team_name:
+            return Response(
+                {'detail': 'Team name is required to join a tournament.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not phone or len(''.join(ch for ch in phone if ch.isdigit())) < 9:
+            return Response(
+                {'detail': 'A valid WhatsApp/phone number is required to join a tournament.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # Auto-close registration if the deadline passed or capacity is reached.
         tournament.auto_close_registration()
@@ -341,7 +384,7 @@ class TournamentJoinView(APIView):
 
         # Split the entry into the PlayArena platform fee and the prize-pool
         # contribution so both are recorded separately (audit trail).
-        platform_fee, prize_contribution = Tournament.split_entry(amount)
+        platform_fee, prize_contribution = tournament.split_entry(amount)
 
         # Create or reactivate the registration.
         if existing:
@@ -349,9 +392,12 @@ class TournamentJoinView(APIView):
             existing.amount_paid = amount
             existing.platform_fee = platform_fee
             existing.prize_contribution = prize_contribution
+            existing.team_name = team_name
+            existing.phone = phone
             existing.left_at = None
             existing.save(update_fields=[
-                'status', 'amount_paid', 'platform_fee', 'prize_contribution', 'left_at',
+                'status', 'amount_paid', 'platform_fee', 'prize_contribution',
+                'team_name', 'phone', 'left_at',
             ])
             registration = existing
         else:
@@ -361,6 +407,8 @@ class TournamentJoinView(APIView):
                 amount_paid=amount,
                 platform_fee=platform_fee,
                 prize_contribution=prize_contribution,
+                team_name=team_name,
+                phone=phone,
             )
 
         old_balance = wallet.balance
@@ -634,6 +682,120 @@ class PasswordResetRequestView(APIView):
             return Response({
                 'message': 'If an account exists with this email, a password reset link has been sent.'
             }, status=status.HTTP_200_OK)
+
+
+class OrganisationPasswordResetRequestView(APIView):
+    """
+    POST /api/auth/organisations/password-reset/
+
+    Start a password reset for an ORGANISER account. If the email belongs to an
+    active organisation owner, a reset link (Django one-time token) is emailed.
+    The response is always neutral so account existence is never revealed.
+
+    Body: {"email": "owner@org.com"}
+    """
+    permission_classes = [permissions.AllowAny]
+
+    NEUTRAL_MESSAGE = (
+        'If an organisation account exists for this email, a password reset '
+        'link has been sent.'
+    )
+
+    def post(self, request):
+        email = str(request.data.get('email', '')).strip().lower()
+        if not email:
+            return Response({'error': 'Email is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Match either the owner's login email OR the organisation's own
+        # contact email, so organisers can use whichever they remember. The
+        # reset link is always sent to the owner's login email (the credential
+        # being reset).
+        user = (
+            User.objects.filter(is_active=True)
+            .filter(Q(email__iexact=email) | Q(organisation__email__iexact=email))
+            .distinct()
+            .first()
+        )
+        if user and Organisation.objects.filter(owner=user).exists():
+            self._send_reset_email(user, request)
+
+        return Response({'message': self.NEUTRAL_MESSAGE}, status=status.HTTP_200_OK)
+
+    def _send_reset_email(self, user, request):
+        from django.contrib.auth.tokens import default_token_generator
+        from django.utils.http import urlsafe_base64_encode
+        from django.utils.encoding import force_bytes
+        from django.core.mail import send_mail
+
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = default_token_generator.make_token(user)
+
+        base = (getattr(settings, 'FRONTEND_ORIGIN', '') or '').rstrip('/')
+        if not base:
+            base = request.build_absolute_uri('/').rstrip('/')
+        link = f"{base}/organisations/reset-password?uid={uid}&token={token}"
+
+        organisation = Organisation.objects.filter(owner=user).first()
+        org_name = organisation.name if organisation else 'your organisation'
+        subject = 'Reset your PlayArena organiser password'
+        body = (
+            f"Hello,\n\n"
+            f"We received a request to reset the password for the PlayArena "
+            f"organiser account for {org_name}.\n\n"
+            f"Use the link below to choose a new password (the link expires for "
+            f"your security):\n{link}\n\n"
+            f"If you didn't request this, you can safely ignore this email — your "
+            f"password won't change.\n\n— PlayArena"
+        )
+        from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', '') or None
+        try:
+            sent = send_mail(subject, body, from_email, [user.email], fail_silently=False)
+            logger.info("Password reset email sent to %s (result=%s)", user.email, sent)
+        except Exception as exc:  # log the real SMTP error but keep the response neutral
+            logger.warning("Password reset email FAILED for %s: %s", user.email, exc)
+
+        try:
+            from audit.utils import log_action
+            log_action(
+                action='organisation_password_reset_requested',
+                user=user,
+                details={'email': user.email, 'organisation': org_name},
+                request=request,
+            )
+        except Exception:
+            pass
+
+
+class OrganisationPasswordResetConfirmView(APIView):
+    """
+    POST /api/auth/organisations/password-reset/confirm/
+
+    Complete an organiser password reset. Validates the uid + one-time token
+    from the emailed link and sets the new password.
+
+    Body: {"uid", "token", "new_password", "new_password_confirm"}
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.save()
+            try:
+                from audit.utils import log_action
+                log_action(
+                    action='organisation_password_reset_completed',
+                    user=user,
+                    details={'email': user.email},
+                    request=request,
+                )
+            except Exception:
+                pass
+            return Response(
+                {'message': 'Your password has been reset. You can now log in with your new password.'},
+                status=status.HTTP_200_OK,
+            )
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class MeView(generics.RetrieveUpdateAPIView):
@@ -1878,6 +2040,115 @@ class OrganisationTournamentLifecycleView(APIView):
         )
 
 
+class OrganisationTournamentExtendRegistrationView(APIView):
+    """
+    POST /api/organisations/tournaments/{id}/extend-registration/
+
+    Extend (or set) a tournament's registration deadline without cancelling it.
+    Body: {"registration_closes_at": "<ISO 8601 datetime>"}.
+
+    Existing players, payments, registrations and all tournament data stay
+    intact. A tournament whose registration has closed (auto-closed on the
+    deadline, manually closed, or scheduled) is re-opened so more players can
+    join the SAME tournament. Can be used multiple times.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    # Registration can be extended only while play hasn't started.
+    EXTENDABLE_FROM = ('DRAFT', 'OPEN', 'REG_CLOSED', 'SCHEDULED')
+    # Statuses where extending should re-open registration on the same tournament.
+    REOPEN_FROM = ('REG_CLOSED', 'SCHEDULED')
+
+    def get_organisation(self):
+        try:
+            return self.request.user.organisation
+        except Organisation.DoesNotExist as exc:
+            raise PermissionDenied("Only organisation accounts can manage tournaments.") from exc
+
+    @transaction.atomic
+    def post(self, request, id):
+        from django.utils.dateparse import parse_datetime, parse_date
+        import datetime as _dt
+
+        organisation = self.get_organisation()
+
+        raw = request.data.get('registration_closes_at')
+        if not raw:
+            return Response(
+                {'detail': "A new registration closing date/time is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        new_deadline = parse_datetime(str(raw))
+        if new_deadline is None:
+            # Accept a date-only value; treat it as end of that day.
+            parsed_date = parse_date(str(raw))
+            if parsed_date is not None:
+                new_deadline = _dt.datetime.combine(parsed_date, _dt.time(23, 59))
+        if new_deadline is None:
+            return Response(
+                {'detail': "Invalid date/time. Use an ISO 8601 date or datetime."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if timezone.is_naive(new_deadline):
+            new_deadline = timezone.make_aware(new_deadline, timezone.get_current_timezone())
+        if new_deadline <= timezone.now():
+            return Response(
+                {'detail': "The new registration deadline must be in the future."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        tournament = get_object_or_404(
+            Tournament.objects.select_for_update(),
+            id=id,
+            organisation=organisation,
+        )
+        if tournament.status not in self.EXTENDABLE_FROM:
+            return Response(
+                {'detail': f"Cannot extend registration for a tournament that is {tournament.get_status_display()}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if tournament.registration_opens_at and new_deadline <= tournament.registration_opens_at:
+            return Response(
+                {'detail': "The registration deadline must be after registration opens."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        previous_deadline = tournament.registration_closes_at
+        previous_status = tournament.status
+
+        tournament.registration_closes_at = new_deadline
+        update_fields = ['registration_closes_at', 'updated_at']
+        if tournament.status in self.REOPEN_FROM:
+            tournament.status = 'OPEN'
+            update_fields.append('status')
+        tournament.save(update_fields=update_fields)
+
+        try:
+            from audit.utils import log_action
+            log_action(
+                action='tournament_extend_registration',
+                user=request.user,
+                details={
+                    'tournament_id': tournament.id,
+                    'tournament_name': tournament.name,
+                    'organisation_id': organisation.id,
+                    'previous_deadline': previous_deadline.isoformat() if previous_deadline else None,
+                    'new_deadline': new_deadline.isoformat(),
+                    'previous_status': previous_status,
+                    'new_status': tournament.status,
+                },
+                request=request,
+            )
+        except Exception:
+            pass
+
+        return Response(
+            TournamentSerializer(tournament, context={'request': request}).data,
+            status=status.HTTP_200_OK,
+        )
+
+
 class PlayerTournamentStandingsView(APIView):
     """
     GET /api/player/tournaments/{id}/standings/
@@ -1986,6 +2257,157 @@ class OrganisationTournamentBracketView(APIView):
         matches = _bracket_queryset(tournament)
         return Response(
             TournamentMatchSerializer(matches, many=True, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class OrganisationTournamentManualMatchView(APIView):
+    """
+    POST /api/organisations/tournaments/{id}/matches/
+
+    Manually create a fixture the organiser controls, rather than relying only
+    on the auto-generated bracket/fixtures. The organiser selects Player 1 and
+    Player 2 (both must be registered) and may record the result immediately
+    (scores + winner). The result is recorded against this tournament and these
+    players; for leagues the live table/standings are rebuilt automatically.
+
+    Body: {"player1_id", "player2_id", "player1_score"?, "player2_score"?}.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_organisation(self):
+        try:
+            return self.request.user.organisation
+        except Organisation.DoesNotExist as exc:
+            raise PermissionDenied("Only organisation accounts can manage fixtures.") from exc
+
+    @staticmethod
+    def _parse_score(raw):
+        try:
+            value = int(raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Scores must be whole numbers.") from exc
+        if value < 0:
+            raise ValueError("Scores cannot be negative.")
+        return value
+
+    @transaction.atomic
+    def post(self, request, id):
+        organisation = self.get_organisation()
+        tournament = get_object_or_404(
+            Tournament.objects.select_for_update(),
+            id=id,
+            organisation=organisation,
+        )
+        if tournament.status in Tournament.TERMINAL_STATUSES:
+            return Response(
+                {'detail': f"Cannot add fixtures to a tournament that is {tournament.get_status_display()}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            player1_id = int(request.data.get('player1_id'))
+            player2_id = int(request.data.get('player2_id'))
+        except (TypeError, ValueError):
+            return Response(
+                {'detail': 'Select both Player 1 and Player 2.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if player1_id == player2_id:
+            return Response(
+                {'detail': 'A fixture needs two different players.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        registered_ids = set(
+            TournamentRegistration.objects.filter(
+                tournament=tournament,
+                status=TournamentRegistration.Status.REGISTERED,
+                player_id__in=[player1_id, player2_id],
+            ).values_list('player_id', flat=True)
+        )
+        if player1_id not in registered_ids or player2_id not in registered_ids:
+            return Response(
+                {'detail': 'Both players must be registered for this tournament.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Optional immediate result.
+        raw_s1 = request.data.get('player1_score')
+        raw_s2 = request.data.get('player2_score')
+        has_result = raw_s1 is not None and raw_s2 is not None and raw_s1 != '' and raw_s2 != ''
+        s1 = s2 = None
+        if has_result:
+            try:
+                s1 = self._parse_score(raw_s1)
+                s2 = self._parse_score(raw_s2)
+            except ValueError as exc:
+                return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Place manual fixtures on their own matchday after any existing rounds.
+        last_round = tournament.bracket_matches.aggregate(
+            m=Max('round_number')
+        )['m'] or 0
+        round_number = last_round + 1
+
+        winner_id = None
+        match_status = TournamentMatch.Status.READY
+        if has_result:
+            if s1 > s2:
+                winner_id = player1_id
+            elif s2 > s1:
+                winner_id = player2_id
+            match_status = TournamentMatch.Status.CONFIRMED
+
+        match = TournamentMatch.objects.create(
+            tournament=tournament,
+            round_number=round_number,
+            slot_number=0,
+            player1_id=player1_id,
+            player2_id=player2_id,
+            player1_score=s1,
+            player2_score=s2,
+            winner_id=winner_id,
+            status=match_status,
+        )
+
+        # Manually managing fixtures starts play if the tournament hadn't yet.
+        if tournament.status in ('OPEN', 'REG_CLOSED', 'SCHEDULED'):
+            tournament.status = 'LIVE'
+            tournament.save(update_fields=['status'])
+
+        # A recorded league result feeds the live table/standings.
+        if has_result and tournament.format == 'LEAGUE':
+            leagues.rebuild_league_standings(tournament)
+
+        try:
+            from audit.utils import log_action
+            log_action(
+                action='tournament_manual_fixture',
+                user=request.user,
+                details={
+                    'tournament_id': tournament.id,
+                    'tournament_name': tournament.name,
+                    'organisation_id': organisation.id,
+                    'match_id': match.id,
+                    'player1_id': player1_id,
+                    'player2_id': player2_id,
+                    'player1_score': s1,
+                    'player2_score': s2,
+                    'winner_id': winner_id,
+                    'recorded_result': has_result,
+                },
+                request=request,
+            )
+        except Exception:
+            pass
+
+        matches = _bracket_queryset(tournament)
+        return Response(
+            {
+                'match': TournamentMatchSerializer(match, context={'request': request}).data,
+                'bracket': TournamentMatchSerializer(matches, many=True, context={'request': request}).data,
+            },
             status=status.HTTP_201_CREATED,
         )
 
@@ -2153,9 +2575,11 @@ class PlayerTournamentMatchReportView(APIView):
 
 
 def _enriched_league_table(tournament):
+    from api.serializers import tournament_team_map
     table = leagues.compute_table(tournament)
     ids = [r['player_id'] for r in table]
     users = {u.id: u for u in CustomUser.objects.filter(id__in=ids).select_related('profile')}
+    team_map = tournament_team_map(tournament)
     rows = []
     for position, r in enumerate(table, start=1):
         user = users.get(r['player_id'])
@@ -2166,11 +2590,15 @@ def _enriched_league_table(tournament):
                 full = f"{profile.first_name} {profile.last_name}".strip()
                 if full:
                     name = full
+        team = team_map.get(r['player_id'])
+        if team:
+            name = f"{name} ({team})"
         rows.append({
             'position': position,
             'player_id': r['player_id'],
             'player_username': user.username if user else '',
             'player_name': name,
+            'team_name': team or None,
             'played': r['played'],
             'won': r['won'],
             'drawn': r['drawn'],
@@ -2423,6 +2851,21 @@ class ZynleWebhookView(APIView):
             'withdrawal_id': result.withdrawal_id,
             'payment_status': result.payment_status,
         })
+
+
+class WithdrawalListView(generics.ListAPIView):
+    """
+    GET /api/wallet/withdrawals/
+
+    The authenticated user's withdrawal requests, newest first, with their
+    current status (Pending / Processing / Completed / Failed / Cancelled),
+    payout reference and any failure reason.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = WithdrawalSerializer
+
+    def get_queryset(self):
+        return Withdrawal.objects.filter(user=self.request.user).order_by('-created_at')
 
 
 class WithdrawalCreateView(APIView):

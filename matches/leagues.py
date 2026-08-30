@@ -25,11 +25,14 @@ def registered_player_ids(tournament):
     )
 
 
-def _round_robin_rounds(player_ids):
-    """Single round-robin schedule via the circle method.
+def _round_robin_rounds(player_ids, double=False):
+    """Round-robin schedule via the circle method.
 
     Returns a list of matchdays; each matchday is a list of (home, away) pairs.
     An odd field gets a ``None`` placeholder — the player paired with it rests.
+    When ``double`` is true a second (home-and-away) half is appended with venues
+    reversed, so every pair meets twice — once at home, once away. A 10-player
+    league then runs 18 matchdays and each player plays 18 fixtures.
     """
     players = list(player_ids)
     if len(players) % 2:
@@ -49,6 +52,9 @@ def _round_robin_rounds(player_ids):
                 pairs.append((home, away))
         rounds.append(pairs)
         rotating = [rotating[-1]] + rotating[:-1]
+    if double:
+        reversed_half = [[(away, home) for (home, away) in rnd] for rnd in rounds]
+        rounds = rounds + reversed_half
     return rounds
 
 
@@ -66,7 +72,8 @@ def generate_league(tournament, shuffle=True, seed=None):
         import random
         random.Random(seed).shuffle(players)
 
-    rounds = _round_robin_rounds(players)
+    double = bool(getattr(tournament, 'home_and_away', False))
+    rounds = _round_robin_rounds(players, double=double)
     for matchday, pairs in enumerate(rounds, start=1):
         for slot, (home, away) in enumerate(pairs):
             TournamentMatch.objects.create(
