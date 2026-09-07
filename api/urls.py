@@ -75,6 +75,8 @@ router.register(r'messages', MessageViewSet, basename='message')
 router.register(r'notifications', NotificationViewSet, basename='notification')
 
 urlpatterns = [
+    # Referral program
+    path('referrals/', include('referrals.urls')),
     # API Schema endpoints (Swagger/OpenAPI)
     path('schema/', SpectacularAPIView.as_view(), name='schema'),
     path('schema/swagger-ui/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),

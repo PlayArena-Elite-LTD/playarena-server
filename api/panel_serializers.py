@@ -217,3 +217,63 @@ class PanelOrganisationDetailSerializer(PanelOrganisationSerializer):
     def get_tournaments(self, obj):
         qs = obj.tournaments.all().order_by('-created_at')
         return PanelTournamentSerializer(qs, many=True, context=self.context).data
+
+
+# ------------------------- Referral program (panel) -------------------------
+from referrals.models import (  # noqa: E402
+    Referrer, Referral, ReferralCommissionLedger, ReferralWithdrawal,
+)
+
+
+class PanelReferrerSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source="user.username", read_only=True)
+    email = serializers.CharField(source="user.email", read_only=True)
+    referred_count = serializers.SerializerMethodField()
+    available_balance = serializers.SerializerMethodField()
+    pending_balance = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Referrer
+        fields = [
+            "id", "username", "email", "referral_code", "status",
+            "commission_rate", "referred_count", "available_balance",
+            "pending_balance", "created_at",
+        ]
+
+    def get_referred_count(self, obj):
+        return obj.referrals.count()
+
+    def _wallet(self, obj):
+        from referrals.services import get_or_create_referral_wallet
+        return get_or_create_referral_wallet(obj.user)
+
+    def get_available_balance(self, obj):
+        return str(self._wallet(obj).available_balance)
+
+    def get_pending_balance(self, obj):
+        return str(self._wallet(obj).pending_balance)
+
+
+class PanelReferralWithdrawalSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source="referrer.user.username", read_only=True)
+    referral_code = serializers.CharField(source="referrer.referral_code", read_only=True)
+
+    class Meta:
+        model = ReferralWithdrawal
+        fields = [
+            "id", "username", "referral_code", "amount", "status",
+            "payment_reference", "created_at", "processed_at",
+        ]
+
+
+class PanelReferralLedgerSerializer(serializers.ModelSerializer):
+    referrer_code = serializers.CharField(source="referrer.referral_code", read_only=True)
+    referred_username = serializers.CharField(source="referred_user.username", read_only=True)
+
+    class Meta:
+        model = ReferralCommissionLedger
+        fields = [
+            "id", "referrer_code", "referred_username", "platform_fee",
+            "commission_rate", "commission_amount", "status",
+            "related_match", "related_tournament", "created_at",
+        ]

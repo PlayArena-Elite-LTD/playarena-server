@@ -14,6 +14,7 @@ from pathlib import Path
 import os
 import sys
 from datetime import timedelta
+from decimal import Decimal
 from urllib.parse import urlparse, unquote
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -165,6 +166,7 @@ INSTALLED_APPS = [
     'accounts',
     'wallet',
     'matches',
+    'referrals',
     'alert',
     'messenger',
     'panel',
@@ -603,6 +605,18 @@ BANK_PAYOUT_TIMEOUT_SECONDS = int(os.environ.get('BANK_PAYOUT_TIMEOUT_SECONDS', 
 # entry fee; the remaining balance becomes the player's prize-pool contribution.
 # Fixed globally (single source of truth). Value is a whole-number percent.
 TOURNAMENT_PLATFORM_FEE_PERCENT = int(os.environ.get('TOURNAMENT_PLATFORM_FEE_PERCENT', '10'))
+
+# --- Referral program ---
+# Referral commission is a percentage of the PlayArena platform fee (NEVER of
+# player winnings / prize pool). Configurable globally and per-referrer.
+REFERRAL_DEFAULT_COMMISSION_RATE = Decimal(os.environ.get('REFERRAL_DEFAULT_COMMISSION_RATE', '30'))
+# Minimum referral wallet balance required to request a payout.
+MIN_REFERRAL_WITHDRAWAL = Decimal(os.environ.get('MIN_REFERRAL_WITHDRAWAL', '50.00'))
+# Hold window (days) before a PENDING commission becomes AVAILABLE for withdrawal.
+# 0 = commissions are immediately available on settlement.
+REFERRAL_COMMISSION_HOLD_DAYS = int(os.environ.get('REFERRAL_COMMISSION_HOLD_DAYS', '0'))
+# Public base URL used to build shareable referral links.
+REFERRAL_SHARE_BASE_URL = os.environ.get('REFERRAL_SHARE_BASE_URL', '').strip()
 
 # Fallback provider used before the database-backed admin setting is available.
 PAYMENT_PROVIDER = os.environ.get('PAYMENT_PROVIDER', 'lipila').strip().lower()

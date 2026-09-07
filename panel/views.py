@@ -179,6 +179,9 @@ def resolve_dispute(request, dispute_id):
         match.status = 'COMPLETED'
         match.winner = winner
         match.save()
+        # Referral commission on the realised platform fee (admin-awarded settlement)
+        from matches.views import _accrue_match_commissions
+        _accrue_match_commissions(match)
         dispute.status = 'RESOLVED'
         dispute.resolved_at = timezone.now()
         dispute.resolution_notes = notes

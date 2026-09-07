@@ -103,7 +103,21 @@ class UserRegistrationView(APIView):
         serializer = UserRegistrationSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
-            
+
+            # Referral attribution (spec section 3): a ?ref=CODE / referral_code
+            # supplied at registration establishes a permanent referrer link.
+            # Guarded so a bad code can never break account creation.
+            try:
+                from referrals.services import attribute_referral
+                ref_code = (
+                    request.data.get('referral_code')
+                    or request.query_params.get('ref')
+                )
+                if ref_code:
+                    attribute_referral(new_user=user, referral_code=ref_code)
+            except Exception:  # pragma: no cover - defensive
+                logger.exception("Referral attribution failed for user %s", user.id)
+
             # Generate JWT tokens
             refresh = RefreshToken.for_user(user)
             
@@ -1702,6 +1716,29 @@ def _settle_tournament_if_paid(tournament):
         tournament.save(update_fields=['status'])
 
 
+def _accrue_tournament_commissions(tournament):
+    """Accrue referral commission for a settled tournament (spec section 2).
+
+    Runs once at lock time, when entry fees are realised and no longer
+    refundable. Commission is based on each referred entrant's own
+    ``platform_fee`` (funded strictly from platform-fee revenue, never the prize
+    pool). Idempotent per (tournament, entrant) via the referrals service.
+    """
+    try:
+        from referrals.services import accrue_commission
+        registrations = tournament.registrations.filter(status='REGISTERED').select_related('player')
+        for reg in registrations:
+            if reg.platform_fee and reg.platform_fee > 0:
+                accrue_commission(
+                    referred_user=reg.player,
+                    platform_fee=reg.platform_fee,
+                    related_tournament=tournament,
+                )
+    except Exception:  # pragma: no cover - defensive; must never block lock/payout
+        logger.exception("Referral accrual failed for tournament %s", getattr(tournament, "id", None))
+
+
+
 class OrganisationTournamentStandingsView(APIView):
     """
     GET  /api/organisations/tournaments/{id}/standings/
@@ -1864,6 +1901,8 @@ class OrganisationTournamentLockView(APIView):
             _process_tournament_payout(payout, request=request)
 
         _settle_tournament_if_paid(tournament)
+        # Referral commission on realised entry fees (spec section 2)
+        _accrue_tournament_commissions(tournament)
         tournament.refresh_from_db()
 
         payouts = tournament.payouts.select_related('player', 'player__profile', 'transaction').all()

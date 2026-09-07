@@ -387,6 +387,9 @@ class PanelDisputeResolveView(APIView):
         match.status = 'COMPLETED'
         match.winner = winner
         match.save(update_fields=['status', 'winner'])
+        # Referral commission on the realised platform fee (admin-awarded settlement)
+        from matches.views import _accrue_match_commissions
+        _accrue_match_commissions(match)
         dispute.status = 'RESOLVED'
         dispute.resolved_at = timezone.now()
         dispute.resolution_notes = notes
@@ -1370,3 +1373,153 @@ class PanelOrganisationToggleView(APIView):
         except Exception:
             pass
         return Response(PanelOrganisationSerializer(org).data)
+
+
+# ---------------------------------------------------------------- Referrals
+from referrals.models import (  # noqa: E402
+    Referrer, ReferralCommissionLedger, ReferralWithdrawal,
+)
+from referrals import services as referral_services  # noqa: E402
+from .panel_serializers import (  # noqa: E402
+    PanelReferrerSerializer,
+    PanelReferralWithdrawalSerializer,
+    PanelReferralLedgerSerializer,
+)
+
+
+class PanelReferrerListView(ListAPIView):
+    """GET /api/panel/referrals/referrers/ — referrer applications & accounts."""
+    permission_classes = [IsSupportStaff]
+    serializer_class = PanelReferrerSerializer
+    pagination_class = PanelPagination
+
+    def get_queryset(self):
+        qs = Referrer.objects.select_related("user").order_by("-created_at")
+        status_f = self.request.query_params.get("status", "")
+        q = self.request.query_params.get("q", "").strip()
+        if status_f:
+            qs = qs.filter(status=status_f)
+        if q:
+            qs = qs.filter(
+                Q(referral_code__icontains=q) | Q(user__username__icontains=q)
+            )
+        return qs
+
+
+class PanelReferrerActionView(APIView):
+    """POST /api/panel/referrals/referrers/<id>/action/
+
+    Body: {"action": "approve"|"suspend"|"reject", "commission_rate": <opt>}.
+    """
+    permission_classes = [IsSupportStaff]
+
+    @transaction.atomic
+    def post(self, request, referrer_id):
+        referrer = get_object_or_404(Referrer, id=referrer_id)
+        action = request.data.get("action")
+        rate = request.data.get("commission_rate")
+
+        status_map = {
+            "approve": Referrer.Status.APPROVED,
+            "suspend": Referrer.Status.SUSPENDED,
+            "reject": Referrer.Status.REJECTED,
+        }
+        if action == "set_rate":
+            if rate is None:
+                return Response({"detail": "commission_rate is required."}, status=400)
+        elif action not in status_map:
+            return Response(
+                {"detail": "Invalid action. Use approve, suspend, reject or set_rate."},
+                status=400,
+            )
+
+        if action in status_map:
+            referrer.status = status_map[action]
+        if rate is not None:
+            try:
+                referrer.commission_rate = Decimal(str(rate))
+            except (TypeError, ValueError):
+                return Response({"detail": "Invalid commission_rate."}, status=400)
+        referrer.save()
+
+        if referrer.status == Referrer.Status.APPROVED:
+            referral_services.get_or_create_referral_wallet(referrer.user)
+
+        return Response(PanelReferrerSerializer(referrer).data)
+
+
+class PanelReferralWithdrawalListView(ListAPIView):
+    """GET /api/panel/referrals/withdrawals/ — referral payout requests."""
+    permission_classes = [IsSupportStaff]
+    serializer_class = PanelReferralWithdrawalSerializer
+    pagination_class = PanelPagination
+
+    def get_queryset(self):
+        qs = ReferralWithdrawal.objects.select_related(
+            "referrer", "referrer__user"
+        ).order_by("-created_at")
+        status_f = self.request.query_params.get("status", "")
+        q = self.request.query_params.get("q", "").strip()
+        if status_f:
+            qs = qs.filter(status=status_f)
+        if q:
+            qs = qs.filter(referrer__user__username__icontains=q)
+        return qs
+
+
+class PanelReferralWithdrawalActionView(APIView):
+    """POST /api/panel/referrals/withdrawals/<id>/action/
+
+    Body: {"action": "approve"|"reject"|"pay", "payment_reference": <opt>}.
+    """
+    permission_classes = [IsSupportStaff]
+
+    @transaction.atomic
+    def post(self, request, withdrawal_id):
+        wd = get_object_or_404(ReferralWithdrawal, id=withdrawal_id)
+        action = request.data.get("action")
+        reference = request.data.get("payment_reference", "")
+
+        if action == "approve":
+            if wd.status != ReferralWithdrawal.Status.PENDING:
+                return Response({"detail": "Only pending withdrawals can be approved."}, status=400)
+            wd.status = ReferralWithdrawal.Status.APPROVED
+        elif action == "reject":
+            if wd.status in (ReferralWithdrawal.Status.PAID, ReferralWithdrawal.Status.REJECTED):
+                return Response({"detail": "This withdrawal can no longer be rejected."}, status=400)
+            wd.status = ReferralWithdrawal.Status.REJECTED
+            wd.processed_at = timezone.now()
+        elif action == "pay":
+            if wd.status not in (ReferralWithdrawal.Status.PENDING, ReferralWithdrawal.Status.APPROVED):
+                return Response({"detail": "Only pending/approved withdrawals can be paid."}, status=400)
+            wd.status = ReferralWithdrawal.Status.PAID
+            wd.processed_at = timezone.now()
+            if reference:
+                wd.payment_reference = reference
+        else:
+            return Response({"detail": "Invalid action. Use approve, reject or pay."}, status=400)
+
+        wd.save()
+        return Response(PanelReferralWithdrawalSerializer(wd).data)
+
+
+class PanelReferralLedgerListView(ListAPIView):
+    """GET /api/panel/referrals/ledger/ — full commission audit trail (read-only)."""
+    permission_classes = [IsSupportStaff]
+    serializer_class = PanelReferralLedgerSerializer
+    pagination_class = PanelPagination
+
+    def get_queryset(self):
+        qs = ReferralCommissionLedger.objects.select_related(
+            "referrer", "referred_user"
+        ).order_by("-created_at")
+        status_f = self.request.query_params.get("status", "")
+        q = self.request.query_params.get("q", "").strip()
+        if status_f:
+            qs = qs.filter(status=status_f)
+        if q:
+            qs = qs.filter(
+                Q(referrer__referral_code__icontains=q)
+                | Q(referred_user__username__icontains=q)
+            )
+        return qs

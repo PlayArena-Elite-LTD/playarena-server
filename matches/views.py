@@ -18,6 +18,27 @@ from wallet.models import Wallet, Transaction
 from alert.models import Notification
 
 logger = logging.getLogger('django_ratelimit')
+
+def _accrue_match_commissions(match):
+    """Accrue referral commission for a settled 1v1 match (spec section 2).
+
+    The platform fee is 10% of each player's own stake (winnings already bake in
+    10% of the total pot). Commission is drawn strictly from that platform fee,
+    never from winnings, and is recorded once per (match, player) via the
+    referrals service. Safe no-op if a player has no referrer.
+    """
+    try:
+        from referrals.services import accrue_commission, PLATFORM_FEE_RATE
+        for player in (match.creator, match.joiner):
+            if player is None:
+                continue
+            accrue_commission(
+                referred_user=player,
+                platform_fee=Decimal(match.amount) * PLATFORM_FEE_RATE,
+                related_match=match,
+            )
+    except Exception:  # pragma: no cover - defensive; must never block settlement
+        logger.exception("Referral accrual failed for match %s", getattr(match, "id", None))
 User = get_user_model()
 
 
@@ -399,6 +420,9 @@ def submit_match_result(request, match_id):
                 message=f"Your {match.get_game_display()} match against {match.creator.username} for ZMW {match.amount} ended in a draw. ZMW {refund_amount} has been returned to your wallet."
             )
             
+            # Referral commission: platform still keeps 10% on a draw (spec section 2)
+            _accrue_match_commissions(match)
+
             messages.success(request, f"Match result recorded as a draw. ZMW {refund_amount} has been returned to your wallet.")
             return redirect('match_detail', match_id=match_id)
         
@@ -418,6 +442,9 @@ def submit_match_result(request, match_id):
             description=f"Winnings from {match.get_game_display()} match against {loser.username} for ZMW {match.amount}",
             related_match=match
         )
+
+        # Referral commission on the realised platform fee (spec section 2)
+        _accrue_match_commissions(match)
         
         # Notify both users
         Notification.objects.create(
