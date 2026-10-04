@@ -610,9 +610,7 @@ TOURNAMENT_PLATFORM_FEE_PERCENT = int(os.environ.get('TOURNAMENT_PLATFORM_FEE_PE
 # Referral commission is a percentage of the PlayArena platform fee (NEVER of
 # player winnings / prize pool). Configurable globally and per-referrer.
 REFERRAL_DEFAULT_COMMISSION_RATE = Decimal(os.environ.get('REFERRAL_DEFAULT_COMMISSION_RATE', '30'))
-# Minimum referral wallet balance required to request a payout.
-MIN_REFERRAL_WITHDRAWAL = Decimal(os.environ.get('MIN_REFERRAL_WITHDRAWAL', '50.00'))
-# Hold window (days) before a PENDING commission becomes AVAILABLE for withdrawal.
+# Hold window (days) before a PENDING commission becomes AVAILABLE for internal transfer.
 # 0 = commissions are immediately available on settlement.
 REFERRAL_COMMISSION_HOLD_DAYS = int(os.environ.get('REFERRAL_COMMISSION_HOLD_DAYS', '0'))
 # Public base URL used to build shareable referral links.

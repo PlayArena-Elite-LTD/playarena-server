@@ -1,15 +1,12 @@
 """DRF serializers for referral program endpoints."""
-from decimal import Decimal
-
-from django.conf import settings
 from rest_framework import serializers
 
 from .models import (
     Referral,
     Referrer,
     ReferralCommissionLedger,
+    ReferralTransfer,
     ReferralWallet,
-    ReferralWithdrawal,
 )
 
 
@@ -39,16 +36,10 @@ class ReferralWalletSerializer(serializers.ModelSerializer):
     pending_balance = serializers.DecimalField(
         max_digits=12, decimal_places=2, read_only=True
     )
-    min_withdrawal = serializers.SerializerMethodField()
-
     class Meta:
         model = ReferralWallet
-        fields = ("balance", "available_balance", "pending_balance", "min_withdrawal")
+        fields = ("balance", "available_balance", "pending_balance")
         read_only_fields = fields
-
-    def get_min_withdrawal(self, obj):
-        return Decimal(getattr(settings, "MIN_REFERRAL_WITHDRAWAL", Decimal("50.00")))
-
 
 class ReferralLedgerSerializer(serializers.ModelSerializer):
     referred_username = serializers.CharField(
@@ -80,40 +71,20 @@ class ReferredPlayerSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class ReferralWithdrawalSerializer(serializers.ModelSerializer):
+class ReferralTransferSerializer(serializers.ModelSerializer):
+    commission_id = serializers.IntegerField(read_only=True)
+    wallet_transaction_id = serializers.IntegerField(read_only=True)
+
     class Meta:
-        model = ReferralWithdrawal
+        model = ReferralTransfer
         fields = (
             "id",
+            "commission_id",
+            "wallet_transaction_id",
             "amount",
             "status",
-            "payment_reference",
+            "transfer_reference",
             "created_at",
-            "processed_at",
+            "completed_at",
         )
-        read_only_fields = (
-            "id",
-            "status",
-            "payment_reference",
-            "created_at",
-            "processed_at",
-        )
-
-    def validate_amount(self, value):
-        request = self.context["request"]
-        referrer = getattr(request.user, "referrer", None)
-        if referrer is None or referrer.status != Referrer.Status.APPROVED:
-            raise serializers.ValidationError("You are not an approved referrer.")
-
-        minimum = Decimal(getattr(settings, "MIN_REFERRAL_WITHDRAWAL", Decimal("50.00")))
-        if value < minimum:
-            raise serializers.ValidationError(
-                f"Minimum referral withdrawal is ZMW {minimum}."
-            )
-
-        wallet, _ = ReferralWallet.objects.get_or_create(user=request.user)
-        if value > wallet.available_balance:
-            raise serializers.ValidationError(
-                "Amount exceeds your available referral balance."
-            )
-        return value
+        read_only_fields = fields

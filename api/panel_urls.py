@@ -59,8 +59,7 @@ urlpatterns = [
     # Referrals
     path('referrals/referrers/', v.PanelReferrerListView.as_view(), name='panel_api_referrers'),
     path('referrals/referrers/<int:referrer_id>/action/', v.PanelReferrerActionView.as_view(), name='panel_api_referrer_action'),
-    path('referrals/withdrawals/', v.PanelReferralWithdrawalListView.as_view(), name='panel_api_referral_withdrawals'),
-    path('referrals/withdrawals/<int:withdrawal_id>/action/', v.PanelReferralWithdrawalActionView.as_view(), name='panel_api_referral_withdrawal_action'),
+    path('referrals/transfers/', v.PanelReferralTransferListView.as_view(), name='panel_api_referral_transfers'),
     path('referrals/ledger/', v.PanelReferralLedgerListView.as_view(), name='panel_api_referral_ledger'),
 
     # Disputes

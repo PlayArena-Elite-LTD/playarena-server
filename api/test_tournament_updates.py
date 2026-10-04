@@ -8,6 +8,7 @@ manual fixture/result management, the withdrawal history endpoint and the
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.db.models import Sum
 from django.utils import timezone
 from datetime import timedelta
 from rest_framework import status
@@ -15,7 +16,7 @@ from rest_framework.test import APITestCase, APIClient
 
 from accounts.models import Organisation, OrganisationMembership
 from matches.models import (
-    Tournament, TournamentRegistration, TournamentPrize,
+    Tournament, TournamentFeeSettlement, TournamentRegistration, TournamentPrize,
     TournamentMatch, TournamentStanding, TournamentPayout,
 )
 from wallet.models import Wallet, Transaction, Withdrawal
@@ -144,33 +145,122 @@ class PlayerMetadataTests(_Base):
 
 
 class ConfigurableFeeTests(_Base):
-    def test_default_fee_is_ten_percent(self):
+    def test_fee_is_not_allocated_until_all_slots_are_filled(self):
         t = self.make_tournament(participation_amount=Decimal('20.00'))
         p = self.make_player('a')
         self.join(p, t)
         reg = TournamentRegistration.objects.get(tournament=t, player=p)
-        self.assertEqual(reg.platform_fee, Decimal('2.00'))
-        self.assertEqual(reg.prize_contribution, Decimal('18.00'))
+        self.assertEqual(reg.platform_fee, Decimal('0.00'))
+        self.assertEqual(reg.prize_contribution, Decimal('20.00'))
+        self.assertFalse(TournamentFeeSettlement.objects.filter(tournament=t).exists())
+        t.refresh_from_db()
+        self.assertEqual(t.status, 'OPEN')
 
-    def test_configurable_fee_percent(self):
-        t = self.make_tournament(participation_amount=Decimal('300.00'),
-                                 platform_fee_percent=Decimal('20.00'))
-        p = self.make_player('b')
-        self.join(p, t)
-        reg = TournamentRegistration.objects.get(tournament=t, player=p)
-        self.assertEqual(reg.platform_fee, Decimal('60.00'))
-        self.assertEqual(reg.prize_contribution, Decimal('240.00'))
+    def test_full_tournament_allocates_ten_percent_once_to_pool(self):
+        t = self.make_tournament(
+            participation_amount=Decimal('10.00'),
+            max_players=2,
+        )
+        first = self.make_player('fee_a')
+        second = self.make_player('fee_b')
 
-    def test_create_tournament_accepts_fee_percent(self):
+        self.assertEqual(self.join(first, t).status_code, 200)
+        self.assertFalse(TournamentFeeSettlement.objects.filter(tournament=t).exists())
+        response = self.join(second, t)
+        self.assertEqual(response.status_code, 200, response.data)
+
+        t.refresh_from_db()
+        settlement = TournamentFeeSettlement.objects.get(tournament=t)
+        self.assertEqual(t.status, 'READY_TO_START')
+        self.assertEqual(settlement.status, TournamentFeeSettlement.Status.RESERVED)
+        self.assertEqual(settlement.gross_pool, Decimal('20.00'))
+        self.assertEqual(settlement.platform_fee, Decimal('2.00'))
+        self.assertEqual(settlement.net_prize_pool, Decimal('18.00'))
+        self.assertEqual(t.platform_fee_total, Decimal('2.00'))
+        self.assertEqual(t.prize_pool, Decimal('18.00'))
+        self.assertEqual(
+            TournamentRegistration.objects.filter(
+                tournament=t,
+                status=TournamentRegistration.Status.REGISTERED,
+            ).aggregate(total=Sum('platform_fee'))['total'],
+            Decimal('2.00'),
+        )
+
+    def test_custom_platform_fee_is_rejected(self):
         self.client.force_authenticate(self.owner)
-        res = self.client.post('/api/organisations/tournaments/', {
+        response = self.client.post('/api/organisations/tournaments/', {
             'name': 'Configured', 'game': 'FIFA_MOBILE',
             'participation_amount': '50.00', 'max_players': 8,
             'platform_fee_percent': '15',
         }, format='json')
+        self.assertEqual(response.status_code, 400)
+
+    def test_tournament_fee_percent_is_mandatory_ten_percent(self):
+        self.client.force_authenticate(self.owner)
+        res = self.client.post('/api/organisations/tournaments/', {
+            'name': 'Configured', 'game': 'FIFA_MOBILE',
+            'participation_amount': '50.00', 'max_players': 8,
+        }, format='json')
         self.assertEqual(res.status_code, 201, res.data)
         t = Tournament.objects.get(id=res.data['id'])
-        self.assertEqual(t.platform_fee_percent, Decimal('15.00'))
+        self.assertEqual(t.platform_fee_percent, Decimal('10.00'))
+
+    def test_cancelling_before_launch_refunds_full_entries_and_voids_fee(self):
+        t = self.make_tournament(
+            participation_amount=Decimal('10.00'),
+            max_players=2,
+        )
+        players = [self.make_player('cancel_a'), self.make_player('cancel_b')]
+        for player in players:
+            self.assertEqual(self.join(player, t).status_code, 200)
+
+        t.refresh_from_db()
+        settlement = TournamentFeeSettlement.objects.get(tournament=t)
+        self.assertEqual(settlement.status, TournamentFeeSettlement.Status.RESERVED)
+        self.client.force_authenticate(self.owner)
+        response = self.client.post(
+            f'/api/organisations/tournaments/{t.id}/lifecycle/',
+            {'action': 'cancel'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        settlement.refresh_from_db()
+        t.refresh_from_db()
+        self.assertEqual(t.status, 'CANCELLED')
+        self.assertEqual(settlement.status, TournamentFeeSettlement.Status.REFUNDED)
+        self.assertEqual(settlement.platform_fee, Decimal('2.00'))
+        for player in players:
+            wallet = Wallet.objects.get(user=player)
+            self.assertEqual(wallet.balance, Decimal('500.00'))
+            self.assertTrue(wallet.transactions.filter(
+                transaction_type='TOURNAMENT_REFUND', amount=Decimal('10.00')
+            ).exists())
+
+    def test_tournament_cannot_start_until_full_and_fee_is_recognized_on_start(self):
+        t = self.make_tournament(
+            participation_amount=Decimal('10.00'),
+            max_players=2,
+        )
+        first = self.make_player('start_a')
+        second = self.make_player('start_b')
+        self.assertEqual(self.join(first, t).status_code, 200)
+
+        self.client.force_authenticate(self.owner)
+        response = self.client.post(
+            f'/api/organisations/tournaments/{t.id}/bracket/'
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(TournamentFeeSettlement.objects.filter(tournament=t).exists())
+
+        self.assertEqual(self.join(second, t).status_code, 200)
+        self.client.force_authenticate(self.owner)
+        response = self.client.post(
+            f'/api/organisations/tournaments/{t.id}/bracket/'
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        settlement = TournamentFeeSettlement.objects.get(tournament=t)
+        self.assertEqual(settlement.status, TournamentFeeSettlement.Status.RECOGNIZED)
+        self.assertIsNotNone(settlement.recognized_at)
 
 
 class HomeAndAwayLeagueTests(_Base):

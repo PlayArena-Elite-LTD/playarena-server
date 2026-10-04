@@ -221,7 +221,7 @@ class PanelOrganisationDetailSerializer(PanelOrganisationSerializer):
 
 # ------------------------- Referral program (panel) -------------------------
 from referrals.models import (  # noqa: E402
-    Referrer, Referral, ReferralCommissionLedger, ReferralWithdrawal,
+    Referrer, Referral, ReferralCommissionLedger, ReferralTransfer,
 )
 
 
@@ -254,15 +254,16 @@ class PanelReferrerSerializer(serializers.ModelSerializer):
         return str(self._wallet(obj).pending_balance)
 
 
-class PanelReferralWithdrawalSerializer(serializers.ModelSerializer):
+class PanelReferralTransferSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source="referrer.user.username", read_only=True)
     referral_code = serializers.CharField(source="referrer.referral_code", read_only=True)
 
     class Meta:
-        model = ReferralWithdrawal
+        model = ReferralTransfer
         fields = [
-            "id", "username", "referral_code", "amount", "status",
-            "payment_reference", "created_at", "processed_at",
+            "id", "username", "referral_code", "commission_id", "amount",
+            "status", "transfer_reference", "wallet_transaction_id",
+            "created_at", "completed_at",
         ]
 
 

@@ -194,12 +194,16 @@ def _default_platform_fee_percent():
     return Decimal(str(getattr(settings, 'TOURNAMENT_PLATFORM_FEE_PERCENT', 10)))
 
 
+ORGANISATION_TOURNAMENT_PLATFORM_FEE_PERCENT = Decimal('10.00')
+
+
 class Tournament(models.Model):
     STATUS_CHOICES = [
         ('DRAFT', 'Draft'),
         ('OPEN', 'Registration Open'),
         ('REG_CLOSED', 'Registration Closed'),
         ('SCHEDULED', 'Scheduled'),
+        ('READY_TO_START', 'Ready to Start'),
         ('LIVE', 'Live'),
         ('RESULTS_PENDING', 'Results Pending'),
         ('COMPLETED', 'Completed'),
@@ -209,7 +213,7 @@ class Tournament(models.Model):
     ]
 
     # Statuses before play begins — registration edits / withdrawals allowed.
-    PRE_PLAY_STATUSES = ('DRAFT', 'OPEN', 'REG_CLOSED', 'SCHEDULED')
+    PRE_PLAY_STATUSES = ('DRAFT', 'OPEN', 'REG_CLOSED', 'SCHEDULED', 'READY_TO_START')
     # Terminal statuses — no further lifecycle changes.
     TERMINAL_STATUSES = ('COMPLETED', 'PAYOUT_PROCESSING', 'PAID', 'CANCELLED')
 
@@ -263,14 +267,8 @@ class Tournament(models.Model):
         return _default_platform_fee_percent()
 
     def fee_percent(self):
-        """PlayArena administration percentage for THIS tournament.
-
-        Configurable per tournament rather than permanently hard-coded; falls
-        back to the platform default when unset.
-        """
-        if self.platform_fee_percent is not None:
-            return Decimal(self.platform_fee_percent)
-        return _default_platform_fee_percent()
+        """Mandatory organisation-tournament platform fee (10%)."""
+        return ORGANISATION_TOURNAMENT_PLATFORM_FEE_PERCENT
 
     def split_entry(self, amount):
         """Split an entry fee into (platform_fee, prize_contribution).
@@ -307,12 +305,28 @@ class Tournament(models.Model):
 
     @property
     def platform_fee_total(self):
-        """Total PlayArena platform fee accrued from active registrations."""
+        """Platform fee reserved or recognized at full-capacity confirmation."""
+        settlement = getattr(self, 'fee_settlement', None)
+        if settlement:
+            if settlement.status in (
+                TournamentFeeSettlement.Status.RESERVED,
+                TournamentFeeSettlement.Status.RECOGNIZED,
+            ):
+                return settlement.platform_fee
+            return Decimal('0.00')
         return self._registration_sum('platform_fee')
 
     @property
     def prize_pool(self):
-        """Prize pool from contributions actually received (active registrations)."""
+        """Net distributable pool after full-capacity fee confirmation."""
+        settlement = getattr(self, 'fee_settlement', None)
+        if settlement:
+            if settlement.status in (
+                TournamentFeeSettlement.Status.RESERVED,
+                TournamentFeeSettlement.Status.RECOGNIZED,
+            ):
+                return settlement.net_prize_pool
+            return Decimal('0.00')
         return self._registration_sum('prize_contribution')
 
     @property
@@ -352,6 +366,48 @@ class Tournament(models.Model):
             self.save(update_fields=['status'])
             return True
         return False
+
+
+class TournamentFeeSettlement(models.Model):
+    """One-time gross/fee/net snapshot for a full organisation tournament.
+
+    RESERVED is created atomically when every slot is filled. The fee is
+    recognized only when the tournament actually starts. A pre-launch
+    cancellation or participant withdrawal invalidates the reservation.
+    """
+
+    class Status(models.TextChoices):
+        RESERVED = 'RESERVED', 'Reserved'
+        RECOGNIZED = 'RECOGNIZED', 'Recognized'
+        VOID = 'VOID', 'Voided'
+        REFUNDED = 'REFUNDED', 'Refunded'
+
+    tournament = models.OneToOneField(
+        Tournament,
+        on_delete=models.PROTECT,
+        related_name='fee_settlement',
+    )
+    gross_pool = models.DecimalField(max_digits=16, decimal_places=2)
+    platform_fee = models.DecimalField(max_digits=16, decimal_places=2)
+    net_prize_pool = models.DecimalField(max_digits=16, decimal_places=2)
+    fee_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('10.00'))
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.RESERVED,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    recognized_at = models.DateTimeField(null=True, blank=True)
+    reversed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return (
+            f"Tournament fee #{self.tournament_id}: {self.platform_fee} "
+            f"({self.get_status_display()})"
+        )
 
 
 class TournamentRegistration(models.Model):
