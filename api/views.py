@@ -61,6 +61,12 @@ from matches.models import (
     TournamentStanding, TournamentPayout, TournamentMatch, TournamentMatchSubmission,
 )
 from matches import brackets, leagues
+from matches.tournament_fees import (
+    clear_reserved_entry_split,
+    confirm_full_tournament,
+    recognize_tournament_fee,
+    reverse_tournament_fee,
+)
 from panel.models import Dispute
 from messenger.models import Message, ReadMessage
 from alert.models import Notification, ReadNotification
@@ -390,15 +396,17 @@ class TournamentJoinView(APIView):
 
         amount = Decimal(tournament.participation_amount)
         wallet, _created = Wallet.objects.get_or_create(user=user)
+        wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
         if wallet.balance < amount:
             return Response(
                 {'detail': f"Insufficient funds. You need ZMW {amount} to join this tournament."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Split the entry into the PlayArena platform fee and the prize-pool
-        # contribution so both are recorded separately (audit trail).
-        platform_fee, prize_contribution = tournament.split_entry(amount)
+        # Hold the entire entry in the tournament pool until capacity is full.
+        # No platform fee is allocated while players are still registering.
+        platform_fee = Decimal('0.00')
+        prize_contribution = amount
 
         # Create or reactivate the registration.
         if existing:
@@ -437,6 +445,11 @@ class TournamentJoinView(APIView):
             related_tournament=tournament,
         )
 
+        # The final seat triggers one tournament-wide, atomic 10% settlement.
+        # The helper locks registrations, snapshots gross/fee/net, distributes
+        # rounded cents exactly, and moves the tournament to READY_TO_START.
+        confirm_full_tournament(tournament)
+
         Notification.objects.create(
             user=user,
             message=f"You joined the tournament '{tournament.name}' for ZMW {amount}.",
@@ -468,6 +481,7 @@ class TournamentJoinView(APIView):
         except Exception:
             pass
 
+        tournament.refresh_from_db()
         return Response(
             {
                 'message': 'Tournament joined successfully.',
@@ -526,6 +540,16 @@ class TournamentLeaveView(APIView):
             description=f"Left tournament '{tournament.name}', ZMW {amount} refunded",
             related_tournament=tournament,
         )
+
+        if tournament.status == 'READY_TO_START':
+            # A pre-launch withdrawal invalidates the full-capacity fee
+            # reservation. Restore gross contributions and reopen registration.
+            reverse_tournament_fee(tournament, refunded=False)
+            clear_reserved_entry_split(tournament)
+            tournament.status = (
+                'REG_CLOSED' if tournament.past_registration_deadline else 'OPEN'
+            )
+            tournament.save(update_fields=['status'])
 
         Notification.objects.create(
             user=user,
@@ -1844,6 +1868,11 @@ class OrganisationTournamentLockView(APIView):
                     {'detail': f'This tournament is {already} and cannot be locked.'},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+            if tournament.status not in ('LIVE', 'RESULTS_PENDING'):
+                return Response(
+                    {'detail': 'Only a started tournament can have final results locked.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
             standings = list(tournament.standings.select_related('player').all())
             if not standings:
@@ -2020,7 +2049,7 @@ class OrganisationTournamentLifecycleView(APIView):
         'open': (('DRAFT', 'REG_CLOSED', 'SCHEDULED'), 'OPEN'),
         'close_registration': (('OPEN',), 'REG_CLOSED'),
         'schedule': (('OPEN', 'REG_CLOSED'), 'SCHEDULED'),
-        'cancel': (('DRAFT', 'OPEN', 'REG_CLOSED', 'SCHEDULED', 'LIVE', 'RESULTS_PENDING'), 'CANCELLED'),
+        'cancel': (('DRAFT', 'OPEN', 'REG_CLOSED', 'SCHEDULED', 'READY_TO_START'), 'CANCELLED'),
     }
 
     def get_organisation(self):
@@ -2053,6 +2082,7 @@ class OrganisationTournamentLifecycleView(APIView):
 
         if action == 'cancel':
             _refund_all_registrations(tournament, request=request)
+            reverse_tournament_fee(tournament, refunded=True)
 
         tournament.status = new_status
         tournament.save(update_fields=['status'])
@@ -2243,14 +2273,30 @@ class OrganisationTournamentBracketView(APIView):
         matches = _bracket_queryset(tournament)
         return Response(TournamentMatchSerializer(matches, many=True, context={"request": request}).data)
 
+    @transaction.atomic
     def post(self, request, id):
-        tournament = self.get_tournament(id)
+        tournament = get_object_or_404(
+            Tournament.objects.select_for_update(),
+            id=id,
+            organisation=self.get_organisation(),
+        )
         if tournament.status not in Tournament.PRE_PLAY_STATUSES:
             return Response(
                 {'detail': 'Fixtures can only be generated before the tournament goes live.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if tournament.registered_players_count < tournament.max_players:
+            return Response(
+                {'detail': 'All tournament slots must be filled before it can start.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         try:
+            settlement = confirm_full_tournament(tournament)
+            if settlement is None:
+                return Response(
+                    {'detail': 'All tournament slots must be filled before it can start.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             if tournament.format == 'LEAGUE':
                 leagues.generate_league(tournament)
             else:
@@ -2260,6 +2306,7 @@ class OrganisationTournamentBracketView(APIView):
 
         tournament.status = 'LIVE'
         tournament.save(update_fields=['status'])
+        recognize_tournament_fee(tournament)
 
         try:
             from audit.utils import log_action

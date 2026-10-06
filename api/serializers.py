@@ -746,12 +746,29 @@ class TournamentFinancialsMixin:
     def get_fee_percent(self, obj):
         return str(obj.fee_percent())
 
+    def get_platform_fee_percent(self, obj):
+        return str(obj.fee_percent())
+
+    def get_fee_settlement_status(self, obj):
+        settlement = getattr(obj, 'fee_settlement', None)
+        return settlement.status if settlement else 'AWAITING_FULL_CAPACITY'
+
     def get_entry_breakdown(self, obj):
-        fee, contribution = obj.split_entry(obj.participation_amount)
+        settlement = getattr(obj, 'fee_settlement', None)
+        is_settled = bool(
+            settlement
+            and settlement.status in ('RESERVED', 'RECOGNIZED')
+        )
+        if is_settled:
+            fee, contribution = obj.split_entry(obj.participation_amount)
+        else:
+            fee = Decimal('0.00')
+            contribution = Decimal(obj.participation_amount)
         return {
             'entry_fee': str(obj.participation_amount),
             'platform_fee': str(fee),
             'prize_contribution': str(contribution),
+            'fee_status': self.get_fee_settlement_status(obj),
         }
 
     def get_prize_pool(self, obj):
@@ -773,7 +790,9 @@ class TournamentSerializer(TournamentFinancialsMixin, serializers.ModelSerialize
     eligibility = serializers.SerializerMethodField()
     display_status = serializers.CharField(read_only=True)
     display_status_label = serializers.SerializerMethodField()
+    platform_fee_percent = serializers.SerializerMethodField()
     fee_percent = serializers.SerializerMethodField()
+    fee_settlement_status = serializers.SerializerMethodField()
     entry_breakdown = serializers.SerializerMethodField()
     prize_pool = serializers.SerializerMethodField()
     platform_fee_total = serializers.SerializerMethodField()
@@ -802,6 +821,7 @@ class TournamentSerializer(TournamentFinancialsMixin, serializers.ModelSerialize
             'status_label',
             'display_status',
             'display_status_label',
+            'fee_settlement_status',
             'eligibility',
             'fee_percent',
             'entry_breakdown',
@@ -876,6 +896,7 @@ class PlayerTournamentSerializer(TournamentFinancialsMixin, serializers.ModelSer
     display_status = serializers.CharField(read_only=True)
     display_status_label = serializers.SerializerMethodField()
     is_registration_open = serializers.BooleanField(read_only=True)
+    fee_settlement_status = serializers.SerializerMethodField()
 
     class Meta:
         model = Tournament
@@ -907,6 +928,7 @@ class PlayerTournamentSerializer(TournamentFinancialsMixin, serializers.ModelSer
             'display_status',
             'display_status_label',
             'is_registration_open',
+            'fee_settlement_status',
         ]
 
     def get_display_status_label(self, obj):
@@ -1005,6 +1027,12 @@ class TournamentPrizeInputSerializer(serializers.Serializer):
 class TournamentCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating an organisation tournament."""
     prizes = TournamentPrizeInputSerializer(many=True, required=False)
+    platform_fee_percent = serializers.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        required=False,
+        default=Decimal('10.00'),
+    )
 
     class Meta:
         model = Tournament
@@ -1047,10 +1075,10 @@ class TournamentCreateSerializer(serializers.ModelSerializer):
         return value
 
     def validate_platform_fee_percent(self, value):
-        if value is None:
-            return value
-        if value < Decimal('0') or value > Decimal('100'):
-            raise serializers.ValidationError("PlayArena percentage must be between 0 and 100.")
+        if value != Decimal('10.00'):
+            raise serializers.ValidationError(
+                "Organisation tournament platform fee is fixed at 10%."
+            )
         return value
 
     def validate_prizes(self, value):

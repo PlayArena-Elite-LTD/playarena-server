@@ -1,23 +1,25 @@
 """DRF endpoints for the referral program (player/referrer facing)."""
-from rest_framework import generics, permissions, status
+from rest_framework import generics, permissions, serializers, status
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.core.exceptions import ValidationError as DjangoValidationError
 
 from .models import (
     Referral,
     Referrer,
     ReferralCommissionLedger,
+    ReferralTransfer,
     ReferralWallet,
-    ReferralWithdrawal,
 )
 from .serializers import (
     ReferredPlayerSerializer,
     ReferralLedgerSerializer,
     ReferralWalletSerializer,
-    ReferralWithdrawalSerializer,
+    ReferralTransferSerializer,
     ReferrerSerializer,
 )
+from . import services
 
 
 class LedgerPagination(PageNumberPagination):
@@ -106,17 +108,33 @@ class ReferredPlayersView(generics.ListAPIView):
         return referrer.referrals.select_related("referred_user").all()
 
 
-class ReferralWithdrawalView(generics.ListCreateAPIView):
-    """GET/POST /api/referrals/withdrawals/ -> list or request a payout."""
+class ReferralTransferView(generics.ListAPIView):
+    """List completed internal transfers; POST transfers one available commission."""
 
-    serializer_class = ReferralWithdrawalSerializer
+    serializer_class = ReferralTransferSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         referrer = getattr(self.request.user, "referrer", None)
         if referrer is None:
-            return ReferralWithdrawal.objects.none()
-        return referrer.withdrawals.all()
+            return ReferralTransfer.objects.none()
+        return referrer.commission_transfers.select_related(
+            "commission", "wallet_transaction"
+        ).all()
 
-    def perform_create(self, serializer):
-        serializer.save(referrer=self.request.user.referrer)
+    def post(self, request, *args, **kwargs):
+        commission_id = serializers.IntegerField(min_value=1).run_validation(
+            request.data.get("commission_id")
+        )
+        try:
+            transfer, created = services.transfer_commission_to_wallet(
+                user=request.user,
+                commission_id=commission_id,
+            )
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"detail": exc.messages}) from exc
+
+        return Response(
+            ReferralTransferSerializer(transfer).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )

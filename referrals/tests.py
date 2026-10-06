@@ -2,12 +2,14 @@
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 
 from .models import (
     Referral,
     Referrer,
     ReferralCommissionLedger,
+    ReferralTransfer,
     ReferralWallet,
 )
 from . import services
@@ -164,6 +166,62 @@ class ReversalTests(TestCase):
         self.assertEqual(mirror.commission_amount, Decimal("-3.00"))
         self.assertIsNotNone(mirror.reversal_of)
 
+    def test_paid_commission_reversal_debits_normal_wallet_and_records_history(self):
+        from wallet.models import Transaction, Wallet
+
+        match = _make_match(self.ref_user, self.player)
+        commission = services.accrue_commission(
+            self.player,
+            Decimal("10.00"),
+            related_match=match,
+        )
+        services.transfer_commission_to_wallet(
+            user=self.ref_user,
+            commission_id=commission.pk,
+        )
+
+        normal_wallet = Wallet.objects.get(user=self.ref_user)
+        # Model spending after the commission was transferred; the clawback
+        # must recover the debt without corrupting the transaction ledger.
+        normal_wallet.balance -= Decimal("2.00")
+        normal_wallet.save(update_fields=["balance"])
+        Transaction.objects.create(
+            wallet=normal_wallet,
+            amount=Decimal("-2.00"),
+            transaction_type="OTHER",
+            description="Test spend before commission clawback",
+        )
+
+        self.assertEqual(services.reverse_commission(related_match=match), 1)
+
+        commission.refresh_from_db()
+        normal_wallet.refresh_from_db()
+        self.assertEqual(
+            commission.status,
+            ReferralCommissionLedger.Status.CANCELLED,
+        )
+        self.assertEqual(normal_wallet.balance, Decimal("-2.00"))
+        self.assertTrue(normal_wallet.verify_balance_integrity()["is_valid"])
+        self.assertEqual(
+            commission.reversal_transaction.amount,
+            Decimal("-3.00"),
+        )
+        self.assertEqual(
+            commission.reversal_transaction.transaction_type,
+            "REFERRAL_REVERSAL",
+        )
+        self.assertEqual(
+            ReferralCommissionLedger.objects.get(
+                reversal_of=commission
+            ).commission_amount,
+            Decimal("-3.00"),
+        )
+
+        # A repeated refund/reversal must not debit the wallet again.
+        self.assertEqual(services.reverse_commission(related_match=match), 0)
+        normal_wallet.refresh_from_db()
+        self.assertEqual(normal_wallet.balance, Decimal("-2.00"))
+
 
 @override_settings(REFERRAL_COMMISSION_HOLD_DAYS=7)
 class HoldWindowTests(TestCase):
@@ -183,6 +241,78 @@ class HoldWindowTests(TestCase):
         self.assertEqual(wallet.balance, Decimal("3.00"))
         self.assertEqual(wallet.available_balance, Decimal("0.00"))
         self.assertEqual(wallet.pending_balance, Decimal("3.00"))
+
+
+@override_settings(REFERRAL_COMMISSION_HOLD_DAYS=0)
+class TransferTests(TestCase):
+    def setUp(self):
+        self.ref_user = make_user("transferref")
+        Referrer.objects.create(
+            user=self.ref_user,
+            referral_code="TRANSFERREF",
+            status=Referrer.Status.APPROVED,
+            commission_rate=Decimal("30.00"),
+        )
+        self.player = make_user("transferplayer")
+        services.attribute_referral(self.player, "TRANSFERREF")
+        self.commission = services.accrue_commission(
+            self.player, Decimal("10.00")
+        )
+
+    def test_transfer_moves_exact_commission_once(self):
+        transfer, created = services.transfer_commission_to_wallet(
+            user=self.ref_user,
+            commission_id=self.commission.pk,
+        )
+
+        self.assertTrue(created)
+        self.assertEqual(transfer.amount, Decimal("3.00"))
+        self.assertEqual(transfer.status, ReferralTransfer.Status.COMPLETED)
+        self.assertEqual(transfer.wallet_transaction.amount, Decimal("3.00"))
+        self.assertEqual(
+            transfer.wallet_transaction.transaction_type,
+            "REFERRAL_TRANSFER",
+        )
+
+        self.commission.refresh_from_db()
+        referral_wallet = ReferralWallet.objects.get(user=self.ref_user)
+        from wallet.models import Wallet
+        normal_wallet = Wallet.objects.get(user=self.ref_user)
+        self.assertEqual(self.commission.status, ReferralCommissionLedger.Status.PAID)
+        self.assertEqual(referral_wallet.balance, Decimal("0.00"))
+        self.assertEqual(normal_wallet.balance, Decimal("3.00"))
+        self.assertTrue(normal_wallet.verify_balance_integrity()["is_valid"])
+
+        repeated, created_again = services.transfer_commission_to_wallet(
+            user=self.ref_user,
+            commission_id=self.commission.pk,
+        )
+        self.assertFalse(created_again)
+        self.assertEqual(repeated.pk, transfer.pk)
+        normal_wallet.refresh_from_db()
+        self.assertEqual(normal_wallet.transactions.count(), 1)
+
+    def test_cannot_transfer_another_referrers_commission(self):
+        other_user = make_user("nottransferref")
+        with self.assertRaises(ValidationError):
+            services.transfer_commission_to_wallet(
+                user=other_user,
+                commission_id=self.commission.pk,
+            )
+        self.assertEqual(other_user.wallet.balance, Decimal("0.00"))
+
+    def test_inconsistent_referral_balance_blocks_transfer(self):
+        wallet = ReferralWallet.objects.get(user=self.ref_user)
+        wallet.balance = Decimal("99.00")
+        wallet.save(update_fields=["balance"])
+
+        with self.assertRaises(ValidationError):
+            services.transfer_commission_to_wallet(
+                user=self.ref_user,
+                commission_id=self.commission.pk,
+            )
+        self.assertEqual(self.ref_user.wallet.balance, Decimal("0.00"))
+        self.assertEqual(ReferralTransfer.objects.count(), 0)
 
 
 def _make_match(creator, joiner, amount=100):
@@ -217,57 +347,40 @@ class ReferralApiTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertFalse(resp.data["is_referrer"])
 
-    def test_wallet_exposes_min_withdrawal(self):
+    def test_wallet_exposes_available_and_pending_balances(self):
         resp = self.client.get("/api/referrals/wallet/")
         self.assertEqual(resp.status_code, 200)
-        self.assertIn("min_withdrawal", resp.data)
         self.assertIn("available_balance", resp.data)
+        self.assertNotIn("min_withdrawal", resp.data)
 
-    def test_withdrawal_below_minimum_rejected(self):
+    def test_transfer_endpoint_credits_only_owned_commission(self):
         Referrer.objects.create(
-            user=self.user, referral_code="apiuser", status=Referrer.Status.APPROVED
+            user=self.user,
+            referral_code="apiuser",
+            status=Referrer.Status.APPROVED,
         )
-        resp = self.client.post("/api/referrals/withdrawals/", {"amount": "5.00"})
-        self.assertEqual(resp.status_code, 400)
+        player = make_user("api_referred_player")
+        services.attribute_referral(player, "apiuser")
+        commission = services.accrue_commission(player, Decimal("10.00"))
 
-    def test_withdrawal_over_available_rejected(self):
-        Referrer.objects.create(
-            user=self.user, referral_code="apiuser", status=Referrer.Status.APPROVED
+        response = self.client.post(
+            "/api/referrals/transfers/",
+            {"commission_id": commission.pk},
+            format="json",
         )
-        resp = self.client.post("/api/referrals/withdrawals/", {"amount": "100.00"})
-        self.assertEqual(resp.status_code, 400)
 
-
-@override_settings(REFERRAL_COMMISSION_HOLD_DAYS=0)
-class WithdrawalReservationTests(TestCase):
-    def setUp(self):
-        from decimal import Decimal as D
-        self.ref_user = make_user("wdref")
-        self.referrer = Referrer.objects.create(
-            user=self.ref_user, referral_code="WDREF", status=Referrer.Status.APPROVED,
-            commission_rate=D("30.00"),
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["amount"], "3.00")
+        from wallet.models import Wallet
+        self.assertEqual(
+            Wallet.objects.get(user=self.user).balance,
+            Decimal("3.00"),
         )
-        self.player = make_user("wdplayer")
-        services.attribute_referral(self.player, "WDREF")
-        # 3 x K10 fee -> 3 x K3 = K9 available
-        for _ in range(3):
-            m = _make_match(self.ref_user, self.player)
-            services.accrue_commission(self.player, __import__("decimal").Decimal("10.00"), related_match=m)
 
-    def test_pending_withdrawal_reserves_available(self):
-        from decimal import Decimal as D
-        from .models import ReferralWallet, ReferralWithdrawal
-        wallet = ReferralWallet.objects.get(user=self.ref_user)
-        self.assertEqual(wallet.available_balance, D("9.00"))
-        ReferralWithdrawal.objects.create(referrer=self.referrer, amount=D("5.00"))
-        self.assertEqual(wallet.available_balance, D("4.00"))
-
-    def test_rejected_withdrawal_frees_available(self):
-        from decimal import Decimal as D
-        from .models import ReferralWallet, ReferralWithdrawal
-        wd = ReferralWithdrawal.objects.create(referrer=self.referrer, amount=D("5.00"))
-        wallet = ReferralWallet.objects.get(user=self.ref_user)
-        self.assertEqual(wallet.available_balance, D("4.00"))
-        wd.status = ReferralWithdrawal.Status.REJECTED
-        wd.save()
-        self.assertEqual(wallet.available_balance, D("9.00"))
+    def test_transfer_endpoint_rejects_missing_commission(self):
+        response = self.client.post(
+            "/api/referrals/transfers/",
+            {"commission_id": 999999},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)

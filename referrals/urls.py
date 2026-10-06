@@ -5,7 +5,7 @@ from .views import (
     ReferralLedgerView,
     ReferralMeView,
     ReferralWalletView,
-    ReferralWithdrawalView,
+    ReferralTransferView,
     ReferredPlayersView,
 )
 
@@ -15,5 +15,5 @@ urlpatterns = [
     path("wallet/", ReferralWalletView.as_view(), name="api_referral_wallet"),
     path("ledger/", ReferralLedgerView.as_view(), name="api_referral_ledger"),
     path("referred/", ReferredPlayersView.as_view(), name="api_referral_referred"),
-    path("withdrawals/", ReferralWithdrawalView.as_view(), name="api_referral_withdrawals"),
+    path("transfers/", ReferralTransferView.as_view(), name="api_referral_transfers"),
 ]

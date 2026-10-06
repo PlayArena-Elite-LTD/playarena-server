@@ -181,6 +181,8 @@ class Transaction(models.Model):
         ('TOURNAMENT_JOINING', 'Tournament Joining'),
         ('TOURNAMENT_REFUND', 'Tournament Refund'),
         ('TOURNAMENT_WINNINGS', 'Tournament Winnings'),
+        ('REFERRAL_TRANSFER', 'Referral Commission Transfer'),
+        ('REFERRAL_REVERSAL', 'Referral Commission Reversal'),
         ('OTHER', 'Other'),
     ]
 
