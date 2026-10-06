@@ -48,13 +48,42 @@ Recommended first deployment values:
 - `DATABASE_URL` is auto-wired from the managed Render Postgres service
 
 Your Vercel frontend must call the Render backend URL, not localhost. Set the
-frontend API base URL environment variable used by your frontend build, for
-example:
+frontend API base URL environment variable in Vercel:
 
-- `VITE_API_BASE_URL=https://<your-render-service>.onrender.com/api`
-- or `NEXT_PUBLIC_API_BASE_URL=https://<your-render-service>.onrender.com/api`
+- `NEXT_PUBLIC_API_BASE_URL=https://<your-render-service>.onrender.com`
+
+Use the backend origin only: the frontend already appends `/api/...` to this
+value. Do not add `/api` to the environment variable, or requests will target
+`/api/api/...`.
 
 After changing a Vercel build-time environment variable, redeploy the frontend.
+
+Render's `startCommand` runs `python manage.py migrate` before starting Gunicorn,
+so pending migrations (including organisation wallet migrations) are applied to
+the Render Postgres database on deployment. Confirm the deployment logs show
+migrations completing successfully.
+
+### Payment callbacks and credentials
+
+- Set `LIPILA_SECRET_KEY` in Render to the credential for the selected Lipila
+   environment. Keep mock mode disabled only when this credential and the
+   provider account are ready.
+- If using Lipila webhook signing, set `LIPILA_WEBHOOK_SECRET` in Render to the
+   signing secret from the provider. Register
+   `https://<your-render-service>.onrender.com/api/payments/lipila/webhook/` as
+   the provider's webhook URL.
+- If using ZynlePay, set `ZYNLE_API_KEY`, `ZYNLE_API_ID`, and
+   `ZYNLE_MERCHANT_ID`. Set the Zynle callback URL to
+   `https://<your-render-service>.onrender.com/api/payments/zynle/webhook/?token=<ZYNLE_CALLBACK_TOKEN>`;
+   copy the generated token from Render's environment settings into the Zynle
+   dashboard. Never commit provider credentials or callback tokens.
+- The Render template keeps `BANK_PAYOUT_MODE=mock`. Do not enable live bank
+   payouts until a real payout endpoint and API key have been configured and
+   tested separately.
+
+These credentials and provider-dashboard callback registrations must be
+configured in Render/Vercel and the provider dashboard; they cannot be verified
+from a local checkout.
 
 ## 4) Switch to real bank endpoints
 

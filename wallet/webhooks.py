@@ -24,7 +24,11 @@ from django.utils import timezone
 from django.contrib import messages
 
 from wallet.models import Deposit, Withdrawal, Transaction, Wallet
-from wallet.utils import refund_withdrawal_reservation, process_withdrawal_and_debit_wallet
+from wallet.utils import (
+    credit_deposit_wallet,
+    refund_withdrawal_reservation,
+    process_withdrawal_and_debit_wallet,
+)
 from services.payments.factory import get_payment_gateway
 from wallet.notifications import (
     notify_deposit_completed,
@@ -108,16 +112,7 @@ def _complete_deposit(deposit: Deposit, completed_via: str, gateway_payload: dic
     deposit.failure_reason = None
     deposit.save()
 
-    wallet = deposit.wallet
-    wallet.balance += deposit.amount
-    wallet.save()
-
-    Transaction.objects.create(
-        wallet=wallet,
-        amount=deposit.amount,
-        transaction_type='DEPOSIT',
-        description=f"Deposit of ZMW {deposit.amount} via {deposit.get_payment_method_display()}",
-    )
+    wallet, _transaction = credit_deposit_wallet(deposit)
 
     notify_deposit_completed(deposit)
 
@@ -343,17 +338,7 @@ def handle_paystack_deposit_success(data):
         deposit.save()
         
         # Update wallet balance
-        wallet = deposit.wallet
-        wallet.balance += deposit.amount
-        wallet.save()
-        
-        # Create transaction record
-        Transaction.objects.create(
-            wallet=wallet,
-            amount=deposit.amount,
-            transaction_type='DEPOSIT',
-            description=f"Deposit of ZMW {deposit.amount} via {deposit.get_payment_method_display()}"
-        )
+        wallet, _transaction = credit_deposit_wallet(deposit)
         
         # Send notification
         notify_deposit_completed(deposit)
@@ -425,7 +410,9 @@ def handle_paystack_withdrawal_success(data):
                 status=400,
             )
         withdrawal.refresh_from_db()
-        wallet = withdrawal.wallet
+        from wallet.utils import get_withdrawal_wallet
+
+        wallet = get_withdrawal_wallet(withdrawal)
         
         # Send notification
         notify_withdrawal_completed(withdrawal)
@@ -599,17 +586,7 @@ def handle_flutterwave_deposit_success(data):
         deposit.save()
         
         # Update wallet balance
-        wallet = deposit.wallet
-        wallet.balance += deposit.amount
-        wallet.save()
-        
-        # Create transaction record
-        Transaction.objects.create(
-            wallet=wallet,
-            amount=deposit.amount,
-            transaction_type='DEPOSIT',
-            description=f"Deposit of ZMW {deposit.amount} via {deposit.get_payment_method_display()}"
-        )
+        wallet, _transaction = credit_deposit_wallet(deposit)
         
         # Send notification
         notify_deposit_completed(deposit)
@@ -680,7 +657,9 @@ def handle_flutterwave_withdrawal_success(data):
                 status=400,
             )
         withdrawal.refresh_from_db()
-        wallet = withdrawal.wallet
+        from wallet.utils import get_withdrawal_wallet
+
+        wallet = get_withdrawal_wallet(withdrawal)
         
         # Send notification
         notify_withdrawal_completed(withdrawal)

@@ -7,7 +7,11 @@ from django.utils import timezone
 
 from accounts.decorators import support_staff_required
 from wallet.models import Wallet, Transaction, Deposit, Withdrawal
-from wallet.utils import process_withdrawal_and_debit_wallet, refund_withdrawal_reservation
+from wallet.utils import (
+    get_withdrawal_wallet,
+    process_withdrawal_and_debit_wallet,
+    refund_withdrawal_reservation,
+)
 from audit.utils import log_action
 
 
@@ -101,16 +105,9 @@ def deposit_mark_completed(request, deposit_id):
         messages.error(request, "Cannot complete a deposit that is failed or cancelled.")
         return redirect('deposit_list')
 
-    wallet = deposit.wallet
-    wallet.balance += deposit.amount
-    wallet.save()
+    from wallet.utils import credit_deposit_wallet
 
-    Transaction.objects.create(
-        wallet=wallet,
-        amount=deposit.amount,
-        transaction_type='DEPOSIT',
-        description=f"Deposit of ${deposit.amount} via {deposit.get_payment_method_display()}"
-    )
+    wallet, _transaction = credit_deposit_wallet(deposit)
     Deposit.objects.filter(id=deposit.id).update(status='COMPLETED', updated_at=timezone.now())
 
     log_action(
@@ -224,7 +221,7 @@ def withdrawal_mark_completed(request, withdrawal_id):
             'amount': str(withdrawal.amount),
             'payment_method': withdrawal.payment_method,
             'completed_by': 'panel',
-            'new_balance': str(withdrawal.wallet.balance),
+            'new_balance': str(get_withdrawal_wallet(withdrawal).balance),
         },
         request=request,
     )

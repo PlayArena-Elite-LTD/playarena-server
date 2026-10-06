@@ -35,7 +35,9 @@ from .serializers import (
     UserRegistrationSerializer,
     ChangePasswordSerializer,
     WalletSerializer,
+    OrganisationWalletSerializer,
     TransactionSerializer,
+    OrganisationTransactionSerializer,
     DepositCreateSerializer,
     WithdrawalCreateSerializer,
     WithdrawalSerializer,
@@ -70,7 +72,7 @@ from matches.tournament_fees import (
 from panel.models import Dispute
 from messenger.models import Message, ReadMessage
 from alert.models import Notification, ReadNotification
-from wallet.models import Wallet, Transaction, Withdrawal
+from wallet.models import Wallet, Transaction, Withdrawal, OrganisationWallet, OrganisationTransaction
 from wallet.notifications import notify_withdrawal_created
 from wallet.withdrawal_processing import process_withdrawal_now
 
@@ -2742,6 +2744,23 @@ class WalletDetailView(generics.RetrieveAPIView):
         return wallet
 
 
+class OrganisationWalletDetailView(generics.RetrieveAPIView):
+    """
+    GET /api/organisations/wallet/
+
+    Return the authenticated organisation owner's wallet balance.
+    """
+    serializer_class = OrganisationWalletSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self):
+        organisation = get_object_or_404(Organisation, owner=self.request.user)
+        wallet, _created = OrganisationWallet.objects.select_related('organisation').get_or_create(
+            organisation=organisation
+        )
+        return wallet
+
+
 class TransactionHistoryView(generics.ListAPIView):
     """
     GET /api/wallet/transactions/
@@ -2756,6 +2775,162 @@ class TransactionHistoryView(generics.ListAPIView):
             Transaction.objects.select_related('wallet', 'related_match')
             .filter(wallet__user=self.request.user)
             .order_by('-created_at')
+        )
+
+
+class OrganisationTransactionHistoryView(generics.ListAPIView):
+    """
+    GET /api/organisations/wallet/transactions/
+
+    Return the authenticated organisation owner's wallet transaction history.
+    """
+    serializer_class = OrganisationTransactionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        organisation = get_object_or_404(Organisation, owner=self.request.user)
+        return (
+            OrganisationTransaction.objects.select_related('wallet', 'related_match')
+            .filter(wallet__organisation=organisation)
+            .order_by('-created_at')
+        )
+
+
+class OrganisationDepositCreateView(APIView):
+    """Create a deposit that is credited only to the authenticated owner's organisation wallet."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        organisation = get_object_or_404(Organisation, owner=request.user)
+        serializer = DepositCreateSerializer(
+            data=request.data,
+            context={'request': request, 'organisation': organisation},
+        )
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        deposit = serializer.save()
+        from wallet.utils import initialize_deposit_payment
+
+        payment = initialize_deposit_payment(
+            deposit,
+            request,
+            mobile_number=serializer.validated_data.get('mobile_number'),
+        )
+        from wallet.utils import get_deposit_payment_status_payload
+        from audit.utils import log_action
+
+        log_action(
+            action='organisation_deposit_created',
+            user=request.user,
+            details={
+                'organisation_id': organisation.id,
+                'deposit_id': deposit.id,
+                'amount': str(deposit.amount),
+                'payment_method': deposit.payment_method,
+                'status': deposit.status,
+                'payment_initialized': payment.get('initialized'),
+            },
+            request=request,
+        )
+
+        payload = {
+            **get_deposit_payment_status_payload(deposit),
+            'message': payment['message'],
+        }
+        if payment.get('payment_url'):
+            payload['payment_url'] = payment['payment_url']
+        if payment.get('failure_reason'):
+            payload['failure_reason'] = payment['failure_reason']
+        return Response(
+            payload,
+            status=status.HTTP_201_CREATED if payment['success'] else status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class OrganisationPaymentStatusView(APIView):
+    """Poll only deposits belonging to the authenticated owner's organisation wallet."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, order_id):
+        from wallet.models import Deposit
+        from wallet.utils import get_deposit_payment_status_payload, refresh_deposit_payment_status
+
+        organisation = get_object_or_404(Organisation, owner=request.user)
+        deposit = get_object_or_404(
+            Deposit,
+            id=order_id,
+            organisation_wallet__organisation=organisation,
+        )
+        deposit = refresh_deposit_payment_status(deposit)
+        return Response(get_deposit_payment_status_payload(deposit))
+
+
+class OrganisationWithdrawalListView(generics.ListAPIView):
+    """List withdrawals from only the authenticated owner's organisation wallet."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = WithdrawalSerializer
+
+    def get_queryset(self):
+        organisation = get_object_or_404(Organisation, owner=self.request.user)
+        return Withdrawal.objects.filter(
+            organisation_wallet__organisation=organisation,
+        ).order_by('-created_at')
+
+
+class OrganisationWithdrawalCreateView(APIView):
+    """Create and process a payout from the authenticated owner's organisation wallet."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        organisation = get_object_or_404(Organisation, owner=request.user)
+        serializer = WithdrawalCreateSerializer(
+            data=request.data,
+            context={'request': request, 'organisation': organisation},
+        )
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        withdrawal = serializer.save()
+        from audit.utils import log_action
+
+        log_action(
+            action='organisation_withdrawal_created',
+            user=request.user,
+            details={
+                'organisation_id': organisation.id,
+                'withdrawal_id': withdrawal.id,
+                'amount': str(withdrawal.amount),
+                'payment_method': withdrawal.payment_method,
+                'status': withdrawal.status,
+            },
+            request=request,
+        )
+        notify_withdrawal_created(withdrawal)
+        process_result = None
+        if (
+            withdrawal.payment_method == 'MOBILE_MONEY'
+            and getattr(settings, 'WALLET_AUTO_PROCESS_WITHDRAWALS', True)
+        ):
+            process_result = process_withdrawal_now(withdrawal, actor=request.user)
+            withdrawal.refresh_from_db()
+
+        return Response(
+            {
+                'withdrawal_id': withdrawal.id,
+                'status': withdrawal.status,
+                'amount': str(withdrawal.amount),
+                'payment_method': withdrawal.payment_method,
+                'transaction_id': withdrawal.transaction_id,
+                'gateway_transaction_id': withdrawal.gateway_transaction_id,
+                'message': (
+                    process_result.get('message')
+                    if process_result
+                    else 'Withdrawal request created and queued for processing.'
+                ),
+            },
+            status=status.HTTP_201_CREATED,
         )
 
 

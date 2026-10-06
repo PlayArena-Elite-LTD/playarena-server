@@ -9,7 +9,8 @@ from typing import Any, Dict, Optional
 from django.db import transaction
 from django.utils import timezone
 
-from wallet.models import Deposit, Transaction, Wallet
+from wallet.models import Deposit
+from wallet.utils import credit_deposit_wallet
 from wallet.notifications import notify_deposit_completed, notify_deposit_failed
 
 logger = logging.getLogger('payments')
@@ -80,16 +81,7 @@ def apply_deposit_webhook_status(
         deposit.failure_reason = None
         deposit.save()
 
-        wallet = Wallet.objects.select_for_update().get(pk=deposit.wallet_id)
-        wallet.balance += deposit.amount
-        wallet.save(update_fields=['balance'])
-
-        Transaction.objects.create(
-            wallet=wallet,
-            amount=deposit.amount,
-            transaction_type='DEPOSIT',
-            description=f"Deposit of ZMW {deposit.amount} via {deposit.get_payment_method_display()}",
-        )
+        wallet, _transaction = credit_deposit_wallet(deposit)
         notify_deposit_completed(deposit)
         logger.info(
             'Deposit %s completed via webhook — user=%s amount=%s',

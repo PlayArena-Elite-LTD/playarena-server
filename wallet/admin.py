@@ -8,7 +8,12 @@ from django.utils.html import format_html
 from django.http import HttpResponseRedirect
 from django.urls import path, reverse
 from .models import PaymentGatewaySetting, Wallet, Transaction, Deposit, Withdrawal, SavedPaymentMethod
-from .utils import refund_withdrawal_reservation, process_withdrawal_and_debit_wallet
+from .utils import (
+    credit_deposit_wallet,
+    get_withdrawal_wallet,
+    refund_withdrawal_reservation,
+    process_withdrawal_and_debit_wallet,
+)
 
 
 @admin.register(PaymentGatewaySetting)
@@ -147,18 +152,7 @@ class DepositAdmin(admin.ModelAdmin):
             if deposit.status in ['FAILED', 'CANCELLED']:
                 continue  # Cannot change from final states
             
-            # Update wallet balance
-            wallet = deposit.wallet
-            wallet.balance += deposit.amount
-            wallet.save()
-            
-            # Create transaction record
-            Transaction.objects.create(
-                wallet=wallet,
-                amount=deposit.amount,
-                transaction_type='DEPOSIT',
-                description=f"Deposit of ZMW {deposit.amount} via {deposit.get_payment_method_display()}"
-            )
+            wallet, _transaction = credit_deposit_wallet(deposit)
             
             # Update deposit status (use update() to bypass clean() validation)
             Deposit.objects.filter(id=deposit.id).update(status='COMPLETED', updated_at=timezone.now())
@@ -361,7 +355,7 @@ class WithdrawalAdmin(admin.ModelAdmin):
                 
                 # Send completion notification
                 withdrawal.refresh_from_db()
-                wallet = withdrawal.wallet
+                wallet = get_withdrawal_wallet(withdrawal)
                 notify_withdrawal_completed(withdrawal)
                 
                 # Audit log: Withdrawal completed via admin
@@ -609,7 +603,7 @@ class WithdrawalAdmin(admin.ModelAdmin):
             if not completion.get('success'):
                 continue
             withdrawal.refresh_from_db()
-            wallet = withdrawal.wallet
+            wallet = get_withdrawal_wallet(withdrawal)
 
             # Audit log: Withdrawal completed via admin
             from audit.utils import log_action
@@ -780,7 +774,7 @@ class WithdrawalAdmin(admin.ModelAdmin):
                     
                     # Send completion notification
                     withdrawal.refresh_from_db()
-                    wallet = withdrawal.wallet
+                    wallet = get_withdrawal_wallet(withdrawal)
                     notify_withdrawal_completed(withdrawal)
                     
                     # Audit log: Withdrawal completed via admin bulk action

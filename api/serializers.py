@@ -11,7 +11,7 @@ from matches.models import (
     Match, MatchResult, Tournament, TournamentRegistration, TournamentPrize,
     TournamentStanding, TournamentPayout, TournamentMatch, TournamentMatchSubmission,
 )
-from wallet.models import Wallet, Transaction, Deposit, Withdrawal
+from wallet.models import Wallet, Transaction, Deposit, Withdrawal, OrganisationWallet, OrganisationTransaction
 from panel.models import Dispute
 from messenger.models import Message, ReadMessage
 from alert.models import Notification, ReadNotification
@@ -466,10 +466,33 @@ class WalletSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'balance']
 
 
+class OrganisationWalletSerializer(serializers.ModelSerializer):
+    """Serializer for organisation wallet summary data."""
+    class Meta:
+        model = OrganisationWallet
+        fields = ['id', 'balance']
+        read_only_fields = ['id', 'balance']
+
+
 class TransactionSerializer(serializers.ModelSerializer):
     """Serializer for wallet transactions"""
     class Meta:
         model = Transaction
+        fields = [
+            'id',
+            'amount',
+            'transaction_type',
+            'description',
+            'created_at',
+            'related_match',
+        ]
+        read_only_fields = fields
+
+
+class OrganisationTransactionSerializer(serializers.ModelSerializer):
+    """Serializer for organisation wallet transactions."""
+    class Meta:
+        model = OrganisationTransaction
         fields = [
             'id',
             'amount',
@@ -518,7 +541,13 @@ class DepositCreateSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         request = self.context.get('request')
         user = request.user
-        wallet, _created = Wallet.objects.get_or_create(user=user)
+        organisation = self.context.get('organisation')
+        if organisation:
+            wallet, _created = OrganisationWallet.objects.get_or_create(organisation=organisation)
+            wallet_field = {'organisation_wallet': wallet}
+        else:
+            wallet, _created = Wallet.objects.get_or_create(user=user)
+            wallet_field = {'wallet': wallet}
         ip_address = request.META.get('REMOTE_ADDR')
         user_agent = request.META.get('HTTP_USER_AGENT', '')[:500]
 
@@ -528,7 +557,7 @@ class DepositCreateSerializer(serializers.ModelSerializer):
             amount=validated_data['amount'],
             payment_method=validated_data['payment_method'],
             status='PENDING',
-            wallet=wallet,
+            **wallet_field,
             ip_address=ip_address,
             user_agent=user_agent,
         )
@@ -548,10 +577,14 @@ class WithdrawalCreateSerializer(serializers.ModelSerializer):
         user = request.user
         ip_address = request.META.get('REMOTE_ADDR')
         user_agent = request.META.get('HTTP_USER_AGENT', '')[:500]
+        organisation = self.context.get('organisation')
 
         with transaction.atomic():
-            wallet, _created = Wallet.objects.get_or_create(user=user)
-            wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
+            if organisation:
+                wallet, _created = OrganisationWallet.objects.get_or_create(organisation=organisation)
+            else:
+                wallet, _created = Wallet.objects.get_or_create(user=user)
+            wallet = wallet.__class__.objects.select_for_update().get(pk=wallet.pk)
 
             withdrawal = Withdrawal(
                 user=user,
@@ -559,7 +592,7 @@ class WithdrawalCreateSerializer(serializers.ModelSerializer):
                 payment_method=validated_data['payment_method'],
                 account_details=validated_data['account_details'],
                 status='PENDING',
-                wallet=wallet,
+                **({'organisation_wallet': wallet} if organisation else {'wallet': wallet}),
                 ip_address=ip_address,
                 user_agent=user_agent,
             )
@@ -580,7 +613,8 @@ class WithdrawalCreateSerializer(serializers.ModelSerializer):
             withdrawal.save()
             wallet.balance -= withdrawal.amount
             wallet.save(update_fields=['balance'])
-            Transaction.objects.create(
+            transaction_model = OrganisationTransaction if organisation else Transaction
+            transaction_model.objects.create(
                 wallet=wallet,
                 amount=-withdrawal.amount,
                 transaction_type='WITHDRAWAL',
