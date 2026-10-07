@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.core import mail
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
@@ -6,6 +8,10 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import Organisation
+from wallet.models import OrganisationWallet
+from wallet.models import OrganisationTransaction, Transaction, Wallet, Deposit, Withdrawal
+from wallet.payment_processing import apply_deposit_webhook_status
+from wallet.utils import process_withdrawal_and_debit_wallet, refund_withdrawal_reservation
 
 
 @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
@@ -116,3 +122,150 @@ class OrganisationAuthApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('email', response.data)
+
+    def test_organisation_has_wallet_created_automatically(self):
+        registration = self.client.post(
+            reverse('api_organisation_register'),
+            self.registration_payload(),
+            format='json',
+        )
+
+        self.assertEqual(registration.status_code, status.HTTP_201_CREATED)
+        organisation = Organisation.objects.get(email='organiser@example.com')
+        wallet = organisation.wallet
+        self.assertIsInstance(wallet, OrganisationWallet)
+        self.assertEqual(wallet.balance, 0)
+
+    def test_organisation_owner_can_access_wallet_endpoint(self):
+        registration = self.client.post(
+            reverse('api_organisation_register'),
+            self.registration_payload(),
+            format='json',
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {registration.data['access']}")
+
+        response = self.client.get('/api/organisations/wallet/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['balance'], '0.00')
+
+    def test_organisation_deposit_is_credited_to_organisation_wallet_only(self):
+        registration = self.client.post(
+            reverse('api_organisation_register'),
+            self.registration_payload(),
+            format='json',
+        )
+        owner = get_user_model().objects.get(email='organiser@example.com')
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {registration.data['access']}")
+
+        response = self.client.post(
+            reverse('api_organisation_wallet_deposit'),
+            {'amount': '25.00', 'payment_method': 'OTHER'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        deposit = Deposit.objects.get(id=response.data['deposit_id'])
+        self.assertIsNone(deposit.wallet_id)
+        self.assertEqual(deposit.organisation_wallet.organisation.owner, owner)
+        self.assertEqual(owner.wallet.balance, 0)
+
+        apply_deposit_webhook_status(deposit, payment_status='Successful')
+        apply_deposit_webhook_status(deposit, payment_status='Successful')
+        deposit.organisation_wallet.refresh_from_db()
+        owner.wallet.refresh_from_db()
+        self.assertEqual(deposit.organisation_wallet.balance, Decimal('25.00'))
+        self.assertEqual(owner.wallet.balance, Decimal('0.00'))
+        self.assertEqual(
+            OrganisationTransaction.objects.filter(
+                wallet=deposit.organisation_wallet,
+                transaction_type='DEPOSIT',
+                amount=Decimal('25.00'),
+            ).count(),
+            1,
+        )
+        self.assertFalse(Transaction.objects.filter(wallet=owner.wallet, transaction_type='DEPOSIT').exists())
+
+    def test_organisation_withdrawal_debits_only_organisation_wallet(self):
+        registration = self.client.post(
+            reverse('api_organisation_register'),
+            self.registration_payload(),
+            format='json',
+        )
+        owner = get_user_model().objects.get(email='organiser@example.com')
+        organisation = Organisation.objects.get(owner=owner)
+        organisation_wallet = organisation.wallet
+        organisation_wallet.balance = Decimal('80.00')
+        organisation_wallet.save(update_fields=['balance'])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {registration.data['access']}")
+
+        response = self.client.post(
+            reverse('api_organisation_wallet_withdraw'),
+            {
+                'amount': '30.00',
+                'payment_method': 'BANK_TRANSFER',
+                'account_details': 'Example Bank | 12345678',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        withdrawal = Withdrawal.objects.get(id=response.data['withdrawal_id'])
+        organisation_wallet.refresh_from_db()
+        owner.wallet.refresh_from_db()
+        self.assertEqual(withdrawal.organisation_wallet, organisation_wallet)
+        self.assertIsNone(withdrawal.wallet_id)
+        self.assertEqual(organisation_wallet.balance, Decimal('50.00'))
+        self.assertEqual(owner.wallet.balance, Decimal('0.00'))
+        self.assertTrue(
+            OrganisationTransaction.objects.filter(
+                wallet=organisation_wallet,
+                amount=Decimal('-30.00'),
+                transaction_type='WITHDRAWAL',
+            ).exists()
+        )
+        self.assertFalse(Transaction.objects.filter(wallet=owner.wallet, transaction_type='WITHDRAWAL').exists())
+
+        completion = process_withdrawal_and_debit_wallet(withdrawal)
+        self.assertTrue(completion['success'])
+        withdrawal.refresh_from_db()
+        organisation_wallet.refresh_from_db()
+        self.assertEqual(withdrawal.status, 'COMPLETED')
+        self.assertEqual(organisation_wallet.balance, Decimal('50.00'))
+        self.assertEqual(
+            OrganisationTransaction.objects.filter(
+                wallet=organisation_wallet,
+                transaction_type='WITHDRAWAL',
+                amount=Decimal('-30.00'),
+            ).count(),
+            1,
+        )
+
+        failed_response = self.client.post(
+            reverse('api_organisation_wallet_withdraw'),
+            {
+                'amount': '10.00',
+                'payment_method': 'BANK_TRANSFER',
+                'account_details': 'Example Bank | 12345678',
+            },
+            format='json',
+        )
+        self.assertEqual(failed_response.status_code, status.HTTP_201_CREATED)
+        failed_withdrawal = Withdrawal.objects.get(id=failed_response.data['withdrawal_id'])
+        Withdrawal.objects.filter(id=failed_withdrawal.id).update(status='FAILED')
+        refund = refund_withdrawal_reservation(failed_withdrawal, 'Test failure')
+        organisation_wallet.refresh_from_db()
+        self.assertTrue(refund['refunded'])
+        self.assertEqual(organisation_wallet.balance, Decimal('50.00'))
+        self.assertTrue(
+            OrganisationTransaction.objects.filter(
+                wallet=organisation_wallet,
+                transaction_type='OTHER',
+                amount=Decimal('10.00'),
+                description__startswith=f'Withdrawal {failed_withdrawal.id} refund',
+            ).exists()
+        )
+        self.assertEqual(
+            self.client.get(reverse('api_organisation_wallet_withdrawals')).data[0]['id'],
+            failed_withdrawal.id,
+        )

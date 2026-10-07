@@ -246,17 +246,9 @@ class PanelDepositCompleteView(APIView):
             return Response({'detail': 'Deposit is already completed.'}, status=400)
         if deposit.status in ['FAILED', 'CANCELLED']:
             return Response({'detail': 'Cannot complete a failed or cancelled deposit.'}, status=400)
-        wallet = deposit.wallet
-        if wallet is None:
-            wallet, _ = Wallet.objects.get_or_create(user=deposit.user)
-        wallet.balance += deposit.amount
-        wallet.save(update_fields=['balance'])
-        Transaction.objects.create(
-            wallet=wallet,
-            amount=deposit.amount,
-            transaction_type='DEPOSIT',
-            description=f"Deposit of ZMW {deposit.amount} via {deposit.get_payment_method_display()}",
-        )
+        from wallet.utils import credit_deposit_wallet
+
+        wallet, _transaction = credit_deposit_wallet(deposit)
         Deposit.objects.filter(id=deposit.id).update(status='COMPLETED', updated_at=timezone.now())
         deposit.refresh_from_db()
         return Response(PanelDepositSerializer(deposit).data)

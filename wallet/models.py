@@ -138,6 +138,74 @@ class Wallet(models.Model):
         }
 
 
+class OrganisationWallet(models.Model):
+    organisation = models.OneToOneField(
+        'accounts.Organisation',
+        on_delete=models.CASCADE,
+        related_name='wallet',
+    )
+    balance = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.organisation.name} wallet"
+
+    def verify_balance_integrity(self):
+        from django.db.models import Sum
+        transaction_sum = self.transactions.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+        expected_balance = transaction_sum
+        actual_balance = self.balance
+        discrepancy = actual_balance - expected_balance
+        return {
+            'is_valid': discrepancy == Decimal('0.00'),
+            'expected_balance': expected_balance,
+            'actual_balance': actual_balance,
+            'discrepancy': discrepancy,
+            'transaction_count': self.transactions.count(),
+        }
+
+    def recalculate_balance(self):
+        from django.db.models import Sum
+        transaction_sum = self.transactions.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+        self.balance = transaction_sum
+        self.save(update_fields=['balance'])
+        return self.balance
+
+
+class OrganisationTransaction(models.Model):
+    TRANSACTION_TYPES = [
+        ('DEPOSIT', 'Deposit'),
+        ('WITHDRAWAL', 'Withdrawal'),
+        ('MATCH_CREATION', 'Match Creation'),
+        ('MATCH_JOINING', 'Match Joining'),
+        ('MATCH_WINNINGS', 'Match Winnings'),
+        ('MATCH_REFUND', 'Match Refund'),
+        ('MATCH_DRAW_RETURN', 'Match Draw Return'),
+        ('TOURNAMENT_JOINING', 'Tournament Joining'),
+        ('TOURNAMENT_REFUND', 'Tournament Refund'),
+        ('TOURNAMENT_WINNINGS', 'Tournament Winnings'),
+        ('REFERRAL_TRANSFER', 'Referral Commission Transfer'),
+        ('REFERRAL_REVERSAL', 'Referral Commission Reversal'),
+        ('OTHER', 'Other'),
+    ]
+
+    wallet = models.ForeignKey(OrganisationWallet, on_delete=models.CASCADE, related_name='transactions')
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPES)
+    description = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+    related_match = models.ForeignKey('matches.Match', on_delete=models.SET_NULL, null=True, blank=True)
+    related_tournament = models.ForeignKey('matches.Tournament', on_delete=models.SET_NULL, null=True, blank=True)
+
+    @property
+    def is_credit(self):
+        return self.amount > 0
+
+    def __str__(self):
+        return f"{'+' if self.is_credit else '-'}{abs(self.amount)} - {self.get_transaction_type_display()} - {self.created_at.strftime('%Y-%m-%d %H:%M')}"
+
+
 class PaymentGatewaySetting(models.Model):
     """Singleton runtime switch for deposit gateway selection."""
 
@@ -249,6 +317,13 @@ class Deposit(models.Model):
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES)
     transaction_id = models.CharField(max_length=255, blank=True, null=True, help_text='Payment gateway transaction ID')
     wallet = models.ForeignKey(Wallet, on_delete=models.CASCADE, related_name='deposits', null=True, blank=True)
+    organisation_wallet = models.ForeignKey(
+        OrganisationWallet,
+        on_delete=models.CASCADE,
+        related_name='deposits',
+        null=True,
+        blank=True,
+    )
     
     # Security fields added by migration 0004_add_payment_security_fields
     gateway_response = models.JSONField(default=dict, blank=True, help_text='Full gateway response stored as JSON (for audit and debugging)')
@@ -327,6 +402,9 @@ class Deposit(models.Model):
     def clean(self):
         """Security: Validate deposit amount and business rules"""
         from django.core.exceptions import ValidationError
+
+        if self.wallet_id and self.organisation_wallet_id:
+            raise ValidationError('A deposit cannot target both a personal and organisation wallet.')
         
         # Validate amount is positive
         if self.amount <= 0:
@@ -359,6 +437,8 @@ class Deposit(models.Model):
             # Security: Cannot change user after creation
             if self.user_id != old_instance.user_id:
                 raise ValidationError({'user': 'Cannot change deposit user after creation'})
+            if self.wallet_id != old_instance.wallet_id or self.organisation_wallet_id != old_instance.organisation_wallet_id:
+                raise ValidationError({'wallet': 'Cannot change the deposit wallet after creation'})
     
     def generate_verification_hash(self):
         """
@@ -395,7 +475,7 @@ class Deposit(models.Model):
         self.full_clean()
         
         # Automatically link to user's wallet if not set
-        if not self.wallet:
+        if not self.wallet and not self.organisation_wallet:
             self.wallet = self.user.wallet
         
         super().save(*args, **kwargs)
@@ -462,6 +542,13 @@ class Withdrawal(models.Model):
     account_details = models.TextField(help_text='Account information for withdrawal (account number, mobile number, etc.)')
     transaction_id = models.CharField(max_length=255, blank=True, null=True, help_text='Payment gateway transaction ID')
     wallet = models.ForeignKey(Wallet, on_delete=models.CASCADE, related_name='withdrawals', null=True, blank=True)
+    organisation_wallet = models.ForeignKey(
+        OrganisationWallet,
+        on_delete=models.CASCADE,
+        related_name='withdrawals',
+        null=True,
+        blank=True,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -523,13 +610,22 @@ class Withdrawal(models.Model):
         # Security: Validate account details are provided
         if not self.account_details or not self.account_details.strip():
             raise ValidationError({'account_details': 'Account details are required for withdrawal'})
+
+        if self.wallet_id and self.organisation_wallet_id:
+            raise ValidationError('A withdrawal cannot target both a personal and organisation wallet.')
         
         # Security: Validate balance when creating the withdrawal. The actual
         # wallet debit is applied only after the withdrawal is completed.
-        if self.user and not self.pk and hasattr(self.user, 'wallet'):
-            wallet = self.user.wallet
-            if self.amount > wallet.balance:
-                raise ValidationError({'amount': f'Insufficient balance. Your balance is ZMW {wallet.balance}'})
+        if self.user and not self.pk:
+            wallet_balance = (
+                self.organisation_wallet.balance
+                if self.organisation_wallet_id
+                else self.wallet.balance if self.wallet_id
+                else self.user.wallet.balance if hasattr(self.user, 'wallet')
+                else Decimal('0.00')
+            )
+            if self.amount > wallet_balance:
+                raise ValidationError({'amount': f'Insufficient balance. Your balance is ZMW {wallet_balance}'})
         
         # Security: Validate retry_count doesn't exceed max_retry_count
         if self.retry_count > self.max_retry_count:
@@ -595,6 +691,8 @@ class Withdrawal(models.Model):
             # Security: Cannot change user after creation
             if self.user_id != old_instance.user_id:
                 raise ValidationError({'user': 'Cannot change withdrawal user after creation'})
+            if self.wallet_id != old_instance.wallet_id or self.organisation_wallet_id != old_instance.organisation_wallet_id:
+                raise ValidationError({'wallet': 'Cannot change the withdrawal wallet after creation'})
     
     def save(self, *args, **kwargs):
         """Security: Run validation and auto-link wallet"""
@@ -602,7 +700,7 @@ class Withdrawal(models.Model):
         self.full_clean()
         
         # Automatically link to user's wallet if not set
-        if not self.wallet:
+        if not self.wallet and not self.organisation_wallet:
             self.wallet = self.user.wallet
         
         super().save(*args, **kwargs)
@@ -766,6 +864,12 @@ class SavedPaymentMethod(models.Model):
 def create_wallet(sender, instance, created, **kwargs):
     if created:
         Wallet.objects.create(user=instance)
+
+
+@receiver(post_save, sender='accounts.Organisation')
+def create_organisation_wallet(sender, instance, created, **kwargs):
+    if created:
+        OrganisationWallet.objects.get_or_create(organisation=instance)
 
 
 @receiver(post_save, sender=Transaction)

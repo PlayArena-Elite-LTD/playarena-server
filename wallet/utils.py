@@ -8,13 +8,31 @@ from django.utils import timezone
 from datetime import timedelta
 import logging
 
-from .models import Wallet, Transaction, Deposit, Withdrawal
+from .models import (
+    Wallet,
+    Transaction,
+    OrganisationWallet,
+    OrganisationTransaction,
+    Deposit,
+    Withdrawal,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def find_withdrawal_debit(withdrawal):
     """Return the wallet debit transaction for a withdrawal, if one exists."""
+    if withdrawal.organisation_wallet_id:
+        return OrganisationTransaction.objects.filter(
+            wallet=withdrawal.organisation_wallet,
+            amount=-withdrawal.amount,
+            transaction_type='WITHDRAWAL',
+            created_at__gte=withdrawal.created_at,
+        ).filter(
+            Q(description__startswith='Withdrawal request')
+            | Q(description__startswith=f"Withdrawal of ZMW {withdrawal.amount}")
+        ).first()
+
     return Transaction.objects.filter(
         wallet=withdrawal.wallet,
         amount=-withdrawal.amount,
@@ -24,6 +42,67 @@ def find_withdrawal_debit(withdrawal):
         Q(description__startswith='Withdrawal request')
         | Q(description__startswith=f"Withdrawal of ZMW {withdrawal.amount}")
     ).first()
+
+
+def get_deposit_wallet(deposit, *, lock=False):
+    """Resolve and optionally lock the wallet targeted by a deposit."""
+    if deposit.organisation_wallet_id:
+        queryset = OrganisationWallet.objects
+        if lock:
+            queryset = queryset.select_for_update()
+        return queryset.get(pk=deposit.organisation_wallet_id)
+    if deposit.wallet_id:
+        queryset = Wallet.objects
+        if lock:
+            queryset = queryset.select_for_update()
+        return queryset.get(pk=deposit.wallet_id)
+    wallet, _created = Wallet.objects.get_or_create(user=deposit.user)
+    if lock:
+        wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
+    return wallet
+
+
+def get_withdrawal_wallet(withdrawal, *, lock=False):
+    """Resolve and optionally lock the wallet targeted by a withdrawal."""
+    if withdrawal.organisation_wallet_id:
+        queryset = OrganisationWallet.objects
+        if lock:
+            queryset = queryset.select_for_update()
+        return queryset.get(pk=withdrawal.organisation_wallet_id)
+    if withdrawal.wallet_id:
+        queryset = Wallet.objects
+        if lock:
+            queryset = queryset.select_for_update()
+        return queryset.get(pk=withdrawal.wallet_id)
+    wallet, _created = Wallet.objects.get_or_create(user=withdrawal.user)
+    if lock:
+        wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
+    return wallet
+
+
+def create_wallet_transaction(wallet, *, amount, transaction_type, description):
+    """Create a ledger row using the transaction model for the wallet owner."""
+    model = OrganisationTransaction if isinstance(wallet, OrganisationWallet) else Transaction
+    return model.objects.create(
+        wallet=wallet,
+        amount=amount,
+        transaction_type=transaction_type,
+        description=description,
+    )
+
+
+def credit_deposit_wallet(deposit):
+    """Credit a completed deposit to its own wallet and ledger."""
+    wallet = get_deposit_wallet(deposit, lock=True)
+    wallet.balance += deposit.amount
+    wallet.save(update_fields=['balance'])
+    ledger_entry = create_wallet_transaction(
+        wallet,
+        amount=deposit.amount,
+        transaction_type='DEPOSIT',
+        description=f"Deposit of ZMW {deposit.amount} via {deposit.get_payment_method_display()}",
+    )
+    return wallet, ledger_entry
 
 
 def build_public_url(request, path_or_url: str) -> str:
@@ -188,7 +267,7 @@ def refund_withdrawal_reservation(withdrawal, reason: str = ''):
     withdrawals that were debited when the request was created.
     """
     withdrawal = Withdrawal.objects.select_for_update().get(id=withdrawal.id)
-    wallet = Wallet.objects.select_for_update().get(id=withdrawal.wallet_id)
+    wallet = get_withdrawal_wallet(withdrawal, lock=True)
     existing_debit = find_withdrawal_debit(withdrawal)
     if not existing_debit:
         return {
@@ -202,7 +281,8 @@ def refund_withdrawal_reservation(withdrawal, reason: str = ''):
     if reason:
         description = f"{description} - {reason}"
 
-    existing_refund = Transaction.objects.filter(
+    transaction_model = OrganisationTransaction if isinstance(wallet, OrganisationWallet) else Transaction
+    existing_refund = transaction_model.objects.filter(
         wallet=wallet,
         amount=withdrawal.amount,
         transaction_type='OTHER',
@@ -218,7 +298,7 @@ def refund_withdrawal_reservation(withdrawal, reason: str = ''):
 
     wallet.balance += withdrawal.amount
     wallet.save(update_fields=['balance'])
-    transaction_record = Transaction.objects.create(
+    transaction_record = transaction_model.objects.create(
         wallet=wallet,
         amount=withdrawal.amount,
         transaction_type='OTHER',
@@ -242,8 +322,10 @@ def complete_deposit_and_credit_wallet(deposit):
         deposit = Deposit.objects.select_for_update().get(id=deposit.id)
 
         if deposit.status == 'COMPLETED':
-            existing_transaction = Transaction.objects.filter(
-                wallet=deposit.wallet,
+            wallet = get_deposit_wallet(deposit)
+            transaction_model = OrganisationTransaction if isinstance(wallet, OrganisationWallet) else Transaction
+            existing_transaction = transaction_model.objects.filter(
+                wallet=wallet,
                 transaction_type='DEPOSIT',
                 description__contains=f"Deposit of ZMW {deposit.amount}",
                 created_at__gte=deposit.created_at,
@@ -264,7 +346,7 @@ def complete_deposit_and_credit_wallet(deposit):
                 'message': f'Cannot credit wallet for deposit with status: {deposit.status}',
             }
 
-        wallet = Wallet.objects.select_for_update().get(id=deposit.wallet.id)
+        wallet = get_deposit_wallet(deposit, lock=True)
         deposit.status = 'COMPLETED'
         deposit.provider_payment_status = 'Successful'
         if not deposit.completed_at:
@@ -281,8 +363,8 @@ def complete_deposit_and_credit_wallet(deposit):
                 deposit.verification_hash = hashlib.sha256(hash_data.encode()).hexdigest()
 
         wallet.balance += deposit.amount
-        transaction_record = Transaction.objects.create(
-            wallet=wallet,
+        transaction_record = create_wallet_transaction(
+            wallet,
             amount=deposit.amount,
             transaction_type='DEPOSIT',
             description=f"Deposit of ZMW {deposit.amount:.2f} via {deposit.get_payment_method_display()}",
@@ -333,6 +415,7 @@ def process_withdrawal_and_debit_wallet(withdrawal, gateway_result: dict | None 
     """Securely complete a withdrawal and debit the wallet exactly once."""
     try:
         withdrawal = Withdrawal.objects.select_for_update().get(id=withdrawal.id)
+        wallet = get_withdrawal_wallet(withdrawal)
         if withdrawal.status == 'COMPLETED':
             existing_transaction = find_withdrawal_debit(withdrawal)
             if existing_transaction:
@@ -340,7 +423,7 @@ def process_withdrawal_and_debit_wallet(withdrawal, gateway_result: dict | None 
                     'success': True,
                     'wallet_debited': True,
                     'transaction_created': False,
-                    'new_balance': withdrawal.wallet.balance,
+                    'new_balance': wallet.balance,
                     'message': 'Withdrawal already completed and wallet debited',
                 }
         if withdrawal.status in ['FAILED', 'CANCELLED']:
@@ -348,10 +431,10 @@ def process_withdrawal_and_debit_wallet(withdrawal, gateway_result: dict | None 
                 'success': False,
                 'wallet_debited': False,
                 'transaction_created': False,
-                'new_balance': withdrawal.wallet.balance,
+                'new_balance': wallet.balance,
                 'message': f'Cannot debit wallet for withdrawal with status: {withdrawal.status}',
             }
-        wallet = Wallet.objects.select_for_update().get(id=withdrawal.wallet.id)
+        wallet = get_withdrawal_wallet(withdrawal, lock=True)
         gateway_result = gateway_result or {}
         existing_transaction = find_withdrawal_debit(withdrawal)
         transaction_record = None
@@ -368,8 +451,8 @@ def process_withdrawal_and_debit_wallet(withdrawal, gateway_result: dict | None 
 
             wallet.balance -= withdrawal.amount
             wallet.save(update_fields=['balance'])
-            transaction_record = Transaction.objects.create(
-                wallet=wallet,
+            transaction_record = create_wallet_transaction(
+                wallet,
                 amount=-withdrawal.amount,
                 transaction_type='WITHDRAWAL',
                 description=(

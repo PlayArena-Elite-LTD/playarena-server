@@ -292,7 +292,12 @@ def notify_deposit_completed(deposit):
         )
 
         completed_at = deposit.completed_at or timezone.now()
-        new_balance = deposit.wallet.balance if deposit.wallet_id else None
+        if deposit.organisation_wallet_id:
+            new_balance = deposit.organisation_wallet.balance
+            wallet_url = _wallet_link('organiser_wallet')
+        else:
+            new_balance = deposit.wallet.balance if deposit.wallet_id else None
+            wallet_url = _wallet_link('wallet')
         _send_wallet_email(
             deposit.user,
             subject='Deposit successful - PlayArena',
@@ -303,7 +308,7 @@ def notify_deposit_completed(deposit):
                 'transaction_id': transaction_id,
                 'new_balance': f'{new_balance:.2f}' if new_balance is not None else 'N/A',
                 'date': timezone.localtime(completed_at).strftime('%Y-%m-%d %H:%M'),
-                'wallet_url': _wallet_link('wallet'),
+                'wallet_url': wallet_url,
             },
         )
 
