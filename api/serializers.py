@@ -781,7 +781,7 @@ class TournamentFinancialsMixin:
         return str(obj.fee_percent())
 
     def get_platform_fee_percent(self, obj):
-        return str(obj.fee_percent())
+        return str(obj.platform_fee_percent)
 
     def get_fee_settlement_status(self, obj):
         settlement = getattr(obj, 'fee_settlement', None)
@@ -1065,7 +1065,7 @@ class TournamentCreateSerializer(serializers.ModelSerializer):
         max_digits=5,
         decimal_places=2,
         required=False,
-        default=Decimal('10.00'),
+        default=Tournament.default_fee_percent(),
     )
 
     class Meta:
@@ -1109,9 +1109,9 @@ class TournamentCreateSerializer(serializers.ModelSerializer):
         return value
 
     def validate_platform_fee_percent(self, value):
-        if value != Decimal('10.00'):
+        if not value.is_finite() or value < Decimal('0') or value > Decimal('10'):
             raise serializers.ValidationError(
-                "Organisation tournament platform fee is fixed at 10%."
+                "PlayArena administration fee must be between 0 and 10 percent."
             )
         return value
 

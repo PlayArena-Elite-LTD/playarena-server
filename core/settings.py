@@ -601,10 +601,15 @@ BANK_PAYOUT_API_URL = os.environ.get('BANK_PAYOUT_API_URL', '').strip()
 BANK_PAYOUT_API_KEY = os.environ.get('BANK_PAYOUT_API_KEY', '').strip()
 BANK_PAYOUT_TIMEOUT_SECONDS = int(os.environ.get('BANK_PAYOUT_TIMEOUT_SECONDS', '30'))
 
-# Tournament platform fee: PlayArena takes this percentage of every tournament
-# entry fee; the remaining balance becomes the player's prize-pool contribution.
-# Fixed globally (single source of truth). Value is a whole-number percent.
-TOURNAMENT_PLATFORM_FEE_PERCENT = int(os.environ.get('TOURNAMENT_PLATFORM_FEE_PERCENT', '10'))
+# Default PlayArena administration fee for newly created tournaments. Organisers
+# may configure each tournament from 0% through 10%, including decimal values.
+TOURNAMENT_PLATFORM_FEE_PERCENT = Decimal(os.environ.get('TOURNAMENT_PLATFORM_FEE_PERCENT', '10'))
+if (
+    not TOURNAMENT_PLATFORM_FEE_PERCENT.is_finite()
+    or TOURNAMENT_PLATFORM_FEE_PERCENT < Decimal('0')
+    or TOURNAMENT_PLATFORM_FEE_PERCENT > Decimal('10')
+):
+    raise ValueError('TOURNAMENT_PLATFORM_FEE_PERCENT must be between 0 and 10.')
 
 # --- Referral program ---
 # Referral commission is a percentage of the PlayArena platform fee (NEVER of

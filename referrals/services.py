@@ -24,8 +24,9 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
-# Platform fee is 10% of the transaction amount (matches TOURNAMENT_PLATFORM_FEE_PERCENT
-# and the implicit 10% baked into 1v1 match winnings = amount * 2 * 0.9).
+# The separate 1v1 match platform fee remains 10% of the transaction amount
+# (the implicit 10% baked into match winnings = amount * 2 * 0.9). Tournament
+# administration fees are independently configured per tournament.
 PLATFORM_FEE_RATE = Decimal("0.10")
 
 

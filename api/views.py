@@ -406,7 +406,7 @@ class TournamentJoinView(APIView):
             )
 
         # Hold the entire entry in the tournament pool until capacity is full.
-        # No platform fee is allocated while players are still registering.
+        # No PlayArena administration fee is allocated while players are still registering.
         platform_fee = Decimal('0.00')
         prize_contribution = amount
 
@@ -447,9 +447,10 @@ class TournamentJoinView(APIView):
             related_tournament=tournament,
         )
 
-        # The final seat triggers one tournament-wide, atomic 10% settlement.
-        # The helper locks registrations, snapshots gross/fee/net, distributes
-        # rounded cents exactly, and moves the tournament to READY_TO_START.
+        # The final seat triggers one tournament-wide, atomic settlement at
+        # the organiser-selected PlayArena administration rate. The helper
+        # snapshots gross/fee/net, distributes rounded cents exactly, and
+        # moves the tournament to READY_TO_START.
         confirm_full_tournament(tournament)
 
         Notification.objects.create(
