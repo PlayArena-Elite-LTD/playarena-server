@@ -194,9 +194,6 @@ def _default_platform_fee_percent():
     return Decimal(str(getattr(settings, 'TOURNAMENT_PLATFORM_FEE_PERCENT', 10)))
 
 
-ORGANISATION_TOURNAMENT_PLATFORM_FEE_PERCENT = Decimal('10.00')
-
-
 class Tournament(models.Model):
     STATUS_CHOICES = [
         ('DRAFT', 'Draft'),
@@ -234,8 +231,8 @@ class Tournament(models.Model):
         max_digits=5,
         decimal_places=2,
         default=_default_platform_fee_percent,
-        validators=[MinValueValidator(0), MaxValueValidator(100)],
-        help_text="PlayArena administration / revenue percentage taken from each entry (configurable per tournament).",
+        validators=[MinValueValidator(0), MaxValueValidator(10)],
+        help_text="PlayArena administration fee percentage (organiser-configurable from 0% to 10%).",
     )
     home_and_away = models.BooleanField(
         default=True,
@@ -267,8 +264,8 @@ class Tournament(models.Model):
         return _default_platform_fee_percent()
 
     def fee_percent(self):
-        """Mandatory organisation-tournament platform fee (10%)."""
-        return ORGANISATION_TOURNAMENT_PLATFORM_FEE_PERCENT
+        """Configured PlayArena administration fee for this tournament."""
+        return self.platform_fee_percent
 
     def split_entry(self, amount):
         """Split an entry fee into (platform_fee, prize_contribution).
@@ -369,7 +366,7 @@ class Tournament(models.Model):
 
 
 class TournamentFeeSettlement(models.Model):
-    """One-time gross/fee/net snapshot for a full organisation tournament.
+    """One-time gross/admin-fee/net snapshot for a full organisation tournament.
 
     RESERVED is created atomically when every slot is filled. The fee is
     recognized only when the tournament actually starts. A pre-launch
@@ -442,7 +439,7 @@ class TournamentRegistration(models.Model):
         max_digits=10,
         decimal_places=2,
         default=Decimal('0.00'),
-        help_text="PlayArena platform fee taken from this entry.",
+        help_text="PlayArena administration fee allocated from this entry.",
     )
     prize_contribution = models.DecimalField(
         max_digits=10,

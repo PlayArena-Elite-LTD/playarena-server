@@ -1,20 +1,15 @@
-"""Atomic organisation-tournament platform-fee settlement helpers."""
+"""Atomic PlayArena administration-fee settlement helpers."""
 from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
 
 from django.db import transaction
 from django.utils import timezone
 
-from .models import (
-    ORGANISATION_TOURNAMENT_PLATFORM_FEE_PERCENT,
-    Tournament,
-    TournamentFeeSettlement,
-    TournamentRegistration,
-)
+from .models import Tournament, TournamentFeeSettlement, TournamentRegistration
 
 CENT = Decimal("0.01")
 
 
-def _registration_fee_allocations(registrations, gross_pool, fee_total):
+def _registration_fee_allocations(registrations, fee_total, fee_percent):
     """Allocate the rounded tournament-wide fee across entries exactly.
 
     Floors each proportional entry fee to cents, then distributes the remaining
@@ -23,10 +18,8 @@ def _registration_fee_allocations(registrations, gross_pool, fee_total):
     """
     allocations = []
     allocated_total = Decimal("0.00")
-    percent = ORGANISATION_TOURNAMENT_PLATFORM_FEE_PERCENT
-
     for registration in registrations:
-        exact_fee = Decimal(registration.amount_paid) * percent / Decimal("100")
+        exact_fee = Decimal(registration.amount_paid) * fee_percent / Decimal("100")
         base_fee = exact_fee.quantize(CENT, rounding=ROUND_DOWN)
         allocations.append([registration, base_fee, exact_fee - base_fee])
         allocated_total += base_fee
@@ -41,7 +34,7 @@ def _registration_fee_allocations(registrations, gross_pool, fee_total):
 
 @transaction.atomic
 def confirm_full_tournament(tournament):
-    """Reserve the 10% pool fee once and move a full tournament to READY_TO_START.
+    """Reserve the configured fee once and move a full tournament to READY_TO_START.
 
     The caller should already hold a row lock on the tournament. Repeated calls
     return the existing reservation and do not create another settlement.
@@ -76,16 +69,15 @@ def confirm_full_tournament(tournament):
         (Decimal(registration.amount_paid) for registration in registrations),
         Decimal("0.00"),
     ).quantize(CENT)
-    fee_total = (
-        gross_pool
-        * ORGANISATION_TOURNAMENT_PLATFORM_FEE_PERCENT
-        / Decimal("100")
-    ).quantize(CENT, rounding=ROUND_HALF_UP)
+    fee_percent = Decimal(tournament.platform_fee_percent)
+    fee_total = (gross_pool * fee_percent / Decimal("100")).quantize(
+        CENT, rounding=ROUND_HALF_UP
+    )
     net_pool = gross_pool - fee_total
     allocations = _registration_fee_allocations(
         registrations,
-        gross_pool,
         fee_total,
+        fee_percent,
     )
 
     for registration in registrations:
@@ -98,7 +90,7 @@ def confirm_full_tournament(tournament):
         "gross_pool": gross_pool,
         "platform_fee": fee_total,
         "net_prize_pool": net_pool,
-        "fee_percent": ORGANISATION_TOURNAMENT_PLATFORM_FEE_PERCENT,
+        "fee_percent": fee_percent,
         "status": TournamentFeeSettlement.Status.RESERVED,
         "recognized_at": None,
         "reversed_at": None,
@@ -114,9 +106,8 @@ def confirm_full_tournament(tournament):
             **settlement_values,
         )
 
-    tournament.platform_fee_percent = ORGANISATION_TOURNAMENT_PLATFORM_FEE_PERCENT
     tournament.status = "READY_TO_START"
-    tournament.save(update_fields=["platform_fee_percent", "status"])
+    tournament.save(update_fields=["status"])
     return settlement
 
 
