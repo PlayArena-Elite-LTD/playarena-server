@@ -47,8 +47,9 @@ Recommended first deployment values:
 - `FRONTEND_URL=https://www.playarenaelite.com`
 - `DATABASE_URL` is auto-wired from the managed Render Postgres service
 
-Your Vercel frontend must call the Render backend URL, not localhost. Set the
-frontend API base URL environment variable in Vercel:
+Your Render frontend must call the Render backend URL, not localhost. Set the
+frontend API base URL environment variable on the frontend Render service (also
+defined in the frontend repository's `render.yaml`):
 
 - `NEXT_PUBLIC_API_BASE_URL=https://<your-render-service>.onrender.com`
 
@@ -56,7 +57,9 @@ Use the backend origin only: the frontend already appends `/api/...` to this
 value. Do not add `/api` to the environment variable, or requests will target
 `/api/api/...`.
 
-After changing a Vercel build-time environment variable, redeploy the frontend.
+Because this is a Next.js build-time environment variable, redeploy the frontend
+after changing it. The frontend repository's GitHub Actions workflow validates
+the build; Render performs the deployment from the connected repository.
 
 Render's `startCommand` runs `python manage.py migrate` before starting Gunicorn,
 so pending migrations (including organisation wallet migrations) are applied to
@@ -82,7 +85,7 @@ migrations completing successfully.
    tested separately.
 
 These credentials and provider-dashboard callback registrations must be
-configured in Render/Vercel and the provider dashboard; they cannot be verified
+configured in Render and the provider dashboard; they cannot be verified
 from a local checkout.
 
 ## 4) Switch to real bank endpoints
