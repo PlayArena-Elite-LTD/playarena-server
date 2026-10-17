@@ -43,8 +43,8 @@ Recommended first deployment values:
 - `BANK_PAYOUT_MODE=mock`
 - `DJANGO_ALLOWED_HOSTS=<your-render-service>.onrender.com`
 - `DJANGO_CSRF_TRUSTED_ORIGINS=https://<your-render-service>.onrender.com`
-- `DJANGO_CORS_ALLOWED_ORIGINS=https://play-arena-frontend.vercel.app`
-- `FRONTEND_URL=https://play-arena-frontend.vercel.app`
+- `DJANGO_CORS_ALLOWED_ORIGINS=https://www.playarenaelite.com,https://playarenaelite.com`
+- `FRONTEND_URL=https://www.playarenaelite.com`
 - `DATABASE_URL` is auto-wired from the managed Render Postgres service
 
 Your Vercel frontend must call the Render backend URL, not localhost. Set the

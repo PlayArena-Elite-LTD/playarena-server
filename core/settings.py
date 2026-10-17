@@ -535,6 +535,13 @@ CORS_ALLOWED_ORIGINS = [
     "https://lucadev.pythonanywhere.com",
 ]
 CORS_ALLOWED_ORIGINS = _split_csv_env("DJANGO_CORS_ALLOWED_ORIGINS", CORS_ALLOWED_ORIGINS)
+# Keep the live PlayArena frontend origins allowed even when Render supplies a
+# custom DJANGO_CORS_ALLOWED_ORIGINS value (which replaces the defaults above).
+for production_origin in (
+    "https://playarenaelite.com",
+    "https://www.playarenaelite.com",
+):
+    _append_unique(CORS_ALLOWED_ORIGINS, production_origin)
 _append_unique(CORS_ALLOWED_ORIGINS, FRONTEND_ORIGIN)
 if DEBUG:
     for local_origin in [
