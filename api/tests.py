@@ -10,7 +10,7 @@ from unittest.mock import patch
 from django.core import mail
 from django.core.cache import cache
 from django.contrib.auth import get_user_model
-from django.test import RequestFactory, TestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase, APIClient
@@ -28,6 +28,32 @@ from services.payments.lipila_gateway import LipilaGateway
 from services.payments.lipila_service import LipilaService
 
 User = get_user_model()
+
+
+class CorsPreflightTests(SimpleTestCase):
+    def test_login_preflight_allows_both_playarena_frontend_origins(self):
+        for origin in (
+            'https://playarenaelite.com',
+            'https://www.playarenaelite.com',
+        ):
+            with self.subTest(origin=origin):
+                response = self.client.options(
+                    '/api/auth/token/',
+                    HTTP_ORIGIN=origin,
+                    HTTP_ACCESS_CONTROL_REQUEST_METHOD='POST',
+                    HTTP_ACCESS_CONTROL_REQUEST_HEADERS='content-type',
+                )
+
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(
+                    response.headers['Access-Control-Allow-Origin'], origin
+                )
+                self.assertIn(
+                    'POST', response.headers['Access-Control-Allow-Methods']
+                )
+                self.assertIn(
+                    'content-type', response.headers['Access-Control-Allow-Headers']
+                )
 
 
 class LipilaServiceTests(TestCase):

@@ -88,7 +88,12 @@ def _origin_from_url(value: str) -> str:
 # Host/origin configuration
 # - In local dev, you may use a public tunnel domain (ngrok/Cloudflare Tunnel). Set `PUBLIC_BASE_URL`
 #   and (optionally) `DJANGO_ALLOWED_HOSTS` / `DJANGO_CSRF_TRUSTED_ORIGINS` to avoid host/CSRF errors.
-_default_allowed_hosts = ["lucadev.pythonanywhere.com", "127.0.0.1", "localhost"]
+_default_allowed_hosts = [
+    "lucadev.pythonanywhere.com",
+    "playarena-fw0n.onrender.com",
+    "127.0.0.1",
+    "localhost",
+]
 if DEBUG and os.environ.get("DJANGO_ALLOWED_HOSTS") is None:
     # Dev convenience: avoid DisallowedHost when using dynamic tunnel domains.
     ALLOWED_HOSTS = ["*"]
@@ -98,9 +103,13 @@ else:
 _render_hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
 if _render_hostname and _render_hostname not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append(_render_hostname)
+_append_unique(ALLOWED_HOSTS, "playarena-fw0n.onrender.com")
 
 _default_csrf_trusted = [
     "https://lucadev.pythonanywhere.com",
+    "https://playarenaelite.com",
+    "https://www.playarenaelite.com",
+    "https://playarena-fw0n.onrender.com",
     "http://127.0.0.1:8000",
     "http://localhost:8000",
     "http://127.0.0.1:8001",
@@ -113,6 +122,14 @@ _default_csrf_trusted = [
     "http://localhost:3057",
 ]
 CSRF_TRUSTED_ORIGINS = _split_csv_env("DJANGO_CSRF_TRUSTED_ORIGINS", _default_csrf_trusted)
+_required_frontend_origins = (
+    "https://playarenaelite.com",
+    "https://www.playarenaelite.com",
+)
+for _origin in _required_frontend_origins:
+    # Keep the production frontend trusted even when the Render env var is
+    # present but stale or incomplete; environment values can still add origins.
+    _append_unique(CSRF_TRUSTED_ORIGINS, _origin)
 FRONTEND_ORIGIN = _origin_from_url(
     os.environ.get("FRONTEND_ORIGIN", "") or os.environ.get("FRONTEND_URL", "")
 )
@@ -176,9 +193,9 @@ INSTALLED_APPS = [
 AUTH_USER_MODEL = 'accounts.CustomUser'
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -533,15 +550,14 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:3057",
     "http://127.0.0.1:3057",
     "https://lucadev.pythonanywhere.com",
-]
-CORS_ALLOWED_ORIGINS = _split_csv_env("DJANGO_CORS_ALLOWED_ORIGINS", CORS_ALLOWED_ORIGINS)
-# Keep the live PlayArena frontend origins allowed even when Render supplies a
-# custom DJANGO_CORS_ALLOWED_ORIGINS value (which replaces the defaults above).
-for production_origin in (
     "https://playarenaelite.com",
     "https://www.playarenaelite.com",
-):
-    _append_unique(CORS_ALLOWED_ORIGINS, production_origin)
+]
+CORS_ALLOWED_ORIGINS = _split_csv_env("DJANGO_CORS_ALLOWED_ORIGINS", CORS_ALLOWED_ORIGINS)
+for _origin in _required_frontend_origins:
+    # The explicit environment allowlist may add origins, but cannot
+    # accidentally remove either canonical production frontend origin.
+    _append_unique(CORS_ALLOWED_ORIGINS, _origin)
 _append_unique(CORS_ALLOWED_ORIGINS, FRONTEND_ORIGIN)
 if DEBUG:
     for local_origin in [

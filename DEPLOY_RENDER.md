@@ -42,10 +42,19 @@ Recommended first deployment values:
 - `LIPILA_MOCK_MODE=false`
 - `BANK_PAYOUT_MODE=mock`
 - `DJANGO_ALLOWED_HOSTS=<your-render-service>.onrender.com`
-- `DJANGO_CSRF_TRUSTED_ORIGINS=https://<your-render-service>.onrender.com`
+- `DJANGO_CSRF_TRUSTED_ORIGINS=https://<your-render-service>.onrender.com,https://www.playarenaelite.com,https://playarenaelite.com`
 - `DJANGO_CORS_ALLOWED_ORIGINS=https://www.playarenaelite.com,https://playarenaelite.com`
 - `FRONTEND_URL=https://www.playarenaelite.com`
 - `DATABASE_URL` is auto-wired from the managed Render Postgres service
+
+Keep both frontend origins in Render's comma-separated CORS and CSRF values,
+without trailing slashes. The backend also retains these two canonical origins
+when an environment value is incomplete; origins supplied through
+`DJANGO_CORS_ALLOWED_ORIGINS` and `FRONTEND_URL` are added alongside them.
+After changing Render environment values or deploying a code change, wait for
+the service to become Live and verify the OPTIONS response for
+`/api/auth/token/` includes `Access-Control-Allow-Origin` matching the request's
+`Origin`.
 
 Your Render frontend must call the Render backend URL, not localhost. Set the
 frontend API base URL environment variable on the frontend Render service (also
