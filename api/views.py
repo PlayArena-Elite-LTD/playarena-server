@@ -1231,8 +1231,6 @@ class MatchResultSubmitView(APIView):
            (creator_sub == 'LOST' and joiner_sub == 'WON') or \
            (creator_sub == 'DRAW' and joiner_sub == 'DRAW'):
 
-            match.status = 'COMPLETED'
-
             if creator_sub == 'WON':
                 winner = match.creator
                 loser = match.joiner
@@ -1240,37 +1238,9 @@ class MatchResultSubmitView(APIView):
                 winner = match.joiner
                 loser = match.creator
             else:
+                from matches.settlement import settle_match
+                match = settle_match(match, draw=True)
                 refund_amount = Decimal(match.amount) * Decimal('0.9')
-                creator_wallet = match.creator.wallet
-                joiner_wallet = match.joiner.wallet
-
-                creator_wallet.balance += refund_amount
-                creator_wallet.save(update_fields=['balance'])
-                joiner_wallet.balance += refund_amount
-                joiner_wallet.save(update_fields=['balance'])
-
-                Transaction.objects.create(
-                    wallet=creator_wallet,
-                    amount=refund_amount,
-                    transaction_type='MATCH_DRAW_RETURN',
-                    description=(
-                        f"Return from draw in {match.get_game_display()} match against "
-                        f"{match.joiner.username} for ZMW {match.amount}"
-                    ),
-                    related_match=match
-                )
-
-                Transaction.objects.create(
-                    wallet=joiner_wallet,
-                    amount=refund_amount,
-                    transaction_type='MATCH_DRAW_RETURN',
-                    description=(
-                        f"Return from draw in {match.get_game_display()} match against "
-                        f"{match.creator.username} for ZMW {match.amount}"
-                    ),
-                    related_match=match
-                )
-
                 Notification.objects.create(
                     user=match.creator,
                     message=(
@@ -1286,30 +1256,13 @@ class MatchResultSubmitView(APIView):
                     )
                 )
 
-                match.save(update_fields=['status'])
-
                 return Response(
                     {'message': 'Match recorded as a draw.', 'status': match.status},
                     status=status.HTTP_200_OK,
                 )
 
-            match.winner = winner
-            match.save(update_fields=['status', 'winner'])
-
-            winner_wallet = winner.wallet
-            winner_wallet.balance += Decimal(match.winnings)
-            winner_wallet.save(update_fields=['balance'])
-
-            Transaction.objects.create(
-                wallet=winner_wallet,
-                amount=Decimal(match.winnings),
-                transaction_type='MATCH_WINNINGS',
-                description=(
-                    f"Winnings from {match.get_game_display()} match against {loser.username} "
-                    f"for ZMW {match.amount}"
-                ),
-                related_match=match
-            )
+            from matches.settlement import settle_match
+            match = settle_match(match, winner=winner)
 
             Notification.objects.create(
                 user=winner,

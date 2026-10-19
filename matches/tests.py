@@ -8,7 +8,8 @@ from django.utils import timezone
 
 from matches.models import Match, MatchResult
 from panel.models import Dispute
-from wallet.models import Wallet
+from referrals.models import Referral, Referrer, ReferralCommissionLedger, ReferralWallet
+from wallet.models import Transaction, Wallet
 
 
 class MatchResultSubmissionTests(TestCase):
@@ -129,3 +130,87 @@ class MatchResultSubmissionTests(TestCase):
         self.match.refresh_from_db()
         self.assertEqual(self.match.status, 'JOINED')
         self.assertFalse(Dispute.objects.filter(match=self.match).exists())
+
+
+class MatchSettlementTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.creator = User.objects.create_user(
+            username='settle_creator',
+            email='settle_creator@test.com',
+            password='pass1234',
+        )
+        self.joiner = User.objects.create_user(
+            username='settle_joiner',
+            email='settle_joiner@test.com',
+            password='pass1234',
+        )
+        self.match = Match.objects.create(
+            creator=self.creator,
+            joiner=self.joiner,
+            game='FIFA_MOBILE',
+            device='MOBILE',
+            privacy='PUBLIC',
+            amount=10,
+            status='JOINED',
+        )
+        self.referrer = Referrer.objects.create(
+            user=self.creator,
+            referral_code='SETTLE',
+            status=Referrer.Status.APPROVED,
+            commission_rate=Decimal('30.00'),
+        )
+        Referral.objects.create(
+            referrer=self.referrer,
+            referred_user=self.joiner,
+            referral_code=self.referrer.referral_code,
+        )
+
+    def test_winner_settlement_pays_and_accrues_once(self):
+        from matches.settlement import settle_match
+
+        settle_match(self.match, winner=self.creator)
+        settle_match(self.match, winner=self.creator)
+
+        self.match.refresh_from_db()
+        self.assertEqual(self.match.status, 'COMPLETED')
+        self.assertEqual(self.match.winner, self.creator)
+        self.assertEqual(
+            Transaction.objects.filter(
+                related_match=self.match,
+                transaction_type='MATCH_WINNINGS',
+            ).count(),
+            1,
+        )
+        entry = ReferralCommissionLedger.objects.get(
+            related_match=self.match,
+            referred_user=self.joiner,
+        )
+        self.assertEqual(entry.commission_amount, Decimal('0.30'))
+        self.assertEqual(
+            ReferralWallet.objects.get(user=self.creator).balance,
+            Decimal('0.30'),
+        )
+
+    def test_draw_settlement_returns_stakes_and_accrues_commission(self):
+        from matches.settlement import settle_match
+
+        settle_match(self.match, draw=True)
+
+        self.match.refresh_from_db()
+        self.assertEqual(self.match.status, 'COMPLETED')
+        self.assertIsNone(self.match.winner)
+        self.assertEqual(
+            Transaction.objects.filter(
+                related_match=self.match,
+                transaction_type='MATCH_DRAW_RETURN',
+            ).count(),
+            2,
+        )
+        self.assertEqual(
+            ReferralCommissionLedger.objects.get(
+                related_match=self.match,
+                referred_user=self.joiner,
+            ).commission_amount,
+            Decimal('0.30'),
+        )

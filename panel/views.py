@@ -7,7 +7,6 @@ from django.contrib.auth import get_user_model
 
 from matches.models import Match, Evidence
 from panel.models import Dispute
-from wallet.models import Wallet, Transaction
 from alert.models import Notification
 
 from accounts.decorators import support_staff_required
@@ -154,17 +153,8 @@ def resolve_dispute(request, dispute_id):
             messages.error(request, "Invalid winner.")
             return redirect('dispute_detail', dispute_id=dispute_id)
         winner = User.objects.get(id=winner_id)
-        # Add winnings to winner's wallet
-        wallet = Wallet.objects.get(user=winner)
-        wallet.balance += match.winnings
-        wallet.save()
-        # Record wallet transaction
-        Transaction.objects.create(
-            wallet=wallet,
-            amount=match.winnings,
-            transaction_type='MATCH_WINNINGS',
-            description=f"Winnings from resolving match {match.get_game_display()} dispute"
-        )
+        from matches.settlement import settle_match
+        match = settle_match(match, winner=winner)
         # Notify both participants
         Notification.objects.create(
             user=match.creator,
@@ -175,13 +165,6 @@ def resolve_dispute(request, dispute_id):
                 user=match.joiner,
                 message=f"Dispute for match {match.get_game_display()} resolved. Winner: {winner.username}."
             )
-        # Update match & dispute
-        match.status = 'COMPLETED'
-        match.winner = winner
-        match.save()
-        # Referral commission on the realised platform fee (admin-awarded settlement)
-        from matches.views import _accrue_match_commissions
-        _accrue_match_commissions(match)
         dispute.status = 'RESOLVED'
         dispute.resolved_at = timezone.now()
         dispute.resolution_notes = notes

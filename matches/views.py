@@ -9,7 +9,6 @@ from django.http import HttpResponseNotAllowed, JsonResponse
 from django.urls import reverse
 from decimal import Decimal
 from core.ratelimit import ratelimit
-import logging
 
 from .forms import MatchCreationForm, JoinMatchForm
 from .models import Match, MatchResult
@@ -17,28 +16,7 @@ from .utils import get_result_query_info
 from wallet.models import Wallet, Transaction
 from alert.models import Notification
 
-logger = logging.getLogger('django_ratelimit')
 
-def _accrue_match_commissions(match):
-    """Accrue referral commission for a settled 1v1 match (spec section 2).
-
-    The platform fee is 10% of each player's own stake (winnings already bake in
-    10% of the total pot). Commission is drawn strictly from that platform fee,
-    never from winnings, and is recorded once per (match, player) via the
-    referrals service. Safe no-op if a player has no referrer.
-    """
-    try:
-        from referrals.services import accrue_commission, PLATFORM_FEE_RATE
-        for player in (match.creator, match.joiner):
-            if player is None:
-                continue
-            accrue_commission(
-                referred_user=player,
-                platform_fee=Decimal(match.amount) * PLATFORM_FEE_RATE,
-                related_match=match,
-            )
-    except Exception:  # pragma: no cover - defensive; must never block settlement
-        logger.exception("Referral accrual failed for match %s", getattr(match, "id", None))
 User = get_user_model()
 
 
@@ -367,10 +345,6 @@ def submit_match_result(request, match_id):
        (creator_sub == 'LOST' and joiner_sub == 'WON') or \
        (creator_sub == 'DRAW' and joiner_sub == 'DRAW'):
         
-        # Update match status first
-        match.status = 'COMPLETED'
-        match.save()
-        
         # Handle results
         if creator_sub == 'WON':
             winner = match.creator
@@ -379,36 +353,9 @@ def submit_match_result(request, match_id):
             winner = match.joiner
             loser = match.creator
         else:  # Draw
-            # Return 90% of match amount to each user
-            creator_wallet = match.creator.wallet
-            joiner_wallet = match.joiner.wallet
-            
+            from .settlement import settle_match
+            match = settle_match(match, draw=True)
             refund_amount = Decimal(match.amount) * Decimal('0.9')
-            
-            # Update wallets first
-            creator_wallet.balance += refund_amount
-            creator_wallet.save()
-            
-            joiner_wallet.balance += refund_amount
-            joiner_wallet.save()
-            
-            # Then record transactions
-            Transaction.objects.create(
-                wallet=creator_wallet,
-                amount=refund_amount,
-                transaction_type='MATCH_DRAW_RETURN',
-                description=f"Return from draw in {match.get_game_display()} match against {match.joiner.username} for ZMW {match.amount}",
-                related_match=match
-            )
-            
-            Transaction.objects.create(
-                wallet=joiner_wallet,
-                amount=refund_amount,
-                transaction_type='MATCH_DRAW_RETURN',
-                description=f"Return from draw in {match.get_game_display()} match against {match.creator.username} for ZMW {match.amount}",
-                related_match=match
-            )
-            
             # Notify both users
             Notification.objects.create(
                 user=match.creator,
@@ -419,32 +366,12 @@ def submit_match_result(request, match_id):
                 user=match.joiner,
                 message=f"Your {match.get_game_display()} match against {match.creator.username} for ZMW {match.amount} ended in a draw. ZMW {refund_amount} has been returned to your wallet."
             )
-            
-            # Referral commission: platform still keeps 10% on a draw (spec section 2)
-            _accrue_match_commissions(match)
 
             messages.success(request, f"Match result recorded as a draw. ZMW {refund_amount} has been returned to your wallet.")
             return redirect('match_detail', match_id=match_id)
         
-        # Handle winner gets winnings - update wallet first
-        match.winner = winner
-        match.save(update_fields=['winner'])
-
-        winner_wallet = winner.wallet
-        winner_wallet.balance += Decimal(match.winnings)
-        winner_wallet.save()
-        
-        # Then record transaction
-        Transaction.objects.create(
-            wallet=winner_wallet,
-            amount=Decimal(match.winnings),
-            transaction_type='MATCH_WINNINGS',
-            description=f"Winnings from {match.get_game_display()} match against {loser.username} for ZMW {match.amount}",
-            related_match=match
-        )
-
-        # Referral commission on the realised platform fee (spec section 2)
-        _accrue_match_commissions(match)
+        from .settlement import settle_match
+        match = settle_match(match, winner=winner)
         
         # Notify both users
         Notification.objects.create(

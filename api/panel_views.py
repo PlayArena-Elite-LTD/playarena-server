@@ -358,15 +358,8 @@ class PanelDisputeResolveView(APIView):
         if str(winner_id) not in [str(match.creator_id), str(match.joiner_id)]:
             return Response({'detail': 'Invalid winner.'}, status=400)
         winner = get_object_or_404(User, id=winner_id)
-        wallet, _ = Wallet.objects.get_or_create(user=winner)
-        wallet.balance += match.winnings
-        wallet.save(update_fields=['balance'])
-        Transaction.objects.create(
-            wallet=wallet,
-            amount=match.winnings,
-            transaction_type='MATCH_WINNINGS',
-            description=f"Winnings from resolving {match.get_game_display()} dispute",
-        )
+        from matches.settlement import settle_match
+        match = settle_match(match, winner=winner)
         Notification.objects.create(
             user=match.creator,
             message=f"Dispute for {match.get_game_display()} resolved. Winner: {winner.username}.",
@@ -376,12 +369,6 @@ class PanelDisputeResolveView(APIView):
                 user=match.joiner,
                 message=f"Dispute for {match.get_game_display()} resolved. Winner: {winner.username}.",
             )
-        match.status = 'COMPLETED'
-        match.winner = winner
-        match.save(update_fields=['status', 'winner'])
-        # Referral commission on the realised platform fee (admin-awarded settlement)
-        from matches.views import _accrue_match_commissions
-        _accrue_match_commissions(match)
         dispute.status = 'RESOLVED'
         dispute.resolved_at = timezone.now()
         dispute.resolution_notes = notes

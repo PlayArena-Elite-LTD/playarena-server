@@ -4,7 +4,6 @@ from django.shortcuts import get_object_or_404, redirect
 from django.urls import path, reverse
 from django.utils.html import format_html
 
-from wallet.models import Wallet, Transaction
 from alert.models import Notification
 from .models import (
     Match, Evidence, Tournament, TournamentRegistration, TournamentPrize,
@@ -113,17 +112,6 @@ class MatchAdmin(admin.ModelAdmin):
         winner = match.creator if winner_id == str(match.creator_id) else match.joiner
         loser = match.joiner if winner is match.creator else match.creator
 
-        wallet = Wallet.objects.get(user=winner)
-        wallet.balance += match.winnings
-        wallet.save()
-        Transaction.objects.create(
-            wallet=wallet,
-            amount=match.winnings,
-            transaction_type='MATCH_WINNINGS',
-            description=f"Winnings from {match.get_game_display()} match {match.joining_code} (declared by admin)",
-            related_match=match,
-        )
-
         Notification.objects.create(
             user=winner,
             message=f"You were declared the winner of the {match.get_game_display()} match against {loser.username}. ZMW {match.winnings} has been credited to your wallet."
@@ -133,9 +121,8 @@ class MatchAdmin(admin.ModelAdmin):
             message=f"{winner.username} was declared the winner of your {match.get_game_display()} match."
         )
 
-        match.winner = winner
-        match.status = 'COMPLETED'
-        match.save(update_fields=['winner', 'status'])
+        from matches.settlement import settle_match
+        settle_match(match, winner=winner)
 
         messages.success(request, f"{winner.username} declared winner of match {match.joining_code}.")
         return redirect(changelist_url)

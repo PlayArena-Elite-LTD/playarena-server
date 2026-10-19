@@ -22,6 +22,7 @@ from accounts.models import Organisation, OrganisationMembership
 from matches.models import Match, Tournament
 from messenger.models import Message, ReadMessage
 from panel.models import Dispute
+from referrals.models import Referral, Referrer, ReferralCommissionLedger, ReferralWallet
 from wallet.models import Wallet, Transaction
 from wallet.models import Deposit
 from services.payments.lipila_gateway import LipilaGateway
@@ -441,6 +442,18 @@ class MatchApiTests(APITestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_submit_result_completes_match_and_awards_winner(self):
+        referrer = Referrer.objects.create(
+            user=self.creator,
+            referral_code='CREATOR',
+            status=Referrer.Status.APPROVED,
+            commission_rate=Decimal('30.00'),
+        )
+        Referral.objects.create(
+            referrer=referrer,
+            referred_user=self.joiner,
+            referral_code=referrer.referral_code,
+        )
+
         self.client.force_authenticate(self.creator)
         create_response = self.client.post(
             '/api/matches/create/',
@@ -470,6 +483,15 @@ class MatchApiTests(APITestCase):
         self.assertTrue(Transaction.objects.filter(related_match=match, transaction_type='MATCH_WINNINGS').exists())
         expected_balance = Decimal('90.00') + Decimal(match.winnings)
         self.assertEqual(self.creator_wallet.balance, expected_balance)
+        commission = ReferralCommissionLedger.objects.get(
+            related_match=match,
+            referred_user=self.joiner,
+        )
+        self.assertEqual(commission.commission_amount, Decimal('0.30'))
+        self.assertEqual(
+            ReferralWallet.objects.get(user=self.creator).balance,
+            Decimal('0.30'),
+        )
 
     def test_cancel_match_refunds_creator(self):
         self.client.force_authenticate(self.creator)
@@ -1117,6 +1139,18 @@ class GraphQLAPITests(APITestCase):
         self.assertIn('errors', body)
 
     def test_match_mutations_create_join_and_submit_result(self):
+        referrer = Referrer.objects.create(
+            user=self.opponent,
+            referral_code='OPPONENT',
+            status=Referrer.Status.APPROVED,
+            commission_rate=Decimal('30.00'),
+        )
+        Referral.objects.create(
+            referrer=referrer,
+            referred_user=self.user,
+            referral_code=referrer.referral_code,
+        )
+
         response = self.graphql(
             '''
             mutation {
@@ -1182,6 +1216,15 @@ class GraphQLAPITests(APITestCase):
         self.assertNotIn('errors', body)
         self.assertEqual(body['data']['submitMatchResult']['status'], 'COMPLETED')
         self.assertEqual(body['data']['submitMatchResult']['match']['winner']['username'], self.user.username)
+        commission = ReferralCommissionLedger.objects.get(
+            related_match_id=match_id,
+            referred_user=self.user,
+        )
+        self.assertEqual(commission.commission_amount, Decimal('0.30'))
+        self.assertEqual(
+            ReferralWallet.objects.get(user=self.opponent).balance,
+            Decimal('0.30'),
+        )
 
     @override_settings(WALLET_AUTO_PROCESS_WITHDRAWALS=False)
     def test_wallet_payment_queries_and_mutations(self):

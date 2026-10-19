@@ -686,23 +686,11 @@ def _resolve_submitted_match_result(match, match_result):
         or (creator_sub == "LOST" and joiner_sub == "WON")
         or (creator_sub == "DRAW" and joiner_sub == "DRAW")
     ):
-        match.status = "COMPLETED"
         if creator_sub == "DRAW":
+            from matches.settlement import settle_match
+            match = settle_match(match, draw=True)
             refund_amount = Decimal(match.amount) * Decimal("0.9")
             for player, opponent in ((match.creator, match.joiner), (match.joiner, match.creator)):
-                wallet = player.wallet
-                wallet.balance += refund_amount
-                wallet.save(update_fields=["balance"])
-                Transaction.objects.create(
-                    wallet=wallet,
-                    amount=refund_amount,
-                    transaction_type="MATCH_DRAW_RETURN",
-                    description=(
-                        f"Return from draw in {match.get_game_display()} match against "
-                        f"{opponent.username} for ZMW {match.amount}"
-                    ),
-                    related_match=match,
-                )
                 Notification.objects.create(
                     user=player,
                     message=(
@@ -710,27 +698,12 @@ def _resolve_submitted_match_result(match, match_result):
                         f"ended in a draw. ZMW {refund_amount} has been returned to your wallet."
                     ),
                 )
-            match.save(update_fields=["status"])
             return MatchPayload(message="Match recorded as a draw.", match=match, status=match.status)
 
         winner = match.creator if creator_sub == "WON" else match.joiner
         loser = match.joiner if winner == match.creator else match.creator
-        match.winner = winner
-        match.save(update_fields=["status", "winner"])
-
-        winner_wallet = winner.wallet
-        winner_wallet.balance += Decimal(match.winnings)
-        winner_wallet.save(update_fields=["balance"])
-        Transaction.objects.create(
-            wallet=winner_wallet,
-            amount=Decimal(match.winnings),
-            transaction_type="MATCH_WINNINGS",
-            description=(
-                f"Winnings from {match.get_game_display()} match against {loser.username} "
-                f"for ZMW {match.amount}"
-            ),
-            related_match=match,
-        )
+        from matches.settlement import settle_match
+        match = settle_match(match, winner=winner)
         Notification.objects.create(
             user=winner,
             message=(

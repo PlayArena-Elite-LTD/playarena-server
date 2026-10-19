@@ -1,9 +1,14 @@
 """Tests for the referral program service layer and attribution rules."""
+from io import StringIO
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.core.management import call_command
 from django.test import TestCase, override_settings
+
+from matches.models import Match
+from wallet.models import Transaction, Wallet
 
 from .models import (
     Referral,
@@ -326,6 +331,115 @@ def _make_match(creator, joiner, amount=100):
         amount=amount,
         status="JOINED",
     )
+
+
+class ReferralCommissionBackfillTests(TestCase):
+    def test_backfill_is_dry_run_by_default_and_idempotent_on_commit(self):
+        referrer_user = make_user("backfill_referrer")
+        referred_user = make_user("backfill_referred")
+        opponent = make_user("backfill_opponent")
+        referrer = Referrer.objects.create(
+            user=referrer_user,
+            referral_code="BACKFILL",
+            status=Referrer.Status.APPROVED,
+            commission_rate=Decimal("30.00"),
+        )
+        Referral.objects.create(
+            referrer=referrer,
+            referred_user=referred_user,
+            referral_code=referrer.referral_code,
+        )
+        match = Match.objects.create(
+            creator=referred_user,
+            joiner=opponent,
+            winner=opponent,
+            game="FIFA_MOBILE",
+            device="MOBILE",
+            privacy="PUBLIC",
+            amount=10,
+            status="COMPLETED",
+        )
+
+        output = StringIO()
+        call_command("backfill_match_referral_commissions", stdout=output)
+        self.assertIn(
+            "Dry run: 1 missing commission(s), ZMW 0.30 total.",
+            output.getvalue(),
+        )
+        self.assertFalse(
+            ReferralCommissionLedger.objects.filter(related_match=match).exists()
+        )
+
+        call_command(
+            "backfill_match_referral_commissions",
+            commit=True,
+            stdout=StringIO(),
+        )
+        call_command(
+            "backfill_match_referral_commissions",
+            commit=True,
+            stdout=StringIO(),
+        )
+
+        self.assertEqual(
+            ReferralCommissionLedger.objects.filter(related_match=match).count(),
+            1,
+        )
+        self.assertEqual(
+            ReferralWallet.objects.get(user=referrer_user).balance,
+            Decimal("0.30"),
+        )
+
+    def test_backfill_uses_settlement_time_not_match_creation_time(self):
+        referrer_user = make_user("late_backfill_referrer")
+        referred_user = make_user("late_backfill_referred")
+        opponent = make_user("late_backfill_opponent")
+        match = Match.objects.create(
+            creator=referred_user,
+            joiner=opponent,
+            game="FIFA_MOBILE",
+            device="MOBILE",
+            privacy="PUBLIC",
+            amount=10,
+            status="JOINED",
+        )
+        referrer = Referrer.objects.create(
+            user=referrer_user,
+            referral_code="LATEBACKFILL",
+            status=Referrer.Status.APPROVED,
+            commission_rate=Decimal("30.00"),
+        )
+        Referral.objects.create(
+            referrer=referrer,
+            referred_user=referred_user,
+            referral_code=referrer.referral_code,
+        )
+        match.status = "COMPLETED"
+        match.winner = opponent
+        match.save(update_fields=["status", "winner"])
+        wallet, _ = Wallet.objects.get_or_create(user=opponent)
+        Transaction.objects.create(
+            wallet=wallet,
+            amount=Decimal(match.winnings),
+            transaction_type="MATCH_WINNINGS",
+            description="Settled test match",
+            related_match=match,
+        )
+
+        call_command(
+            "backfill_match_referral_commissions",
+            commit=True,
+            stdout=StringIO(),
+        )
+
+        self.assertEqual(
+            ReferralCommissionLedger.objects.filter(related_match=match).count(),
+            1,
+        )
+        self.assertEqual(
+            ReferralWallet.objects.get(user=referrer_user).balance,
+            Decimal("0.30"),
+        )
 
 
 @override_settings(REFERRAL_COMMISSION_HOLD_DAYS=0)
