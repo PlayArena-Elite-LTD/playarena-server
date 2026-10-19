@@ -500,6 +500,7 @@ class OrganisationTransactionSerializer(serializers.ModelSerializer):
             'description',
             'created_at',
             'related_match',
+            'related_tournament',
         ]
         read_only_fields = fields
 
@@ -778,29 +779,29 @@ class TournamentFinancialsMixin:
     """Shared serializer helpers for the entry-fee split and prize pool."""
 
     def get_fee_percent(self, obj):
-        return str(obj.fee_percent())
+        settlement = getattr(obj, 'fee_settlement', None)
+        return str(settlement.fee_percent if settlement else obj.fee_percent())
 
     def get_platform_fee_percent(self, obj):
-        return str(obj.platform_fee_percent)
+        settlement = getattr(obj, 'fee_settlement', None)
+        return str(settlement.fee_percent if settlement else obj.fee_percent())
+
+    def get_organiser_fee_percent(self, obj):
+        settlement = getattr(obj, 'fee_settlement', None)
+        if settlement and settlement.status in ('RESERVED', 'RECOGNIZED'):
+            return str(settlement.organiser_fee_percent)
+        return str(obj.organiser_fee_percent)
 
     def get_fee_settlement_status(self, obj):
         settlement = getattr(obj, 'fee_settlement', None)
         return settlement.status if settlement else 'AWAITING_FULL_CAPACITY'
 
     def get_entry_breakdown(self, obj):
-        settlement = getattr(obj, 'fee_settlement', None)
-        is_settled = bool(
-            settlement
-            and settlement.status in ('RESERVED', 'RECOGNIZED')
-        )
-        if is_settled:
-            fee, contribution = obj.split_entry(obj.participation_amount)
-        else:
-            fee = Decimal('0.00')
-            contribution = Decimal(obj.participation_amount)
+        fee, organiser_fee, contribution = obj.split_entry(obj.participation_amount)
         return {
             'entry_fee': str(obj.participation_amount),
             'platform_fee': str(fee),
+            'organiser_fee': str(organiser_fee),
             'prize_contribution': str(contribution),
             'fee_status': self.get_fee_settlement_status(obj),
         }
@@ -825,11 +826,13 @@ class TournamentSerializer(TournamentFinancialsMixin, serializers.ModelSerialize
     display_status = serializers.CharField(read_only=True)
     display_status_label = serializers.SerializerMethodField()
     platform_fee_percent = serializers.SerializerMethodField()
+    organiser_fee_percent = serializers.SerializerMethodField()
     fee_percent = serializers.SerializerMethodField()
     fee_settlement_status = serializers.SerializerMethodField()
     entry_breakdown = serializers.SerializerMethodField()
     prize_pool = serializers.SerializerMethodField()
     platform_fee_total = serializers.SerializerMethodField()
+    organiser_fee_total = serializers.SerializerMethodField()
     gross_entries = serializers.SerializerMethodField()
     prizes = serializers.SerializerMethodField()
 
@@ -843,6 +846,7 @@ class TournamentSerializer(TournamentFinancialsMixin, serializers.ModelSerialize
             'game_label',
             'format',
             'platform_fee_percent',
+            'organiser_fee_percent',
             'home_and_away',
             'participation_amount',
             'max_players',
@@ -861,6 +865,7 @@ class TournamentSerializer(TournamentFinancialsMixin, serializers.ModelSerialize
             'entry_breakdown',
             'prize_pool',
             'platform_fee_total',
+            'organiser_fee_total',
             'gross_entries',
             'prizes',
             'created_at',
@@ -880,6 +885,7 @@ class TournamentSerializer(TournamentFinancialsMixin, serializers.ModelSerialize
             'entry_breakdown',
             'prize_pool',
             'platform_fee_total',
+            'organiser_fee_total',
             'gross_entries',
             'prizes',
             'created_at',
@@ -891,6 +897,9 @@ class TournamentSerializer(TournamentFinancialsMixin, serializers.ModelSerialize
 
     def get_platform_fee_total(self, obj):
         return str(obj.platform_fee_total)
+
+    def get_organiser_fee_total(self, obj):
+        return str(obj.organiser_fee_total)
 
     def get_gross_entries(self, obj):
         return str(obj.gross_entries)
@@ -921,6 +930,7 @@ class PlayerTournamentSerializer(TournamentFinancialsMixin, serializers.ModelSer
     is_full = serializers.SerializerMethodField()
     is_registered = serializers.SerializerMethodField()
     fee_percent = serializers.SerializerMethodField()
+    organiser_fee_percent = serializers.SerializerMethodField()
     entry_breakdown = serializers.SerializerMethodField()
     prize_pool = serializers.SerializerMethodField()
     prizes = serializers.SerializerMethodField()
@@ -949,6 +959,7 @@ class PlayerTournamentSerializer(TournamentFinancialsMixin, serializers.ModelSer
             'is_full',
             'is_registered',
             'fee_percent',
+            'organiser_fee_percent',
             'entry_breakdown',
             'prize_pool',
             'prizes',
@@ -1033,6 +1044,7 @@ class TournamentRegistrationSerializer(serializers.ModelSerializer):
             'status',
             'amount_paid',
             'platform_fee',
+            'organiser_fee',
             'prize_contribution',
             'joined_at',
         ]
@@ -1067,6 +1079,12 @@ class TournamentCreateSerializer(serializers.ModelSerializer):
         required=False,
         default=Tournament.default_fee_percent(),
     )
+    organiser_fee_percent = serializers.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        required=False,
+        default=Decimal("10.00"),
+    )
 
     class Meta:
         model = Tournament
@@ -1075,6 +1093,7 @@ class TournamentCreateSerializer(serializers.ModelSerializer):
             'game',
             'format',
             'platform_fee_percent',
+            'organiser_fee_percent',
             'home_and_away',
             'participation_amount',
             'max_players',
@@ -1085,7 +1104,6 @@ class TournamentCreateSerializer(serializers.ModelSerializer):
             'prizes',
         ]
         extra_kwargs = {
-            'platform_fee_percent': {'required': False},
             'home_and_away': {'required': False},
         }
 
@@ -1108,10 +1126,17 @@ class TournamentCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Participation amount cannot be negative.")
         return value
 
-    def validate_platform_fee_percent(self, value):
+    def validate_organiser_fee_percent(self, value):
         if not value.is_finite() or value < Decimal('0') or value > Decimal('10'):
             raise serializers.ValidationError(
-                "PlayArena administration fee must be between 0 and 10 percent."
+                "Organiser earnings must be between 0 and 10 percent of the pool after the PlayArena fee."
+            )
+        return value
+
+    def validate_platform_fee_percent(self, value):
+        if not value.is_finite() or value != Decimal("10.00"):
+            raise serializers.ValidationError(
+                "The PlayArena platform fee is fixed at 10 percent."
             )
         return value
 
@@ -1127,6 +1152,24 @@ class TournamentCreateSerializer(serializers.ModelSerializer):
                 f"Total prize distribution is {total}%, which exceeds 100% of the pool."
             )
         return value
+
+    def validate(self, attrs):
+        prizes = attrs.get('prizes')
+        organiser_fee_percent = attrs.get(
+            'organiser_fee_percent',
+            Decimal('10.00'),
+        )
+        if prizes and sum(
+            (prize['percentage'] for prize in prizes),
+            Decimal('0'),
+        ) < organiser_fee_percent:
+            raise serializers.ValidationError({
+                'prizes': (
+                    "Prize positions must allocate at least the configured "
+                    "organiser fee percentage so it can be withheld from payouts."
+                )
+            })
+        return attrs
 
     def create(self, validated_data):
         prizes = validated_data.pop('prizes', [])
@@ -1230,6 +1273,8 @@ class TournamentPayoutSerializer(_TeamMapMixin, serializers.ModelSerializer):
             'player_username',
             'player_name',
             'team_name',
+            'gross_amount',
+            'organiser_fee',
             'amount',
             'status',
             'transaction_id',

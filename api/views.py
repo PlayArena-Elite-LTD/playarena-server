@@ -59,11 +59,13 @@ from .serializers import (
 from .permissions import IsWalletOwner, IsMatchParticipant
 from accounts.models import CustomUser, Organisation, OrganisationMembership, Profile
 from matches.models import (
-    Match, MatchResult, Tournament, TournamentRegistration, TournamentPrize,
+    Match, MatchResult, Tournament, TournamentFeeSettlement,
+    TournamentRegistration, TournamentPrize,
     TournamentStanding, TournamentPayout, TournamentMatch, TournamentMatchSubmission,
 )
 from matches import brackets, leagues
 from matches.tournament_fees import (
+    allocate_payout_withholdings,
     clear_reserved_entry_split,
     confirm_full_tournament,
     recognize_tournament_fee,
@@ -406,8 +408,10 @@ class TournamentJoinView(APIView):
             )
 
         # Hold the entire entry in the tournament pool until capacity is full.
-        # No PlayArena administration fee is allocated while players are still registering.
+        # The 10% platform fee and organiser share are allocated together when
+        # the tournament reaches capacity.
         platform_fee = Decimal('0.00')
+        organiser_fee = Decimal('0.00')
         prize_contribution = amount
 
         # Create or reactivate the registration.
@@ -415,12 +419,13 @@ class TournamentJoinView(APIView):
             existing.status = TournamentRegistration.Status.REGISTERED
             existing.amount_paid = amount
             existing.platform_fee = platform_fee
+            existing.organiser_fee = organiser_fee
             existing.prize_contribution = prize_contribution
             existing.team_name = team_name
             existing.phone = phone
             existing.left_at = None
             existing.save(update_fields=[
-                'status', 'amount_paid', 'platform_fee', 'prize_contribution',
+                'status', 'amount_paid', 'platform_fee', 'organiser_fee', 'prize_contribution',
                 'team_name', 'phone', 'left_at',
             ])
             registration = existing
@@ -430,6 +435,7 @@ class TournamentJoinView(APIView):
                 player=user,
                 amount_paid=amount,
                 platform_fee=platform_fee,
+                organiser_fee=organiser_fee,
                 prize_contribution=prize_contribution,
                 team_name=team_name,
                 phone=phone,
@@ -447,10 +453,8 @@ class TournamentJoinView(APIView):
             related_tournament=tournament,
         )
 
-        # The final seat triggers one tournament-wide, atomic settlement at
-        # the organiser-selected PlayArena administration rate. The helper
-        # snapshots gross/fee/net, distributes rounded cents exactly, and
-        # moves the tournament to READY_TO_START.
+        # The final seat triggers the fixed platform fee and configured organiser
+        # share to be reserved atomically and moves the tournament to READY_TO_START.
         confirm_full_tournament(tournament)
 
         Notification.objects.create(
@@ -1593,6 +1597,16 @@ class OrganisationTournamentPrizesView(APIView):
                 {'detail': f"Total prize distribution is {total}%, which exceeds 100% of the pool."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if total < tournament.organiser_fee_percent:
+            return Response(
+                {
+                    'detail': (
+                        "Prize positions must allocate at least the configured "
+                        "organiser fee percentage so it can be withheld from payouts."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         tournament.prizes.all().delete()
         for prize in prizes:
@@ -1638,6 +1652,32 @@ def _process_tournament_payout(payout, request=None):
                 related_tournament=locked.tournament,
             )
 
+            if locked.organiser_fee > 0:
+                organisation_wallet, _created = OrganisationWallet.objects.get_or_create(
+                    organisation_id=locked.tournament.organisation_id
+                )
+                organisation_wallet = OrganisationWallet.objects.select_for_update().get(
+                    pk=organisation_wallet.pk
+                )
+                OrganisationTransaction.objects.create(
+                    wallet=organisation_wallet,
+                    tournament_payout=locked,
+                    amount=locked.organiser_fee,
+                    transaction_type='TOURNAMENT_EARNINGS',
+                    description=(
+                        f"Organiser earnings withheld from position {locked.position} "
+                        f"payout in tournament '{locked.tournament.name}'"
+                    ),
+                    related_tournament=locked.tournament,
+                )
+                organisation_wallet.balance += locked.organiser_fee
+                organisation_wallet.save(update_fields=['balance'])
+                TournamentRegistration.objects.filter(
+                    tournament=locked.tournament,
+                    player=locked.player,
+                    status=TournamentRegistration.Status.REGISTERED,
+                ).update(organiser_fee=locked.organiser_fee)
+
             locked.status = TournamentPayout.Status.PAID
             locked.transaction = txn
             locked.paid_at = timezone.now()
@@ -1648,8 +1688,13 @@ def _process_tournament_payout(payout, request=None):
             notify(
                 locked.player,
                 (
-                    f"You won ZMW {locked.amount} (position {locked.position}) in "
+                    f"You received ZMW {locked.amount} for position {locked.position} in "
                     f"'{locked.tournament.name}'. It's been credited to your wallet."
+                    + (
+                        f" ZMW {locked.organiser_fee} organiser earnings were withheld "
+                        "from the gross prize."
+                        if locked.organiser_fee > 0 else ""
+                    )
                 ),
                 link='/tournaments',
                 email=True,
@@ -1667,6 +1712,8 @@ def _process_tournament_payout(payout, request=None):
                         'payout_id': locked.id,
                         'position': locked.position,
                         'amount': str(locked.amount),
+                        'gross_amount': str(locked.gross_amount),
+                        'organiser_fee': str(locked.organiser_fee),
                         'player_id': locked.player_id,
                         'wallet_id': wallet.id,
                         'old_balance': str(old_balance),
@@ -1846,15 +1893,49 @@ class OrganisationTournamentLockView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            pool = tournament.prize_pool  # snapshot at lock time
+            pool = tournament.prize_pool  # post-platform-fee pool before payout withholding
+            settlement = getattr(tournament, 'fee_settlement', None)
+            organiser_fee_total = (
+                settlement.organiser_fee
+                if settlement
+                and settlement.status == TournamentFeeSettlement.Status.RECOGNIZED
+                else Decimal("0.00")
+            )
+            gross_payouts = {
+                prize.position: prize.expected_amount(pool)
+                for prize in prizes
+            }
+            try:
+                if sum(gross_payouts.values(), Decimal("0.00")) < organiser_fee_total:
+                    raise ValueError(
+                        "Configured prize payouts are too small to cover organiser earnings. "
+                        "Increase the prize distribution or lower the organiser fee."
+                    )
+                organiser_fee_allocations = allocate_payout_withholdings(
+                    gross_payouts,
+                    organiser_fee_total,
+                )
+            except ValueError as exc:
+                return Response(
+                    {'detail': str(exc)},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             pending_payouts = []
             for prize in prizes:
                 standing = standing_by_position[prize.position]
-                amount = prize.expected_amount(pool)
+                gross_amount = gross_payouts[prize.position]
+                organiser_fee = organiser_fee_allocations[prize.position]
+                amount = gross_amount - organiser_fee
                 payout, _created = TournamentPayout.objects.get_or_create(
                     tournament=tournament,
                     position=prize.position,
-                    defaults={'player': standing.player, 'amount': amount},
+                    defaults={
+                        'player': standing.player,
+                        'gross_amount': gross_amount,
+                        'organiser_fee': organiser_fee,
+                        'amount': amount,
+                    },
                 )
                 if payout.status != TournamentPayout.Status.PAID:
                     pending_payouts.append(payout)

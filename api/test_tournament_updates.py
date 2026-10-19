@@ -15,11 +15,21 @@ from rest_framework import status
 from rest_framework.test import APITestCase, APIClient
 
 from accounts.models import Organisation, OrganisationMembership
+from api.views import _process_tournament_payout
 from matches.models import (
     Tournament, TournamentFeeSettlement, TournamentRegistration, TournamentPrize,
     TournamentMatch, TournamentStanding, TournamentPayout,
 )
-from wallet.models import Wallet, Transaction, Withdrawal
+from matches.tournament_fees import recognize_tournament_fee
+from wallet.models import (
+    OrganisationTransaction,
+    OrganisationWallet,
+    PlatformTransaction,
+    PlatformWallet,
+    Wallet,
+    Transaction,
+    Withdrawal,
+)
 
 User = get_user_model()
 
@@ -144,13 +154,14 @@ class PlayerMetadataTests(_Base):
         self.assertEqual(row['phone'], '+260974930662')
 
 
-class ConfigurableFeeTests(_Base):
+class TournamentFeeSettlementTests(_Base):
     def test_fee_is_not_allocated_until_all_slots_are_filled(self):
         t = self.make_tournament(participation_amount=Decimal('20.00'))
         p = self.make_player('a')
         self.join(p, t)
         reg = TournamentRegistration.objects.get(tournament=t, player=p)
         self.assertEqual(reg.platform_fee, Decimal('0.00'))
+        self.assertEqual(reg.organiser_fee, Decimal('0.00'))
         self.assertEqual(reg.prize_contribution, Decimal('20.00'))
         self.assertFalse(TournamentFeeSettlement.objects.filter(tournament=t).exists())
         t.refresh_from_db()
@@ -168,6 +179,10 @@ class ConfigurableFeeTests(_Base):
         self.assertFalse(TournamentFeeSettlement.objects.filter(tournament=t).exists())
         response = self.join(second, t)
         self.assertEqual(response.status_code, 200, response.data)
+        entry_breakdown = response.data['tournament']['entry_breakdown']
+        self.assertEqual(entry_breakdown['platform_fee'], '1.00')
+        self.assertEqual(entry_breakdown['organiser_fee'], '0.90')
+        self.assertEqual(entry_breakdown['prize_contribution'], '9.00')
 
         t.refresh_from_db()
         settlement = TournamentFeeSettlement.objects.get(tournament=t)
@@ -175,8 +190,10 @@ class ConfigurableFeeTests(_Base):
         self.assertEqual(settlement.status, TournamentFeeSettlement.Status.RESERVED)
         self.assertEqual(settlement.gross_pool, Decimal('20.00'))
         self.assertEqual(settlement.platform_fee, Decimal('2.00'))
+        self.assertEqual(settlement.organiser_fee, Decimal('1.80'))
         self.assertEqual(settlement.net_prize_pool, Decimal('18.00'))
         self.assertEqual(t.platform_fee_total, Decimal('2.00'))
+        self.assertEqual(t.organiser_fee_total, Decimal('1.80'))
         self.assertEqual(t.prize_pool, Decimal('18.00'))
         self.assertEqual(
             TournamentRegistration.objects.filter(
@@ -185,8 +202,19 @@ class ConfigurableFeeTests(_Base):
             ).aggregate(total=Sum('platform_fee'))['total'],
             Decimal('2.00'),
         )
+        self.assertEqual(
+            TournamentRegistration.objects.filter(
+                tournament=t,
+                status=TournamentRegistration.Status.REGISTERED,
+            ).aggregate(total=Sum('organiser_fee'))['total'],
+            Decimal('0.00'),
+        )
+        self.assertFalse(PlatformWallet.objects.exists())
+        self.assertFalse(OrganisationTransaction.objects.filter(
+            transaction_type='TOURNAMENT_EARNINGS'
+        ).exists())
 
-    def test_create_persists_configured_administration_fee_percent(self):
+    def test_create_persists_configured_organiser_fee_percent_and_fixed_platform_fee(self):
         self.client.force_authenticate(self.owner)
         for index, fee_percent in enumerate(('0', '5', '7.5', '10')):
             response = self.client.post('/api/organisations/tournaments/', {
@@ -194,14 +222,17 @@ class ConfigurableFeeTests(_Base):
                 'game': 'FIFA_MOBILE',
                 'participation_amount': '50.00',
                 'max_players': 8,
-                'platform_fee_percent': fee_percent,
+                'platform_fee_percent': '10.00',
+                'organiser_fee_percent': fee_percent,
             }, format='json')
             self.assertEqual(response.status_code, 201, response.data)
             tournament = Tournament.objects.get(id=response.data['id'])
-            self.assertEqual(tournament.platform_fee_percent, Decimal(fee_percent))
-            self.assertEqual(Decimal(response.data['platform_fee_percent']), Decimal(fee_percent))
+            self.assertEqual(tournament.platform_fee_percent, Decimal('10.00'))
+            self.assertEqual(tournament.organiser_fee_percent, Decimal(fee_percent))
+            self.assertEqual(Decimal(response.data['platform_fee_percent']), Decimal('10.00'))
+            self.assertEqual(Decimal(response.data['organiser_fee_percent']), Decimal(fee_percent))
 
-    def test_create_defaults_administration_fee_to_ten_percent_when_omitted(self):
+    def test_create_defaults_platform_and_organiser_fees_to_ten_percent(self):
         self.client.force_authenticate(self.owner)
         response = self.client.post('/api/organisations/tournaments/', {
             'name': 'Default fee', 'game': 'FIFA_MOBILE',
@@ -210,8 +241,9 @@ class ConfigurableFeeTests(_Base):
         self.assertEqual(response.status_code, 201, response.data)
         tournament = Tournament.objects.get(id=response.data['id'])
         self.assertEqual(tournament.platform_fee_percent, Decimal('10.00'))
+        self.assertEqual(tournament.organiser_fee_percent, Decimal('10.00'))
 
-    def test_create_rejects_invalid_administration_fee_values(self):
+    def test_create_rejects_invalid_organiser_fee_values(self):
         self.client.force_authenticate(self.owner)
         invalid_rates = ('-1', '10.01', '11', '1.001', 'NaN', 'Infinity', 'not-a-number', None)
         for index, fee_percent in enumerate(invalid_rates):
@@ -221,25 +253,32 @@ class ConfigurableFeeTests(_Base):
                     'game': 'FIFA_MOBILE',
                     'participation_amount': '50.00',
                     'max_players': 8,
-                    'platform_fee_percent': fee_percent,
+                    'organiser_fee_percent': fee_percent,
                 }, format='json')
                 self.assertEqual(response.status_code, 400, response.data)
-                self.assertIn('platform_fee_percent', response.data)
+                self.assertIn('organiser_fee_percent', response.data)
 
-    def test_configured_administration_fee_is_used_for_settlement(self):
-        expected_fees = {
-            Decimal('0.00'): Decimal('0.00'),
-            Decimal('5.00'): Decimal('5.00'),
-            Decimal('7.50'): Decimal('7.50'),
-            Decimal('10.00'): Decimal('10.00'),
-        }
-        for index, (fee_percent, expected_fee) in enumerate(expected_fees.items()):
-            with self.subTest(fee_percent=fee_percent):
+    def test_create_rejects_platform_fee_overrides(self):
+        self.client.force_authenticate(self.owner)
+        response = self.client.post('/api/organisations/tournaments/', {
+            'name': 'Invalid platform fee',
+            'game': 'FIFA_MOBILE',
+            'participation_amount': '50.00',
+            'max_players': 8,
+            'platform_fee_percent': '9.99',
+        }, format='json')
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertIn('platform_fee_percent', response.data)
+
+    def test_fixed_platform_and_configured_organiser_fees_are_used_for_settlement(self):
+        organiser_rates = (Decimal('0.00'), Decimal('5.00'), Decimal('7.50'), Decimal('10.00'))
+        for index, organiser_rate in enumerate(organiser_rates):
+            with self.subTest(organiser_fee_percent=organiser_rate):
                 tournament = self.make_tournament(
                     name=f'Fee {index}',
                     participation_amount=Decimal('50.00'),
                     max_players=2,
-                    platform_fee_percent=fee_percent,
+                    organiser_fee_percent=organiser_rate,
                 )
                 first = self.make_player(f'configured_{index}_a')
                 second = self.make_player(f'configured_{index}_b')
@@ -249,12 +288,18 @@ class ConfigurableFeeTests(_Base):
                 tournament.refresh_from_db()
                 settlement = TournamentFeeSettlement.objects.get(tournament=tournament)
                 self.assertEqual(settlement.gross_pool, Decimal('100.00'))
-                self.assertEqual(settlement.fee_percent, fee_percent)
-                self.assertEqual(settlement.platform_fee, expected_fee)
-                self.assertEqual(settlement.net_prize_pool, Decimal('100.00') - expected_fee)
-                self.assertEqual(tournament.platform_fee_percent, fee_percent)
-                self.assertEqual(tournament.split_entry(Decimal('100.00')),
-                                 (expected_fee, Decimal('100.00') - expected_fee))
+                self.assertEqual(settlement.fee_percent, Decimal('10.00'))
+                self.assertEqual(settlement.platform_fee, Decimal('10.00'))
+                self.assertEqual(settlement.organiser_fee_percent, organiser_rate)
+                organiser_fee = (Decimal('90.00') * organiser_rate / Decimal('100')).quantize(
+                    Decimal('0.01')
+                )
+                self.assertEqual(settlement.organiser_fee, organiser_fee)
+                self.assertEqual(settlement.net_prize_pool, Decimal('90.00'))
+                self.assertEqual(tournament.platform_fee_percent, Decimal('10.00'))
+                self.assertEqual(tournament.split_entry(Decimal('100.00')), (
+                    Decimal('10.00'), organiser_fee, Decimal('90.00')
+                ))
 
     def test_cancelling_before_launch_refunds_full_entries_and_voids_fee(self):
         t = self.make_tournament(
@@ -268,6 +313,7 @@ class ConfigurableFeeTests(_Base):
         t.refresh_from_db()
         settlement = TournamentFeeSettlement.objects.get(tournament=t)
         self.assertEqual(settlement.status, TournamentFeeSettlement.Status.RESERVED)
+        self.assertEqual(settlement.organiser_fee, Decimal('1.80'))
         self.client.force_authenticate(self.owner)
         response = self.client.post(
             f'/api/organisations/tournaments/{t.id}/lifecycle/',
@@ -280,6 +326,11 @@ class ConfigurableFeeTests(_Base):
         self.assertEqual(t.status, 'CANCELLED')
         self.assertEqual(settlement.status, TournamentFeeSettlement.Status.REFUNDED)
         self.assertEqual(settlement.platform_fee, Decimal('2.00'))
+        self.assertEqual(settlement.organiser_fee, Decimal('1.80'))
+        self.assertFalse(OrganisationTransaction.objects.filter(
+            transaction_type='TOURNAMENT_EARNINGS'
+        ).exists())
+        self.assertEqual(self.organisation.wallet.balance, Decimal('0.00'))
         for player in players:
             wallet = Wallet.objects.get(user=player)
             self.assertEqual(wallet.balance, Decimal('500.00'))
@@ -312,6 +363,69 @@ class ConfigurableFeeTests(_Base):
         settlement = TournamentFeeSettlement.objects.get(tournament=t)
         self.assertEqual(settlement.status, TournamentFeeSettlement.Status.RECOGNIZED)
         self.assertIsNotNone(settlement.recognized_at)
+        platform_wallet = PlatformWallet.objects.get(pk=1)
+        self.assertEqual(platform_wallet.balance, Decimal('2.00'))
+        organisation_wallet = OrganisationWallet.objects.get(
+            organisation=self.organisation
+        )
+        self.assertEqual(organisation_wallet.balance, Decimal('0.00'))
+        self.assertFalse(OrganisationTransaction.objects.filter(
+            transaction_type='TOURNAMENT_EARNINGS'
+        ).exists())
+        self.assertEqual(
+            PlatformTransaction.objects.get(fee_settlement=settlement).amount,
+            Decimal('2.00'),
+        )
+        recognize_tournament_fee(t)
+
+        platform_wallet.refresh_from_db()
+        organisation_wallet.refresh_from_db()
+        self.assertEqual(platform_wallet.balance, Decimal('2.00'))
+        self.assertEqual(organisation_wallet.balance, Decimal('0.00'))
+        self.assertEqual(
+            PlatformTransaction.objects.filter(fee_settlement=settlement).count(),
+            1,
+        )
+        self.assertEqual(
+            OrganisationTransaction.objects.filter(
+                transaction_type='TOURNAMENT_EARNINGS'
+            ).count(),
+            0,
+        )
+        wallet_transactions = self.client.get(
+            '/api/organisations/wallet/transactions/'
+        )
+        self.assertEqual(wallet_transactions.status_code, 200)
+        self.assertEqual(wallet_transactions.data, [])
+
+    def test_zero_organiser_rate_does_not_credit_organisation_wallet(self):
+        tournament = self.make_tournament(
+            participation_amount=Decimal('10.00'),
+            max_players=2,
+            organiser_fee_percent=Decimal('0.00'),
+        )
+        for username in ('zero_fee_a', 'zero_fee_b'):
+            self.assertEqual(
+                self.join(self.make_player(username), tournament).status_code,
+                200,
+            )
+
+        self.client.force_authenticate(self.owner)
+        response = self.client.post(f'/api/organisations/tournaments/{tournament.id}/bracket/')
+
+        self.assertEqual(response.status_code, 201, response.data)
+        settlement = TournamentFeeSettlement.objects.get(tournament=tournament)
+        self.assertEqual(settlement.status, TournamentFeeSettlement.Status.RECOGNIZED)
+        self.assertEqual(settlement.platform_fee, Decimal('2.00'))
+        self.assertEqual(settlement.organiser_fee, Decimal('0.00'))
+        self.assertEqual(PlatformWallet.objects.get(pk=1).balance, Decimal('2.00'))
+        self.assertEqual(
+            OrganisationWallet.objects.get(organisation=self.organisation).balance,
+            Decimal('0.00'),
+        )
+        self.assertFalse(OrganisationTransaction.objects.filter(
+            transaction_type='TOURNAMENT_EARNINGS'
+        ).exists())
 
 
 class HomeAndAwayLeagueTests(_Base):
@@ -420,6 +534,7 @@ class PayoutTests(_Base):
         t = self.make_tournament(format='LEAGUE', home_and_away=False,
                                  participation_amount=Decimal('100.00'), max_players=2)
         TournamentPrize.objects.create(tournament=t, position=1, percentage=Decimal('70'))
+        TournamentPrize.objects.create(tournament=t, position=2, percentage=Decimal('30'))
         p1 = self.make_player('champ', balance='500')
         p2 = self.make_player('runner', balance='500')
         self.join(p1, t)
@@ -437,9 +552,80 @@ class PayoutTests(_Base):
         self.assertEqual(lock.status_code, 200, lock.data)
         payouts = self.client.get(f'/api/organisations/tournaments/{t.id}/payouts/')
         self.assertEqual(payouts.status_code, 200)
-        self.assertTrue(len(payouts.data) >= 1)
+        self.assertEqual(len(payouts.data), 2)
         first = payouts.data[0]
         self.assertEqual(first['percentage'], '70.00')
         self.assertEqual(first['status'], 'PAID')
-        # pool = 2 * (100 - 10% fee) = 180; 70% = 126
-        self.assertEqual(Decimal(first['amount']), Decimal('126.00'))
+        second = payouts.data[1]
+        self.assertEqual(second['percentage'], '30.00')
+        self.assertEqual(second['status'], 'PAID')
+        # Pool after platform fee = 180; the 18 organiser fee is split
+        # proportionally across the 70% and 30% scheduled prizes.
+        self.assertEqual(Decimal(first['gross_amount']), Decimal('126.00'))
+        self.assertEqual(Decimal(first['organiser_fee']), Decimal('12.60'))
+        self.assertEqual(Decimal(first['amount']), Decimal('113.40'))
+        self.assertEqual(Decimal(second['gross_amount']), Decimal('54.00'))
+        self.assertEqual(Decimal(second['organiser_fee']), Decimal('5.40'))
+        self.assertEqual(Decimal(second['amount']), Decimal('48.60'))
+        self.organisation.refresh_from_db()
+        self.organisation.wallet.refresh_from_db()
+        self.assertEqual(self.organisation.wallet.balance, Decimal('18.00'))
+        fee_transactions = OrganisationTransaction.objects.filter(
+            transaction_type='TOURNAMENT_EARNINGS'
+        )
+        self.assertEqual(fee_transactions.count(), 2)
+        self.assertEqual(
+            sum(fee_transactions.values_list('amount', flat=True), Decimal('0.00')),
+            Decimal('18.00'),
+        )
+        self.assertSetEqual(
+            set(fee_transactions.values_list('tournament_payout_id', flat=True)),
+            {first['id'], second['id']},
+        )
+        for payout in (first, second):
+            winner = next(player for player in (p1, p2) if player.id == payout['player_id'])
+            self.assertEqual(
+                TournamentRegistration.objects.get(tournament=t, player=winner).organiser_fee,
+                Decimal(payout['organiser_fee']),
+            )
+            _process_tournament_payout(TournamentPayout.objects.get(pk=payout['id']))
+        self.assertEqual(
+            OrganisationTransaction.objects.filter(
+                transaction_type='TOURNAMENT_EARNINGS'
+            ).count(),
+            2,
+        )
+        for player in (p1, p2):
+            player.wallet.refresh_from_db()
+        self.assertEqual(
+            p1.wallet.balance + p2.wallet.balance,
+            Decimal('962.00'),
+        )
+
+    def test_lock_rejects_prize_payouts_that_cannot_cover_organiser_earnings(self):
+        t = self.make_tournament(
+            format='LEAGUE',
+            home_and_away=False,
+            participation_amount=Decimal('100.00'),
+            max_players=2,
+        )
+        TournamentPrize.objects.create(tournament=t, position=1, percentage=Decimal('5'))
+        p1 = self.make_player('small_champ', balance='500')
+        p2 = self.make_player('small_runner', balance='500')
+        self.join(p1, t)
+        self.join(p2, t)
+        self.client.force_authenticate(self.owner)
+        self.client.post(f'/api/organisations/tournaments/{t.id}/bracket/')
+        match = TournamentMatch.objects.filter(tournament=t).first()
+        self.client.post(
+            f'/api/organisations/tournaments/{t.id}/matches/{match.id}/confirm/',
+            {'player1_score': 3, 'player2_score': 0},
+            format='json',
+        )
+
+        response = self.client.post(f'/api/organisations/tournaments/{t.id}/lock/')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('too small to cover organiser earnings', response.data['detail'])
+        self.assertFalse(TournamentPayout.objects.filter(tournament=t).exists())
+        self.assertEqual(self.organisation.wallet.balance, Decimal('0.00'))

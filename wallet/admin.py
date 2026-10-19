@@ -7,7 +7,16 @@ from django.utils import timezone
 from django.utils.html import format_html
 from django.http import HttpResponseRedirect
 from django.urls import path, reverse
-from .models import PaymentGatewaySetting, Wallet, Transaction, Deposit, Withdrawal, SavedPaymentMethod
+from .models import (
+    PaymentGatewaySetting,
+    PlatformTransaction,
+    PlatformWallet,
+    Wallet,
+    Transaction,
+    Deposit,
+    Withdrawal,
+    SavedPaymentMethod,
+)
 from .utils import (
     credit_deposit_wallet,
     get_withdrawal_wallet,
@@ -111,6 +120,43 @@ class TransactionAdmin(admin.ModelAdmin):
             return obj.description[:50] + '...' if len(obj.description) > 50 else obj.description
         return '-'
     description_short.short_description = 'Description'
+
+
+@admin.register(PlatformWallet)
+class PlatformWalletAdmin(admin.ModelAdmin):
+    list_display = ('id', 'balance', 'updated_at')
+    readonly_fields = ('balance', 'created_at', 'updated_at')
+
+    def has_add_permission(self, request):
+        return not PlatformWallet.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(PlatformTransaction)
+class PlatformTransactionAdmin(admin.ModelAdmin):
+    list_display = ('fee_settlement', 'amount', 'transaction_type', 'created_at')
+    list_filter = ('transaction_type', 'created_at')
+    search_fields = ('description', 'fee_settlement__tournament__name')
+    readonly_fields = (
+        'wallet',
+        'fee_settlement',
+        'amount',
+        'transaction_type',
+        'description',
+        'created_at',
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
 
 @admin.register(Deposit)
 class DepositAdmin(admin.ModelAdmin):

@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 # The separate 1v1 match platform fee remains 10% of the transaction amount
 # (the implicit 10% baked into match winnings = amount * 2 * 0.9). Tournament
-# administration fees are independently configured per tournament.
+# platform fees are fixed at 10%; organiser earnings are configured separately.
 PLATFORM_FEE_RATE = Decimal("0.10")
 
 

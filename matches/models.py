@@ -190,8 +190,8 @@ class Evidence(models.Model):
 
 
 def _default_platform_fee_percent():
-    """Default PlayArena administration percentage (from settings)."""
-    return Decimal(str(getattr(settings, 'TOURNAMENT_PLATFORM_FEE_PERCENT', 10)))
+    """Historical migration default; the platform fee is now fixed at 10%."""
+    return Decimal("10.00")
 
 
 class Tournament(models.Model):
@@ -230,9 +230,16 @@ class Tournament(models.Model):
     platform_fee_percent = models.DecimalField(
         max_digits=5,
         decimal_places=2,
-        default=_default_platform_fee_percent,
+        default=Decimal("10.00"),
+        validators=[MinValueValidator(10), MaxValueValidator(10)],
+        help_text="Fixed PlayArena platform fee percentage.",
+    )
+    organiser_fee_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("10.00"),
         validators=[MinValueValidator(0), MaxValueValidator(10)],
-        help_text="PlayArena administration fee percentage (organiser-configurable from 0% to 10%).",
+        help_text="Organiser share percentage of the pool remaining after the platform fee.",
     )
     home_and_away = models.BooleanField(
         default=True,
@@ -260,27 +267,24 @@ class Tournament(models.Model):
 
     @staticmethod
     def default_fee_percent():
-        """Default PlayArena administration percentage (from settings)."""
-        return _default_platform_fee_percent()
+        """Fixed PlayArena administration percentage."""
+        return Decimal("10.00")
 
     def fee_percent(self):
-        """Configured PlayArena administration fee for this tournament."""
-        return self.platform_fee_percent
+        """Fixed PlayArena administration fee for this tournament."""
+        return Decimal("10.00")
 
     def split_entry(self, amount):
-        """Split an entry fee into (platform_fee, prize_contribution).
-
-        PlayArena keeps ``fee_percent()``% of the entry as the administration
-        fee; the remainder is the player's contribution to the prize pool. The
-        fee is rounded to 2 dp and the contribution is the exact remainder, so
-        the two always sum back to the original entry with no rounding drift.
-        """
+        """Estimate the fee shares and post-platform contribution from an entry."""
         amount = Decimal(amount)
-        fee = (amount * self.fee_percent() / Decimal('100')).quantize(
+        platform_fee = (amount * self.fee_percent() / Decimal('100')).quantize(
             Decimal('0.01'), rounding=ROUND_HALF_UP
         )
-        contribution = amount - fee
-        return fee, contribution
+        after_platform_fee = amount - platform_fee
+        organiser_fee = (
+            after_platform_fee * self.organiser_fee_percent / Decimal("100")
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        return platform_fee, organiser_fee, after_platform_fee
 
     def _registration_sum(self, field):
         total = self.registrations.filter(
@@ -314,8 +318,21 @@ class Tournament(models.Model):
         return self._registration_sum('platform_fee')
 
     @property
+    def organiser_fee_total(self):
+        """Organiser earnings reserved or recognized at full-capacity confirmation."""
+        settlement = getattr(self, 'fee_settlement', None)
+        if settlement:
+            if settlement.status in (
+                TournamentFeeSettlement.Status.RESERVED,
+                TournamentFeeSettlement.Status.RECOGNIZED,
+            ):
+                return settlement.organiser_fee
+            return Decimal('0.00')
+        return self._registration_sum('organiser_fee')
+
+    @property
     def prize_pool(self):
-        """Net distributable pool after full-capacity fee confirmation."""
+        """Distributable pool after the PlayArena fee, before payout withholding."""
         settlement = getattr(self, 'fee_settlement', None)
         if settlement:
             if settlement.status in (
@@ -324,7 +341,12 @@ class Tournament(models.Model):
             ):
                 return settlement.net_prize_pool
             return Decimal('0.00')
-        return self._registration_sum('prize_contribution')
+        return (
+            self.gross_entries
+            - (self.gross_entries * self.fee_percent() / Decimal('100')).quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP
+            )
+        )
 
     @property
     def is_full(self):
@@ -366,7 +388,7 @@ class Tournament(models.Model):
 
 
 class TournamentFeeSettlement(models.Model):
-    """One-time gross/admin-fee/net snapshot for a full organisation tournament.
+    """One-time gross/platform-fee/organiser-earnings/prize snapshot.
 
     RESERVED is created atomically when every slot is filled. The fee is
     recognized only when the tournament actually starts. A pre-launch
@@ -386,8 +408,10 @@ class TournamentFeeSettlement(models.Model):
     )
     gross_pool = models.DecimalField(max_digits=16, decimal_places=2)
     platform_fee = models.DecimalField(max_digits=16, decimal_places=2)
+    organiser_fee = models.DecimalField(max_digits=16, decimal_places=2, default=Decimal("0.00"))
     net_prize_pool = models.DecimalField(max_digits=16, decimal_places=2)
     fee_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('10.00'))
+    organiser_fee_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("10.00"))
     status = models.CharField(
         max_length=20,
         choices=Status.choices,
@@ -440,6 +464,12 @@ class TournamentRegistration(models.Model):
         decimal_places=2,
         default=Decimal('0.00'),
         help_text="PlayArena administration fee allocated from this entry.",
+    )
+    organiser_fee = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text="Organiser earnings allocated from this entry.",
     )
     prize_contribution = models.DecimalField(
         max_digits=10,
@@ -593,7 +623,9 @@ class TournamentPayout(models.Model):
         related_name='tournament_payouts',
     )
     position = models.PositiveIntegerField(validators=[MinValueValidator(1)])
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    gross_amount = models.DecimalField(max_digits=16, decimal_places=2, default=Decimal("0.00"))
+    organiser_fee = models.DecimalField(max_digits=16, decimal_places=2, default=Decimal("0.00"))
+    amount = models.DecimalField(max_digits=16, decimal_places=2)
     status = models.CharField(
         max_length=20,
         choices=Status.choices,

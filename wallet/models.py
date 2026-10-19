@@ -144,7 +144,7 @@ class OrganisationWallet(models.Model):
         on_delete=models.CASCADE,
         related_name='wallet',
     )
-    balance = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    balance = models.DecimalField(max_digits=16, decimal_places=2, default=0.00)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -185,18 +185,26 @@ class OrganisationTransaction(models.Model):
         ('TOURNAMENT_JOINING', 'Tournament Joining'),
         ('TOURNAMENT_REFUND', 'Tournament Refund'),
         ('TOURNAMENT_WINNINGS', 'Tournament Winnings'),
+        ('TOURNAMENT_EARNINGS', 'Tournament Organiser Earnings'),
         ('REFERRAL_TRANSFER', 'Referral Commission Transfer'),
         ('REFERRAL_REVERSAL', 'Referral Commission Reversal'),
         ('OTHER', 'Other'),
     ]
 
     wallet = models.ForeignKey(OrganisationWallet, on_delete=models.CASCADE, related_name='transactions')
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    amount = models.DecimalField(max_digits=16, decimal_places=2)
     transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPES)
     description = models.CharField(max_length=255)
     created_at = models.DateTimeField(auto_now_add=True)
     related_match = models.ForeignKey('matches.Match', on_delete=models.SET_NULL, null=True, blank=True)
     related_tournament = models.ForeignKey('matches.Tournament', on_delete=models.SET_NULL, null=True, blank=True)
+    tournament_payout = models.OneToOneField(
+        'matches.TournamentPayout',
+        on_delete=models.PROTECT,
+        related_name='organiser_transaction',
+        null=True,
+        blank=True,
+    )
 
     @property
     def is_credit(self):
@@ -204,6 +212,68 @@ class OrganisationTransaction(models.Model):
 
     def __str__(self):
         return f"{'+' if self.is_credit else '-'}{abs(self.amount)} - {self.get_transaction_type_display()} - {self.created_at.strftime('%Y-%m-%d %H:%M')}"
+
+
+class PlatformWallet(models.Model):
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    balance = models.DecimalField(max_digits=16, decimal_places=2, default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(condition=models.Q(id=1), name='platform_wallet_singleton'),
+        ]
+
+    def __str__(self):
+        return "PlayArena platform wallet"
+
+    def verify_balance_integrity(self):
+        from django.db.models import Sum
+
+        transaction_sum = self.transactions.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+        discrepancy = self.balance - transaction_sum
+        return {
+            'is_valid': discrepancy == Decimal('0.00'),
+            'expected_balance': transaction_sum,
+            'actual_balance': self.balance,
+            'discrepancy': discrepancy,
+            'transaction_count': self.transactions.count(),
+        }
+
+    def recalculate_balance(self):
+        from django.db.models import Sum
+
+        self.balance = self.transactions.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+        self.save(update_fields=['balance'])
+        return self.balance
+
+
+class PlatformTransaction(models.Model):
+    wallet = models.ForeignKey(
+        PlatformWallet,
+        on_delete=models.PROTECT,
+        related_name='transactions',
+    )
+    fee_settlement = models.OneToOneField(
+        'matches.TournamentFeeSettlement',
+        on_delete=models.PROTECT,
+        related_name='platform_transaction',
+    )
+    amount = models.DecimalField(max_digits=16, decimal_places=2)
+    transaction_type = models.CharField(
+        max_length=20,
+        choices=[('TOURNAMENT_FEE', 'Tournament Platform Fee')],
+        default='TOURNAMENT_FEE',
+    )
+    description = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"+{self.amount} - {self.get_transaction_type_display()}"
 
 
 class PaymentGatewaySetting(models.Model):
