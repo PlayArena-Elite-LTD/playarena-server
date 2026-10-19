@@ -70,10 +70,10 @@ Because this is a Next.js build-time environment variable, redeploy the frontend
 after changing it. The frontend repository's GitHub Actions workflow validates
 the build; Render performs the deployment from the connected repository.
 
-Render's `startCommand` runs `python manage.py migrate` before starting Gunicorn,
-so pending migrations (including organisation wallet migrations) are applied to
-the Render Postgres database on deployment. Confirm the deployment logs show
-migrations completing successfully.
+Both the Render `startCommand` and the `Procfile` run `python manage.py migrate`
+before starting Gunicorn, so pending migrations (including organisation wallet
+migrations) are applied to the Render Postgres database on deployment. Confirm
+the deployment logs show migrations completing successfully.
 
 ### Payment callbacks and credentials
 

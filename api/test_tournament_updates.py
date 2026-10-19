@@ -582,6 +582,14 @@ class PayoutTests(_Base):
             set(fee_transactions.values_list('tournament_payout_id', flat=True)),
             {first['id'], second['id']},
         )
+        history = self.client.get('/api/organisations/wallet/transactions/')
+        self.assertEqual(history.status_code, 200, history.data)
+        self.assertEqual(len(history.data), 2)
+        self.assertEqual(
+            {Decimal(row['amount']) for row in history.data},
+            {Decimal('12.60'), Decimal('5.40')},
+        )
+        self.assertTrue(all(row['related_tournament'] == t.id for row in history.data))
         for payout in (first, second):
             winner = next(player for player in (p1, p2) if player.id == payout['player_id'])
             self.assertEqual(
