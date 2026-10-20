@@ -99,5 +99,5 @@ class OrganisationMembership(models.Model):
 
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
 def ensure_user_profile(sender, instance, **kwargs):
-    """Ensure every saved user has an associated profile, including legacy users."""
+    """Ensure every saved user has a profile, including legacy users."""
     Profile.objects.get_or_create(user=instance)

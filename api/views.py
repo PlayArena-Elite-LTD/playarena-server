@@ -80,15 +80,13 @@ from wallet.withdrawal_processing import process_withdrawal_now
 
 User = get_user_model()
 logger = logging.getLogger('payments.lipila')
-
-
 api_logger = logging.getLogger(__name__)
 
+
 def safe_tournament_notify(user, message, link="/tournaments", **kwargs):
-    """Log notification failures without failing the main operation."""
+    """Send a notification without failing the main tournament/result operation."""
     try:
         from alert.notify import notify
-
         return notify(user, message, link=link, **kwargs)
     except Exception:
         api_logger.exception(

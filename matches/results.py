@@ -28,7 +28,7 @@ def _validate_scores(s1, s2):
         raise ValueError("Scores must be whole numbers.")
     if s1 < 0 or s2 < 0:
         raise ValueError("Scores cannot be negative.")
-    # TournamentMatch scores use PositiveSmallIntegerField (maximum 32767).
+    # The model uses PositiveSmallIntegerField, whose maximum is 32767.
     if s1 > 32767 or s2 > 32767:
         raise ValueError("Scores cannot exceed 32767.")
     return s1, s2
@@ -41,12 +41,12 @@ def submit_result(tournament, match, player_id, *, winner_id=None, s1=None, s2=N
     Returns ``(match, outcome)`` where outcome is one of AWAITING_OPPONENT,
     CONFIRMED or DISPUTED.
     """
-    # Lock and reload the database row so simultaneous submissions for this
-    # match are processed sequentially on databases that support row locking.
+    # Lock and refresh the match row so simultaneous submissions cannot both
+    # resolve the same match using stale state. Verify the supplied tournament
+    # really owns this match before accepting a result.
     match = TournamentMatch.objects.select_for_update().get(pk=match.pk)
-
     if match.tournament_id != tournament.pk:
-        raise ValueError("The match does not belong to this tournament.")
+        raise ValueError("This match does not belong to the supplied tournament.")
 
     if match.status not in (
         TournamentMatch.Status.READY,
@@ -72,7 +72,6 @@ def submit_result(tournament, match, player_id, *, winner_id=None, s1=None, s2=N
         match=match, player_id=player_id, defaults=defaults,
     )
 
-    # Re-query after update_or_create rather than relying on any cached relation.
     subs = {s.player_id: s for s in TournamentMatchSubmission.objects.filter(match_id=match.pk)}
 
     # Only one player in so far — wait for the other.
