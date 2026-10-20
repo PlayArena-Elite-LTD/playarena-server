@@ -622,7 +622,7 @@ PAYMENT_TEST_MODE = PAYMENT_GATEWAY_TEST_MODE
 BANK_PAYOUT_MODE = os.environ.get('BANK_PAYOUT_MODE', 'mock').strip().lower()
 BANK_PAYOUT_API_URL = os.environ.get('BANK_PAYOUT_API_URL', '').strip()
 BANK_PAYOUT_API_KEY = os.environ.get('BANK_PAYOUT_API_KEY', '').strip()
-BANK_PAYOUT_TIMEOUT_SECONDS = int(os.environ.get('BANK_PAYOUT_TIMEOUT_SECONDS', '30'))
+BANK_PAYOUT_TIMEOUT_SECONDS = int(os.environ.get('BANK_PAYOUT_TIMEOUT_SECONDS', '20'))
 
 # --- Referral program ---
 # Referral commission is a percentage of the PlayArena platform fee (NEVER of
@@ -655,7 +655,7 @@ LIPILA_MOBILE_MONEY_DISBURSEMENT_PATH = os.environ.get(
     '/api/v1/disbursements/mobile-money',
 )
 LIPILA_STATUS_PATH_TEMPLATE = os.environ.get('LIPILA_STATUS_PATH_TEMPLATE', '/collections/{reference_id}')
-LIPILA_TIMEOUT_SECONDS = int(os.environ.get('LIPILA_TIMEOUT_SECONDS', '60'))
+LIPILA_TIMEOUT_SECONDS = int(os.environ.get('LIPILA_TIMEOUT_SECONDS', '20'))
 
 # ZynlePay — credentials remain in environment variables; admin selects provider.
 ZYNLE_BASE_URL = os.environ.get(
@@ -669,7 +669,7 @@ ZYNLE_DEPOSIT_METHOD = os.environ.get('ZYNLE_DEPOSIT_METHOD', 'runBillPayment').
 ZYNLE_WITHDRAW_METHOD = os.environ.get('ZYNLE_WITHDRAW_METHOD', 'runPayToEwallet').strip()
 ZYNLE_STATUS_METHOD = os.environ.get('ZYNLE_STATUS_METHOD', 'checkPaymentStatus').strip()
 ZYNLE_CALLBACK_TOKEN = os.environ.get('ZYNLE_CALLBACK_TOKEN', '').strip()
-ZYNLE_TIMEOUT_SECONDS = int(os.environ.get('ZYNLE_TIMEOUT_SECONDS', '60'))
+ZYNLE_TIMEOUT_SECONDS = int(os.environ.get('ZYNLE_TIMEOUT_SECONDS', '20'))
 PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '').strip()
 if PUBLIC_BASE_URL:
     try:

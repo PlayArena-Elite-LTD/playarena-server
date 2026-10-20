@@ -39,132 +39,131 @@ def process_withdrawal_now(withdrawal, *, actor=None) -> Dict[str, Any]:
                 'message': f'Withdrawal is already {withdrawal.status}.',
             }
 
-        if withdrawal.status not in ('PENDING', 'PROCESSING'):
+        if withdrawal.status != 'PENDING':
             return {
                 'processed': False,
                 'status': withdrawal.status,
-                'message': f'Withdrawal is in {withdrawal.status} state.',
+                'message': 'Withdrawal is already being processed; awaiting provider confirmation.',
             }
 
-        if withdrawal.status == 'PENDING':
-            Withdrawal.objects.filter(id=withdrawal.id).update(
-                status='PROCESSING',
-                updated_at=timezone.now(),
-            )
+        Withdrawal.objects.filter(id=withdrawal.id).update(
+            status='PROCESSING',
+            updated_at=timezone.now(),
+        )
+        withdrawal.refresh_from_db()
+        notify_withdrawal_processing(withdrawal)
+
+    result = get_payment_manager().process_withdrawal(withdrawal)
+    gateway_response = result.get('gateway_response') or {}
+    if gateway_response.get('status') == 'unknown_timeout':
+        transaction_id = result.get('transaction_id')
+        Withdrawal.objects.filter(id=withdrawal.id).update(
+            status='PROCESSING',
+            transaction_id=transaction_id,
+            gateway_transaction_id=transaction_id,
+            gateway_response=gateway_response,
+            failure_reason=result.get('failure_reason'),
+            updated_at=timezone.now(),
+        )
+        withdrawal.refresh_from_db()
+        gateway_name = str(gateway_response.get('gateway') or 'provider').title()
+        logger.warning(
+            'Withdrawal %s gateway state unknown after timeout: gateway=%s reference=%s actor=%s',
+            withdrawal.id,
+            gateway_response.get('gateway'),
+            transaction_id,
+            getattr(actor, 'username', None),
+        )
+        return {
+            'processed': True,
+            'status': withdrawal.status,
+            'gateway_status': 'Unknown',
+            'transaction_id': transaction_id,
+            'gateway_response': gateway_response,
+            'message': f'Withdrawal sent to {gateway_name}; awaiting callback confirmation.',
+        }
+
+    if result.get('success'):
+        provider_status = _normalize_withdrawal_gateway_status(gateway_response)
+        next_status = 'COMPLETED' if provider_status == 'Successful' else 'PROCESSING'
+        transaction_id = result.get('transaction_id')
+        failure_reason = None
+
+        if provider_status == 'Failed':
+            next_status = _handle_failed_result(withdrawal, result)
             withdrawal.refresh_from_db()
-            notify_withdrawal_processing(withdrawal)
-
-        result = get_payment_manager().process_withdrawal(withdrawal)
-        gateway_response = result.get('gateway_response') or {}
-        if gateway_response.get('status') == 'unknown_timeout':
-            transaction_id = result.get('transaction_id')
-            Withdrawal.objects.filter(id=withdrawal.id).update(
-                status='PROCESSING',
-                transaction_id=transaction_id,
-                gateway_transaction_id=transaction_id,
-                gateway_response=gateway_response,
-                failure_reason=result.get('failure_reason'),
-                updated_at=timezone.now(),
-            )
-            withdrawal.refresh_from_db()
-            gateway_name = str(gateway_response.get('gateway') or 'provider').title()
-            logger.warning(
-                'Withdrawal %s gateway state unknown after timeout: gateway=%s reference=%s actor=%s',
-                withdrawal.id,
-                gateway_response.get('gateway'),
-                transaction_id,
-                getattr(actor, 'username', None),
-            )
-            return {
-                'processed': True,
-                'status': withdrawal.status,
-                'gateway_status': 'Unknown',
-                'transaction_id': transaction_id,
-                'gateway_response': gateway_response,
-                'message': f'Withdrawal sent to {gateway_name}; awaiting callback confirmation.',
-            }
-
-        if result.get('success'):
-            provider_status = _normalize_withdrawal_gateway_status(gateway_response)
-            next_status = 'COMPLETED' if provider_status == 'Successful' else 'PROCESSING'
-            transaction_id = result.get('transaction_id')
-            failure_reason = None
-
-            if provider_status == 'Failed':
-                next_status = _handle_failed_result(withdrawal, result)
-                withdrawal.refresh_from_db()
-                return {
-                    'processed': True,
-                    'status': withdrawal.status,
-                    'gateway_status': provider_status,
-                    'transaction_id': transaction_id,
-                    'gateway_response': gateway_response,
-                    'message': withdrawal.failure_reason or 'Withdrawal failed.',
-                }
-
-            if next_status == 'COMPLETED':
-                completion = process_withdrawal_and_debit_wallet(
-                    withdrawal,
-                    {
-                        'transaction_id': transaction_id,
-                        'gateway_response': gateway_response,
-                    },
-                )
-                withdrawal.refresh_from_db()
-                if not completion.get('success'):
-                    logger.error(
-                        'Withdrawal %s gateway completed but wallet debit failed: %s',
-                        withdrawal.id,
-                        completion.get('message'),
-                    )
-                    return {
-                        'processed': True,
-                        'status': withdrawal.status,
-                        'gateway_status': provider_status,
-                        'transaction_id': transaction_id,
-                        'gateway_response': gateway_response,
-                        'message': completion.get('message') or 'Wallet debit failed.',
-                    }
-                notify_withdrawal_completed(withdrawal)
-            else:
-                Withdrawal.objects.filter(id=withdrawal.id).update(
-                    status=next_status,
-                    transaction_id=transaction_id,
-                    gateway_transaction_id=transaction_id,
-                    gateway_response=gateway_response,
-                    failure_reason=failure_reason,
-                    updated_at=timezone.now(),
-                )
-                withdrawal.refresh_from_db()
-
-            logger.info(
-                'Withdrawal %s processed via gateway: status=%s transaction_id=%s actor=%s',
-                withdrawal.id,
-                next_status,
-                transaction_id,
-                getattr(actor, 'username', None),
-            )
             return {
                 'processed': True,
                 'status': withdrawal.status,
                 'gateway_status': provider_status,
                 'transaction_id': transaction_id,
                 'gateway_response': gateway_response,
-                'message': (
-                    'Withdrawal completed.'
-                    if next_status == 'COMPLETED'
-                    else 'Withdrawal sent to provider and is processing.'
-                ),
+                'message': withdrawal.failure_reason or 'Withdrawal failed.',
             }
 
-        next_status = _handle_failed_result(withdrawal, result)
-        withdrawal.refresh_from_db()
+        if next_status == 'COMPLETED':
+            completion = process_withdrawal_and_debit_wallet(
+                withdrawal,
+                {
+                    'transaction_id': transaction_id,
+                    'gateway_response': gateway_response,
+                },
+            )
+            withdrawal.refresh_from_db()
+            if not completion.get('success'):
+                logger.error(
+                    'Withdrawal %s gateway completed but wallet debit failed: %s',
+                    withdrawal.id,
+                    completion.get('message'),
+                )
+                return {
+                    'processed': True,
+                    'status': withdrawal.status,
+                    'gateway_status': provider_status,
+                    'transaction_id': transaction_id,
+                    'gateway_response': gateway_response,
+                    'message': completion.get('message') or 'Wallet debit failed.',
+                }
+            notify_withdrawal_completed(withdrawal)
+        else:
+            Withdrawal.objects.filter(id=withdrawal.id).update(
+                status=next_status,
+                transaction_id=transaction_id,
+                gateway_transaction_id=transaction_id,
+                gateway_response=gateway_response,
+                failure_reason=failure_reason,
+                updated_at=timezone.now(),
+            )
+            withdrawal.refresh_from_db()
+
+        logger.info(
+            'Withdrawal %s processed via gateway: status=%s transaction_id=%s actor=%s',
+            withdrawal.id,
+            next_status,
+            transaction_id,
+            getattr(actor, 'username', None),
+        )
         return {
             'processed': True,
-            'status': next_status,
+            'status': withdrawal.status,
+            'gateway_status': provider_status,
+            'transaction_id': transaction_id,
             'gateway_response': gateway_response,
-            'message': withdrawal.failure_reason or result.get('failure_reason') or 'Withdrawal failed.',
+            'message': (
+                'Withdrawal completed.'
+                if next_status == 'COMPLETED'
+                else 'Withdrawal sent to provider and is processing.'
+            ),
         }
+
+    next_status = _handle_failed_result(withdrawal, result)
+    withdrawal.refresh_from_db()
+    return {
+        'processed': True,
+        'status': next_status,
+        'gateway_response': gateway_response,
+        'message': withdrawal.failure_reason or result.get('failure_reason') or 'Withdrawal failed.',
+    }
 
 
 def _handle_failed_result(withdrawal, result: Dict[str, Any]) -> str:
