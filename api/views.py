@@ -82,6 +82,22 @@ User = get_user_model()
 logger = logging.getLogger('payments.lipila')
 
 
+api_logger = logging.getLogger(__name__)
+
+def safe_tournament_notify(user, message, link="/tournaments", **kwargs):
+    """Log notification failures without failing the main operation."""
+    try:
+        from alert.notify import notify
+
+        return notify(user, message, link=link, **kwargs)
+    except Exception:
+        api_logger.exception(
+            "Tournament/result notification failed for user_id=%s",
+            getattr(user, "pk", None),
+        )
+        return None
+
+
 class UserRegistrationView(APIView):
     """
     POST /api/auth/register/
@@ -1498,15 +1514,14 @@ class OrganisationTournamentListCreateView(generics.ListCreateAPIView):
         self._announce_new_tournament(tournament, organisation)
 
     def _announce_new_tournament(self, tournament, organisation):
-        """Notify + push every approved member that a new tournament is open."""
-        from alert.notify import notify
+        """Notify approved members without failing tournament creation."""
         members = OrganisationMembership.objects.select_related('player').filter(
             organisation=organisation,
             status=OrganisationMembership.Status.APPROVED,
         )
         label = '7-day league' if tournament.format == 'LEAGUE' else 'knockout'
-        for membership in members:
-            notify(
+        for membership in members.iterator():
+            safe_tournament_notify(
                 membership.player,
                 f"{organisation.name} just opened a new {label} tournament: '{tournament.name}'. Registration is open — join now.",
                 link='/tournaments',
@@ -2630,7 +2645,6 @@ class PlayerTournamentMatchReportView(APIView):
 
     def post(self, request, id, match_id):
         from matches import results
-        from alert.notify import notify
 
         tournament = get_object_or_404(Tournament, id=id)
         match = get_object_or_404(TournamentMatch, id=match_id, tournament=tournament)
@@ -2658,7 +2672,7 @@ class PlayerTournamentMatchReportView(APIView):
         # Notify the relevant people based on how the submission resolved.
         opponent = match.player2 if request.user.id == match.player1_id else match.player1
         if outcome == results.AWAITING_OPPONENT and opponent:
-            notify(
+            safe_tournament_notify(
                 opponent,
                 f"Your opponent submitted a result for your match in '{tournament.name}'. Please submit yours to confirm it.",
                 link='/tournaments', email=True,
@@ -2668,7 +2682,7 @@ class PlayerTournamentMatchReportView(APIView):
             for player in (match.player1, match.player2):
                 if player:
                     won = player.id == match.winner_id
-                    notify(
+                    safe_tournament_notify(
                         player,
                         f"Your match result in '{tournament.name}' is confirmed — "
                         + ("it's a draw." if match.winner_id is None and tournament.format == 'LEAGUE'
@@ -2678,7 +2692,7 @@ class PlayerTournamentMatchReportView(APIView):
         elif outcome == results.DISPUTED:
             for player in (match.player1, match.player2):
                 if player:
-                    notify(
+                    safe_tournament_notify(
                         player,
                         f"Your submitted results for a match in '{tournament.name}' don't match. The organiser will review and confirm.",
                         link='/tournaments', email=True,
@@ -2687,7 +2701,7 @@ class PlayerTournamentMatchReportView(APIView):
             # Nudge the organiser too.
             org_user = getattr(tournament.organisation, 'user', None) or getattr(tournament.organisation, 'owner', None)
             if org_user:
-                notify(
+                safe_tournament_notify(
                     org_user,
                     f"A match in '{tournament.name}' has conflicting player results and needs your decision.",
                     link='/organiser/dashboard',

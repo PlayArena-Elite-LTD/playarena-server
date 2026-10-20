@@ -55,7 +55,7 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = _env_bool('DEBUG', True)
+DEBUG = _env_bool('DEBUG', False)
 
 # SECURITY WARNING: keep the secret key used in production secret!
 # Generate a new secret key for production:

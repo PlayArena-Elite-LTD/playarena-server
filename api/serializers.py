@@ -159,6 +159,7 @@ class OrganisationDirectorySerializer(serializers.ModelSerializer):
         fields = [
             'id',
             'name',
+            'contact_name',
             'email',
             'phone',
             'organisation_type',
