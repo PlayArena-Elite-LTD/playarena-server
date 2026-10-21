@@ -292,9 +292,20 @@ class OrganisationLoginSerializer(serializers.Serializer):
     def validate(self, attrs):
         email = attrs['email'].strip().lower()
         password = attrs['password']
+        # Accept the organisation's own email as well as the owner's account
+        # email. They can differ (e.g. organisations created in the admin
+        # against an existing user), and password reset already accepts both.
+        organisation_match = (
+            Organisation.objects.select_related('owner')
+            .filter(email__iexact=email)
+            .first()
+        )
+        login_identifier = (
+            organisation_match.owner.get_username() if organisation_match else email
+        )
         user = authenticate(
             request=self.context.get('request'),
-            username=email,
+            username=login_identifier,
             password=password,
         )
         if user is None:

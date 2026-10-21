@@ -477,6 +477,12 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 # Static file serving with WhiteNoise for production
 # https://whitenoise.readthedocs.io/en/stable/django.html#add-compression-and-caching-support
 STORAGES = {
+    # Django requires an explicit "default" entry whenever STORAGES is set;
+    # without it every FileField save (match/tournament evidence) raises
+    # InvalidStorageError and the request returns HTTP 500.
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
     },

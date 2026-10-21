@@ -18,19 +18,23 @@ class EmailOrUsernameModelBackend(ModelBackend):
         if username is None or password is None:
             return None
 
-        try:
-            # Try to fetch the user based on either username or email
-            user = User.objects.get(
+        # The identifier can match more than one account (e.g. one user's
+        # username equals another user's email, or case-variant duplicate
+        # emails). .get() would raise MultipleObjectsReturned and turn a login
+        # into an HTTP 500, so check each candidate instead.
+        candidates = list(
+            User.objects.filter(
                 Q(username__iexact=username) | Q(email__iexact=username)
-            )
-
-            # Check the password
-            if user.check_password(password) and self.user_can_authenticate(user):
-                return user
-
-        except User.DoesNotExist:
+            ).order_by('pk')
+        )
+        if not candidates:
             # Run the default password hasher once to reduce timing
             # attacks against non-existent users
             User().set_password(password)
+            return None
+
+        for user in candidates:
+            if user.check_password(password) and self.user_can_authenticate(user):
+                return user
 
         return None
