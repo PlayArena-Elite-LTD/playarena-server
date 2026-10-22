@@ -276,7 +276,12 @@ class Tournament(models.Model):
 
     def split_entry(self, amount):
         """Estimate the fee shares and post-platform contribution from an entry."""
-        amount = Decimal(amount)
+        if amount is None or amount == "":
+            return Decimal("0.00"), Decimal("0.00"), Decimal("0.00")
+        try:
+            amount = Decimal(amount)
+        except (TypeError, ValueError):
+            return Decimal("0.00"), Decimal("0.00"), Decimal("0.00")
         platform_fee = (amount * self.fee_percent() / Decimal('100')).quantize(
             Decimal('0.01'), rounding=ROUND_HALF_UP
         )

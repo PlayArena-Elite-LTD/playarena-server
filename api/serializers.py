@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from decimal import Decimal
+from decimal import Decimal, DecimalException
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth import authenticate, get_user_model
@@ -792,34 +792,58 @@ class TournamentFinancialsMixin:
 
     def get_fee_percent(self, obj):
         settlement = getattr(obj, 'fee_settlement', None)
-        return str(settlement.fee_percent if settlement else obj.fee_percent())
+        try:
+            return str(settlement.fee_percent if settlement else obj.fee_percent())
+        except (AttributeError, TypeError):
+            return "10.00"
 
     def get_platform_fee_percent(self, obj):
         settlement = getattr(obj, 'fee_settlement', None)
-        return str(settlement.fee_percent if settlement else obj.fee_percent())
+        try:
+            return str(settlement.fee_percent if settlement else obj.fee_percent())
+        except (AttributeError, TypeError):
+            return "10.00"
 
     def get_organiser_fee_percent(self, obj):
         settlement = getattr(obj, 'fee_settlement', None)
         if settlement and settlement.status in ('RESERVED', 'RECOGNIZED'):
-            return str(settlement.organiser_fee_percent)
-        return str(obj.organiser_fee_percent)
+            try:
+                return str(settlement.organiser_fee_percent)
+            except (AttributeError, TypeError):
+                return str(obj.organiser_fee_percent)
+        try:
+            return str(obj.organiser_fee_percent)
+        except (AttributeError, TypeError):
+            return "10.00"
 
     def get_fee_settlement_status(self, obj):
         settlement = getattr(obj, 'fee_settlement', None)
         return settlement.status if settlement else 'AWAITING_FULL_CAPACITY'
 
     def get_entry_breakdown(self, obj):
-        fee, organiser_fee, contribution = obj.split_entry(obj.participation_amount)
-        return {
-            'entry_fee': str(obj.participation_amount),
-            'platform_fee': str(fee),
-            'organiser_fee': str(organiser_fee),
-            'prize_contribution': str(contribution),
-            'fee_status': self.get_fee_settlement_status(obj),
-        }
+        try:
+            fee, organiser_fee, contribution = obj.split_entry(obj.participation_amount)
+            return {
+                'entry_fee': str(obj.participation_amount) if obj.participation_amount is not None else "0.00",
+                'platform_fee': str(fee),
+                'organiser_fee': str(organiser_fee),
+                'prize_contribution': str(contribution),
+                'fee_status': self.get_fee_settlement_status(obj),
+            }
+        except (AttributeError, TypeError, ValueError, DecimalException):
+            return {
+                'entry_fee': "0.00",
+                'platform_fee': "0.00",
+                'organiser_fee': "0.00",
+                'prize_contribution': "0.00",
+                'fee_status': 'AWAITING_FULL_CAPACITY',
+            }
 
     def get_prize_pool(self, obj):
-        return str(obj.prize_pool)
+        try:
+            return str(obj.prize_pool)
+        except (AttributeError, TypeError):
+            return "0.00"
 
     def get_prizes(self, obj):
         pool = obj.prize_pool

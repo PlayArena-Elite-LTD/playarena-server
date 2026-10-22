@@ -561,13 +561,29 @@ CORS_ALLOWED_ORIGINS = [
     "https://lucadev.pythonanywhere.com",
     "https://playarenaelite.com",
     "https://www.playarenaelite.com",
+    "https://playarena-fw0n.onrender.com",
 ]
-CORS_ALLOWED_ORIGINS = _split_csv_env("DJANGO_CORS_ALLOWED_ORIGINS", CORS_ALLOWED_ORIGINS)
+_cors_env_raw = os.environ.get("DJANGO_CORS_ALLOWED_ORIGINS")
+if _cors_env_raw:
+    parsed = _split_csv_env("DJANGO_CORS_ALLOWED_ORIGINS", CORS_ALLOWED_ORIGINS)
+    # Only use the environment value when it contains at least one non-empty origin.
+    # If it is empty/whitespace-only, fall back to the defaults (which already
+    # include the canonical production frontend origins).
+    CORS_ALLOWED_ORIGINS = parsed if parsed else list(CORS_ALLOWED_ORIGINS)
+else:
+    # Env var not set: use the defaults (which already include production origins).
+    CORS_ALLOWED_ORIGINS = list(CORS_ALLOWED_ORIGINS)
+
 for _origin in _required_frontend_origins:
     # The explicit environment allowlist may add origins, but cannot
     # accidentally remove either canonical production frontend origin.
     _append_unique(CORS_ALLOWED_ORIGINS, _origin)
 _append_unique(CORS_ALLOWED_ORIGINS, FRONTEND_ORIGIN)
+
+# Guard: if FRONTEND_ORIGIN is malformed, do not append empty/whitespace origin.
+if FRONTEND_ORIGIN:
+    _append_unique(CORS_ALLOWED_ORIGINS, FRONTEND_ORIGIN)
+
 if DEBUG:
     for local_origin in [
         "http://localhost:3000",
