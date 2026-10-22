@@ -3,13 +3,17 @@ Payment notification utilities for wallet operations.
 
 This module provides functions to create notifications for users
 when payment-related events occur (withdrawals, deposits, etc.).
+
+Emails are sent in a background thread with a hard SMTP timeout so a slow or
+blocked mail server can never hang a web request or kill a gunicorn worker.
 """
 
 import logging
+import threading
 from urllib.parse import urljoin
 
 from django.conf import settings
-from django.core.mail import EmailMultiAlternatives, send_mail
+from django.core.mail import EmailMultiAlternatives, get_connection
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
@@ -20,6 +24,7 @@ from alert.models import Notification
 logger = logging.getLogger(__name__)
 
 WITHDRAWAL_ADMIN_EMAIL = 'helloplayarena@gmail.com'
+EMAIL_SEND_TIMEOUT = 10  # seconds
 
 
 def _wallet_link(url_name):
@@ -38,8 +43,31 @@ def _player_name(user):
     return user.get_username() or getattr(user, 'username', '') or 'Player'
 
 
+def _deliver(subject, text_content, html_content, from_email, recipients):
+    """Actually send an email. Runs in a background thread with a hard SMTP timeout."""
+    connection = get_connection(timeout=EMAIL_SEND_TIMEOUT)
+    message = EmailMultiAlternatives(
+        subject, text_content, from_email, recipients, connection=connection
+    )
+    if html_content:
+        message.attach_alternative(html_content, 'text/html')
+    message.send()
+
+
+def _dispatch_email(subject, text_content, html_content, from_email, recipients):
+    """Fire-and-forget so a slow or blocked SMTP server can never hang a request."""
+
+    def runner():
+        try:
+            _deliver(subject, text_content, html_content, from_email, recipients)
+        except Exception:
+            logger.exception('Background email failed: %s', subject)
+
+    threading.Thread(target=runner, daemon=True).start()
+
+
 def _send_wallet_email(user, subject, template_name, context):
-    """Render a wallet email template and send it as HTML (with plain-text fallback)."""
+    """Render a wallet email template and send it in the background (HTML + plain-text fallback)."""
     user_email = getattr(user, 'email', '') or ''
     if not user_email:
         return
@@ -47,9 +75,7 @@ def _send_wallet_email(user, subject, template_name, context):
     context.setdefault('player_name', _player_name(user))
     html_content = render_to_string(template_name, context)
     text_content = strip_tags(html_content)
-    email_message = EmailMultiAlternatives(subject, text_content, from_email, [user_email])
-    email_message.attach_alternative(html_content, "text/html")
-    email_message.send()
+    _dispatch_email(subject, text_content, html_content, from_email, [user_email])
 
 
 def notify_withdrawal_created(withdrawal):
@@ -84,9 +110,9 @@ def notify_withdrawal_created(withdrawal):
                 },
             )
 
-        send_mail(
+        _dispatch_email(
             subject=f'New withdrawal request #{withdrawal.id}',
-            message=(
+            text_content=(
                 "A new withdrawal request has been submitted.\n\n"
                 f"Withdrawal ID: {withdrawal.id}\n"
                 f"User: {withdrawal.user.get_username()}\n"
@@ -97,9 +123,9 @@ def notify_withdrawal_created(withdrawal):
                 f"Status: {withdrawal.status}\n"
                 f"Created at: {timezone.localtime(withdrawal.created_at):%Y-%m-%d %H:%M:%S %Z}"
             ),
+            html_content=None,
             from_email=from_email,
-            recipient_list=[WITHDRAWAL_ADMIN_EMAIL],
-            fail_silently=False,
+            recipients=[WITHDRAWAL_ADMIN_EMAIL],
         )
 
         logger.info(f'Notification sent to {withdrawal.user.username} for withdrawal {withdrawal.id} creation')

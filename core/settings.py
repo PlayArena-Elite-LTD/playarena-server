@@ -538,11 +538,14 @@ LOGOUT_REDIRECT_URL = 'login'
 #EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend" 
 EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')
 EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
-EMAIL_PORT = os.environ.get('EMAIL_PORT', '587')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True').lower() == 'true'
 EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', 'False').lower() == 'true'
+# Never let an unreachable SMTP server block a request or kill a gunicorn worker.
+# Without this, Django waits forever on the socket connect.
+EMAIL_TIMEOUT = int(os.environ.get('EMAIL_TIMEOUT', '10'))
 
 # Required for HTML emails in password reset
 PASSWORD_RESET_TIMEOUT = 86400  # 24 hours in seconds
@@ -576,7 +579,7 @@ if DEBUG:
     ]:
         _append_unique(CORS_ALLOWED_ORIGINS, local_origin)
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOWED_METHODS = [
+CORS_ALLOW_METHODS = [
     "GET",
     "POST",
     "PUT",
@@ -584,7 +587,7 @@ CORS_ALLOWED_METHODS = [
     "DELETE",
     "OPTIONS"
 ]
-CORS_ALLOWED_HEADERS = [
+CORS_ALLOW_HEADERS = [
     "accept",
     "accept-encoding",
     "authorization",
