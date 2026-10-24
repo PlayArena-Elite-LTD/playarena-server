@@ -1170,6 +1170,9 @@ class MatchResultSubmitView(APIView):
     def post(self, request, id):
         match = get_object_or_404(Match, id=id)
         self.check_object_permissions(request, match)
+        # Lock the match row to prevent race conditions when multiple
+        # players submit results simultaneously
+        match = Match.objects.select_for_update().get(pk=match.pk)
 
         if match.status != 'JOINED':
             return Response(
@@ -1188,7 +1191,7 @@ class MatchResultSubmitView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         submission = serializer.validated_data['submission']
-        match_result, _created = MatchResult.objects.get_or_create(match=match)
+        match_result, _created = MatchResult.objects.select_for_update().get_or_create(match=match)
 
         is_creator = request.user == match.creator
         if is_creator:
