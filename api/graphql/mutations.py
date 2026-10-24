@@ -365,7 +365,7 @@ class Mutation:
         if not serializer.is_valid():
             serializer_error(serializer)
 
-        match_result, _created = MatchResult.objects.get_or_create(match=match)
+        match_result, _created = MatchResult.objects.select_for_update().get_or_create(match=match)
         submission_value = serializer.validated_data["submission"]
         is_creator = user == match.creator
 

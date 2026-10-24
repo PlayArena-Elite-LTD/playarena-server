@@ -1233,13 +1233,18 @@ class MatchResultSubmitView(APIView):
 
         if not match_result.creator_submission or not match_result.joiner_submission:
             opponent = match.joiner if is_creator else match.creator
-            Notification.objects.create(
-                user=opponent,
-                message=(
-                    f"Your opponent has submitted their result for the {match.get_game_display()} "
-                    f"match (ZMW {match.amount}). Please submit your result."
+            try:
+                Notification.objects.create(
+                    user=opponent,
+                    message=(
+                        f"Your opponent has submitted their result for the {match.get_game_display()} "
+                        f"match (ZMW {match.amount}). Please submit your result."
+                    ),
                 )
-            )
+            except Exception:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.exception("Failed to create notification for opponent")
             return Response(
                 {'message': 'Result submitted. Waiting for opponent.'},
                 status=status.HTTP_200_OK,
@@ -1259,23 +1264,42 @@ class MatchResultSubmitView(APIView):
                 winner = match.joiner
                 loser = match.creator
             else:
-                from matches.settlement import settle_match
-                match = settle_match(match, draw=True)
+                try:
+                    from matches.settlement import settle_match
+                    match = settle_match(match, draw=True)
+                except Exception:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.exception("Failed to settle match as draw")
+                    return Response(
+                        {'detail': 'Failed to process match result. Please try again.'},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    )
                 refund_amount = Decimal(match.amount) * Decimal('0.9')
+            try:
                 Notification.objects.create(
                     user=match.creator,
                     message=(
                         f"Your {match.get_game_display()} match against {match.joiner.username} "
                         f"ended in a draw. ZMW {refund_amount} has been returned to your wallet."
-                    )
+                    ),
                 )
+            except Exception:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.exception("Failed to create draw notification for creator")
+            try:
                 Notification.objects.create(
                     user=match.joiner,
                     message=(
                         f"Your {match.get_game_display()} match against {match.creator.username} "
                         f"ended in a draw. ZMW {refund_amount} has been returned to your wallet."
-                    )
+                    ),
                 )
+            except Exception:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.exception("Failed to create draw notification for joiner")
 
                 return Response(
                     {'message': 'Match recorded as a draw.', 'status': match.status},
@@ -1283,7 +1307,16 @@ class MatchResultSubmitView(APIView):
                 )
 
             from matches.settlement import settle_match
-            match = settle_match(match, winner=winner)
+            try:
+                match = settle_match(match, winner=winner)
+            except Exception:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.exception("Failed to settle match as win")
+                return Response(
+                    {'detail': 'Failed to process match result. Please try again.'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
 
             Notification.objects.create(
                 user=winner,
