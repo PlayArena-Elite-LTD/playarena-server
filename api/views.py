@@ -1272,6 +1272,12 @@ class MatchResultSubmitView(APIView):
                     import logging
                     logger = logging.getLogger(__name__)
                     logger.exception("Failed to settle match as draw")
+                    # Clear the MatchResult submission so resubmission is allowed
+                    match_result.creator_submission = None
+                    match_result.joiner_submission = None
+                    match_result.creator_submission_time = None
+                    match_result.joiner_submission_time = None
+                    match_result.save()
                     return Response(
                         {'detail': 'Failed to process match result. Please try again.'},
                         status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1314,6 +1320,12 @@ class MatchResultSubmitView(APIView):
                 import logging
                 logger = logging.getLogger(__name__)
                 logger.exception("Failed to settle match as win")
+                # Clear the MatchResult submission so resubmission is allowed
+                match_result.creator_submission = None
+                match_result.joiner_submission = None
+                match_result.creator_submission_time = None
+                match_result.joiner_submission_time = None
+                match_result.save()
                 return Response(
                     {'detail': 'Failed to process match result. Please try again.'},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
