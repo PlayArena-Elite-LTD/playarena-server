@@ -1264,6 +1264,7 @@ class MatchResultSubmitView(APIView):
                 winner = match.joiner
                 loser = match.creator
             else:
+                # Both submitted 'DRAW'
                 try:
                     from matches.settlement import settle_match
                     match = settle_match(match, draw=True)
@@ -1276,30 +1277,30 @@ class MatchResultSubmitView(APIView):
                         status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     )
                 refund_amount = Decimal(match.amount) * Decimal('0.9')
-            try:
-                Notification.objects.create(
-                    user=match.creator,
-                    message=(
-                        f"Your {match.get_game_display()} match against {match.joiner.username} "
-                        f"ended in a draw. ZMW {refund_amount} has been returned to your wallet."
-                    ),
-                )
-            except Exception:
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.exception("Failed to create draw notification for creator")
-            try:
-                Notification.objects.create(
-                    user=match.joiner,
-                    message=(
-                        f"Your {match.get_game_display()} match against {match.creator.username} "
-                        f"ended in a draw. ZMW {refund_amount} has been returned to your wallet."
-                    ),
-                )
-            except Exception:
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.exception("Failed to create draw notification for joiner")
+                try:
+                    Notification.objects.create(
+                        user=match.creator,
+                        message=(
+                            f"Your {match.get_game_display()} match against {match.joiner.username} "
+                            f"ended in a draw. ZMW {refund_amount} has been returned to your wallet."
+                        ),
+                    )
+                except Exception:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.exception("Failed to create draw notification for creator")
+                try:
+                    Notification.objects.create(
+                        user=match.joiner,
+                        message=(
+                            f"Your {match.get_game_display()} match against {match.creator.username} "
+                            f"ended in a draw. ZMW {refund_amount} has been returned to your wallet."
+                        ),
+                    )
+                except Exception:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.exception("Failed to create draw notification for joiner")
 
                 return Response(
                     {'message': 'Match recorded as a draw.', 'status': match.status},
