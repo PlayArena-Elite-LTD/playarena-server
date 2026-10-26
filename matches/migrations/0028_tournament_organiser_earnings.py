@@ -3,6 +3,8 @@ from decimal import Decimal, ROUND_HALF_UP, ROUND_DOWN
 from django.db import migrations, models
 import django.core.validators
 
+from matches.migration_utils import AddFieldIfMissing
+
 
 CENT = Decimal("0.01")
 PLATFORM_PERCENT = Decimal("10.00")
@@ -117,7 +119,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
+        AddFieldIfMissing(
             model_name="tournament",
             name="organiser_fee_percent",
             field=models.DecimalField(
@@ -131,7 +133,7 @@ class Migration(migrations.Migration):
                 ],
             ),
         ),
-        migrations.AddField(
+        AddFieldIfMissing(
             model_name="tournamentfeesettlement",
             name="organiser_fee",
             field=models.DecimalField(
@@ -140,7 +142,7 @@ class Migration(migrations.Migration):
                 max_digits=16,
             ),
         ),
-        migrations.AddField(
+        AddFieldIfMissing(
             model_name="tournamentfeesettlement",
             name="organiser_fee_percent",
             field=models.DecimalField(
@@ -149,7 +151,7 @@ class Migration(migrations.Migration):
                 max_digits=5,
             ),
         ),
-        migrations.AddField(
+        AddFieldIfMissing(
             model_name="tournamentregistration",
             name="organiser_fee",
             field=models.DecimalField(
