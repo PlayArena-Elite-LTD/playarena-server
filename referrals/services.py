@@ -189,7 +189,7 @@ def transfer_commission_to_wallet(*, user, commission_id):
     """
     try:
         commission = (
-            ReferralCommissionLedger.objects.select_for_update()
+            ReferralCommissionLedger.objects.select_for_update(of=("self",))
             .select_related("referrer", "referrer__user")
             .get(pk=commission_id)
         )

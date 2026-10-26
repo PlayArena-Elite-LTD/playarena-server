@@ -345,7 +345,7 @@ class TournamentJoinView(APIView):
     @transaction.atomic
     def post(self, request, id):
         tournament = get_object_or_404(
-            Tournament.objects.select_for_update().select_related('organisation'),
+            Tournament.objects.select_for_update(of=('self',)).select_related('organisation'),
             id=id,
         )
         user = request.user
@@ -523,7 +523,7 @@ class TournamentLeaveView(APIView):
     @transaction.atomic
     def post(self, request, id):
         tournament = get_object_or_404(
-            Tournament.objects.select_for_update().select_related('organisation'),
+            Tournament.objects.select_for_update(of=('self',)).select_related('organisation'),
             id=id,
         )
         user = request.user

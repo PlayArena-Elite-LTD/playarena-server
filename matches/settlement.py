@@ -16,7 +16,7 @@ def settle_match(match, *, winner=None, draw=False):
 
     match_id = getattr(match, "pk", match)
     locked_match = (
-        Match.objects.select_for_update()
+        Match.objects.select_for_update(of=("self",))
         .select_related("creator", "joiner", "winner")
         .get(pk=match_id)
     )

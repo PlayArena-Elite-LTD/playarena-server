@@ -458,7 +458,7 @@ def query_unanswered_result(request, match_id):
         return HttpResponseNotAllowed(['POST'])
 
     match = get_object_or_404(
-        Match.objects.select_for_update().select_related('creator', 'joiner'),
+        Match.objects.select_for_update(of=('self',)).select_related('creator', 'joiner'),
         id=match_id,
     )
 
