@@ -66,6 +66,8 @@ AppData/
 node_modules/
 package-lock.json
 
+local.env.example
+
 # Security: Backup files
 *.backup
 *.old
